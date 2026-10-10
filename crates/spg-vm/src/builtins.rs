@@ -69,6 +69,32 @@ fn write_joined<W: Write>(w: &mut W, vs: &[Value]) -> std::io::Result<()> {
     }
 }
 
+/// writes text to the same buffered stdout as `print`, WITHOUT a line break (a prompt)
+fn write_out_text(text: &str) -> Result<(), RuntimeError> {
+    let mut guard = lock_out();
+    let w = guard.get_or_insert_with(|| BufWriter::with_capacity(64 * 1024, std::io::stdout()));
+    w.write_all(text.as_bytes()).map_err(|e| io_error("readLine", "", e))?;
+    drop(guard);
+    FLUSHER.call_once(start_flusher);
+    Ok(())
+}
+
+/// one line from stdin without its line break. Shared by `readLine` and
+/// `@sys.readLine`: flushes stdout first (a prompt must be visible while we
+/// wait), and `EndOfInput` when stdin is already at its end.
+fn read_stdin_line(function: &'static str) -> Result<String, RuntimeError> {
+    flush_stdout();
+    let mut line = String::new();
+    let n = std::io::stdin().read_line(&mut line).map_err(|e| io_error(function, "", e))?;
+    if n == 0 {
+        return Err(RuntimeError::EndOfInput { function });
+    }
+    while line.ends_with('\n') || line.ends_with('\r') {
+        line.pop();
+    }
+    Ok(line)
+}
+
 fn print_values(vs: &[Value]) {
     let result = {
         let mut guard = lock_out();
@@ -244,21 +270,11 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             let _ = std::io::stderr().write_all(&line);
             Value::Void
         }
-        ReadLine => {
-            flush_stdout(); // a prompt printed before this must be visible
-            let mut line = String::new();
-            std::io::stdin()
-                .read_line(&mut line)
-                .map_err(|e| RuntimeError::InvalidNumberFormat { input: e.to_string(), target_type: "stdin read" })?;
-            // trim the trailing newline read_line always keeps, but leave
-            // any other whitespace the user actually typed alone
-            if line.ends_with('\n') {
-                line.pop();
-                if line.ends_with('\r') {
-                    line.pop();
-                }
-            }
-            Value::String(Rc::new(line))
+        ReadLine => Value::String(Rc::new(read_stdin_line("readLine")?)),
+        ReadLinePrompt => {
+            // the prompt goes out without a line break, so the typed text lands right after it
+            write_out_text(&as_string(args.remove(0)))?;
+            Value::String(Rc::new(read_stdin_line("readLine")?))
         }
 
         // ---- strings ----
@@ -531,18 +547,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             let dir = std::env::current_dir().map_err(|e| io_error("@sys.cwd", "", e))?;
             Value::String(Rc::new(dir.to_string_lossy().into_owned()))
         }
-        SysReadLine => {
-            flush_stdout(); // a prompt printed just before must be visible while we wait
-            let mut line = String::new();
-            let n = std::io::stdin().read_line(&mut line).map_err(|e| io_error("@sys.readLine", "", e))?;
-            if n == 0 {
-                return Err(RuntimeError::EndOfInput);
-            }
-            while line.ends_with('\n') || line.ends_with('\r') {
-                line.pop();
-            }
-            Value::String(Rc::new(line))
-        }
+        SysReadLine => Value::String(Rc::new(read_stdin_line("@sys.readLine")?)),
         SysReadAll => {
             flush_stdout();
             let mut all = String::new();

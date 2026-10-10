@@ -17,7 +17,7 @@ not recognise), `build.bat -InstallDir D:\spg`, `build.bat -NoBuild` (install th
 `target\release\spg.exe`).
 
 No `code` command on the PATH? In VSCode: Extensions → `...` → *Install from VSIX* →
-`dist\spaghetti-0.18.0.vsix`.
+`dist\spaghetti-0.19.0.vsix`.
 
 ## Use
 
@@ -49,6 +49,6 @@ install folder are never deleted.
 ```
 crates/            engine (lexer, parser, modules, typecheck, compiler, vm) + spg-lsp + spg-cli
 editors/vscode/    extension source code
-dist/              ready-made spaghetti-0.18.0.vsix
+dist/              ready-made spaghetti-0.19.0.vsix
 tools/installer-tests/  tests for install.ps1 / uninstall.ps1 (PowerShell 7)
 ```

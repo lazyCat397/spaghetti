@@ -1,0 +1,4 @@
+let nome: string = readLine("Nome: ")
+let idade: int = readLine("Idade: ").int()
+print("Oi", nome, idade)
+try { readLine() } catch (e) { print("fim:", e) }

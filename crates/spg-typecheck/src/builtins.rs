@@ -183,6 +183,7 @@ pub enum BuiltinId {
 
     // ---- I/O ----
     ReadLine,
+    ReadLinePrompt,
     PrintError,
 
     // ---- time ----
@@ -246,6 +247,7 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
         BuiltinSig { id: BuiltinId::PrintError, params: vec![Ty::Any], return_type: Ty::Void },
     );
     add("readLine", BuiltinSig { id: BuiltinId::ReadLine, params: vec![], return_type: Ty::String });
+    add("readLine", BuiltinSig { id: BuiltinId::ReadLinePrompt, params: vec![Ty::String], return_type: Ty::String });
 
     // ---- strings ----
     add("@str.len", BuiltinSig { id: BuiltinId::Len, params: vec![Ty::String], return_type: Ty::Int });

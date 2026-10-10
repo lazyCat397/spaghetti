@@ -348,6 +348,8 @@ got=$(spgrun sys/exit_code.spg -- a "b c" --time 2>&1); code=$?
 check sys/exit_code 7 "antes [a, b c, --time]" "$code" "$got"
 got=$(printf 'ana\nbia\r\nresto\nmais\n' | spgrun sys/stdin.spg 2>&1); code=$?
 check sys/stdin 0 "$(printf 'nome?\noi ana 3\n11\nfim: @sys.readLine: end of input (nothing left on stdin)')" "$code" "$got"
+got=$(printf 'Ana\n30\n' | spgrun sys/readline_prompt.spg 2>&1); code=$?
+check sys/readline_prompt 0 "$(printf 'Nome: Idade: Oi Ana 30\nfim: readLine: end of input (nothing left on stdin)')" "$code" "$got"
 err file_read_missing.spg "runtime error: @file.read(\"this/does/not/exist.txt\"): no such file or directory"
 err sys_exit_type.spg     "'@sys.exit' argument #1 expects int, got string"
 err file_arg_type.spg     "'@file.exists' argument #1 expects string, got int"

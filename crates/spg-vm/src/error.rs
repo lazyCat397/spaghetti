@@ -26,8 +26,8 @@ pub enum RuntimeError {
     Exit { code: i32 },
     /// a failed `@file.*` / `@sys.*` operation (missing file, no permission...); catchable
     Io { function: &'static str, path: String, reason: String },
-    /// `@sys.readLine()` with nothing left on stdin
-    EndOfInput,
+    /// `readLine()` / `@sys.readLine()` with nothing left on stdin; `function` names the caller
+    EndOfInput { function: &'static str },
     /// `@file.writeBytes(p, [..., 300])`: a byte goes from 0 to 255
     InvalidByte { index: usize, value: i64 },
     /// `@array.pop` on an empty array
@@ -110,7 +110,7 @@ impl fmt::Display for RuntimeError {
             RuntimeError::InvalidByte { index, value } => {
                 write!(f, "@file.writeBytes: the item at index {} is {}; bytes go from 0 to 255", index, value)
             }
-            RuntimeError::EndOfInput => write!(f, "@sys.readLine: end of input (nothing left on stdin)"),
+            RuntimeError::EndOfInput { function } => write!(f, "{}: end of input (nothing left on stdin)", function),
             RuntimeError::IntegerOverflow { op } => {
                 write!(f, "integer overflow in {}: the result does not fit in an int (64 bits, #> strict)", op)
             }
