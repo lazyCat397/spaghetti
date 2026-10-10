@@ -1,0 +1,3 @@
+export { inc } from "./rx_origem.spg"
+function inc() -> int { return 999 }
+export function viaLocal() -> int { return inc() }

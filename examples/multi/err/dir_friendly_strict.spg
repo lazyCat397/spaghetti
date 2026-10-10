@@ -1,0 +1,6 @@
+#> friendly-terminal
+#> strict
+let a: int = 1
+function f() {
+  let a: int = 2
+}

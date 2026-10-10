@@ -1,0 +1,18 @@
+import { Vec, makeVec, hiddenTwice } from "../lib/sm_vec.spg"
+import { makeOther } from "../lib/sm_other.spg"
+let v = makeVec(3, 4)
+print(v.len2())
+print(v.add(Vec { x: 1, y: 1 }).len2())
+v.bump()
+print(v.len2())
+print(makeOther().len2())
+print(hiddenTwice(21))
+// a struct (and method) declared in the entry file, same method name as the imported ones
+struct Vec2 {
+    z: int
+
+    function len2() -> int {
+        return me.z
+    }
+}
+print(Vec2 { z: 9 }.len2())

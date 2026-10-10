@@ -1,0 +1,6 @@
+function run() -> int {
+    let s = "olá"
+    print(@str.charAt(s, 3))
+    return 0
+}
+print(run())

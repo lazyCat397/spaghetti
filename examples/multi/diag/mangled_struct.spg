@@ -1,0 +1,2 @@
+import { Ponto } from "../lib/diaglib.spg"
+let a: int = Ponto { x: 1 }

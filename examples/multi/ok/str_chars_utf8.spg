@@ -1,0 +1,27 @@
+function run() -> int {
+    let a = "abcdef"
+    let u = "olá mundo"
+    let c = "çaé"
+    let i = 2
+    let n = 0
+    print(@str.charAt(a, 0))
+    print(@str.charAt(a, 5))
+    print(@str.charAt(u, 2))
+    print(@str.charAt(u, 8))
+    print(@str.charAt(c, 0))
+    print(@str.charAt(c, 1))
+    print(@str.charAt(c, 2))
+    print(@str.charAt(a, i))
+    print(@str.substring(a, 2, 4))
+    print(@str.substring(u, 2, 6))
+    print(@str.substring(u, 0, 9))
+    print(@str.substring(c, 1, 3))
+    print("[" + @str.substring(a, 3, 3) + "]")
+    print("[" + @str.substring("", 0, 0) + "]")
+    while (n < @str.len(u)) {
+        print(@str.charAt(u, n))
+        n += 1
+    }
+    return n
+}
+print(run())

@@ -1,0 +1,1 @@
+print(@array.fill(-1, 0))

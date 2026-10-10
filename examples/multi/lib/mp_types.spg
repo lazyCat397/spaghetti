@@ -1,0 +1,8 @@
+export struct Item { name: string, qty: int }
+export enum Kind { Tool, Food }
+export function stock() -> map<string, Item> {
+    return ["saw": Item { name: "saw", qty: 2 }]
+}
+export function kinds() -> map<Kind, int> {
+    return [Kind.Tool: 1, Kind.Food: 2]
+}

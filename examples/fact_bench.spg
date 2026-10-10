@@ -1,0 +1,17 @@
+function fact(n: int) -> int {
+    if (n < 2) {
+        return 1
+    }
+    return n * fact(n - 1)
+}
+
+function run() -> int {
+    let acc: int = 0
+    let i: int = 0
+    while (i < 3000000) {
+        acc = acc + fact(15)
+        i = i + 1
+    }
+    return acc
+}
+print(run())

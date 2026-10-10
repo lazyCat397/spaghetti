@@ -1,0 +1,173 @@
+{
+  "Function": {
+    "prefix": [
+      "fn",
+      "function"
+    ],
+    "body": [
+      "function ${1:name}(${2:a}: ${3:int}) -> ${4:int} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Declare a function"
+  },
+  "Exported function": {
+    "prefix": "exportfn",
+    "body": [
+      "export function ${1:name}(${2:a}: ${3:int}) -> ${4:int} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Function exportable to other files"
+  },
+  "Install": {
+    "prefix": "install",
+    "body": [
+      "install \"${1:./file.spg}\""
+    ],
+    "description": "Bring in every exported name of a file (import { x } wins on a clash)"
+  },
+  "Enum": {
+    "prefix": "enum",
+    "body": [
+      "enum ${1:Name} {",
+      "\t${2:First},",
+      "\t${3:Second}",
+      "}"
+    ],
+    "description": "Declare an enum (loop over it with: for x in Name)"
+  },
+  "let": {
+    "prefix": "let",
+    "body": "let ${1:name}: ${2:int} = ${3:0}",
+    "description": "Mutable variable"
+  },
+  "const": {
+    "prefix": "const",
+    "body": "const ${1:name}: ${2:int} = ${3:0}",
+    "description": "Constant"
+  },
+  "if": {
+    "prefix": "if",
+    "body": [
+      "if (${1:condition}) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "if"
+  },
+  "if / else": {
+    "prefix": "ife",
+    "body": [
+      "if (${1:condition}) {",
+      "\t$2",
+      "} else {",
+      "\t$0",
+      "}"
+    ],
+    "description": "if with else"
+  },
+  "if / when / else": {
+    "prefix": "ifw",
+    "body": [
+      "if (${1:condition}) {",
+      "\t$2",
+      "} when (${3:other}) {",
+      "\t$4",
+      "} else {",
+      "\t$0",
+      "}"
+    ],
+    "description": "if / when / else chain"
+  },
+  "while": {
+    "prefix": "while",
+    "body": [
+      "while (${1:condition}) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "while loop"
+  },
+  "for in": {
+    "prefix": "for",
+    "body": [
+      "for ${1:item} in ${2:items} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "for-in loop"
+  },
+  "for range": {
+    "prefix": "forr",
+    "body": [
+      "for ${1:i} in ${2:0}..${3:n} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Counting loop, end exclusive (add `step 2` for a custom step)"
+  },
+  "struct with method": {
+    "prefix": "structm",
+    "body": [
+      "struct ${1:Name} {",
+      "\t${2:field}: ${3:int}",
+      "",
+      "\tfunction ${4:method}() -> ${5:int} {",
+      "\t\treturn me.${2:field}",
+      "\t}",
+      "}"
+    ],
+    "description": "Struct with a method (`me` is the value the method is called on)"
+  },
+  "struct": {
+    "prefix": "struct",
+    "body": [
+      "struct ${1:Name} {",
+      "\t${2:field}: ${3:int},",
+      "\t${4:other}: ${5:string}",
+      "}"
+    ],
+    "description": "Declare a struct (fields separated by commas)"
+  },
+  "try / catch": {
+    "prefix": "try",
+    "body": [
+      "try {",
+      "\t$1",
+      "} catch (${2:e}) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "try/catch block"
+  },
+  "import": {
+    "prefix": "import",
+    "body": "import { ${1:name} } from \"${2:./file}.spg\"",
+    "description": "Named import (the .spg extension is mandatory)"
+  },
+  "re-export": {
+    "prefix": "reexport",
+    "body": "export { ${1:name} } from \"${2:./file}.spg\"",
+    "description": "Re-export from another file"
+  },
+  "print": {
+    "prefix": "print",
+    "body": "print(${1:value})",
+    "description": "Print to the terminal"
+  },
+  "Map": {
+    "prefix": "map",
+    "body": [
+      "let ${1:name}: map<${2:string}, ${3:int}> = [${4::}]"
+    ],
+    "description": "typed map (empty: [:])"
+  },
+  "throw": {
+    "prefix": "throw",
+    "body": [
+      "throw \"${1:message}\""
+    ],
+    "description": "raise an exception with a message (caught by try/catch, in this function or any caller)"
+  }
+}

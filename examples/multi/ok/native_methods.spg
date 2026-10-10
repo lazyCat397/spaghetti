@@ -1,0 +1,18 @@
+struct Box { tags: array<string>, n: int }
+let xs: array<int> = [3, 1, 2]
+xs.push(10)
+xs.insert(0, 7)
+print(xs, xs.len(), xs.contains(2), xs.indexOf(1), xs.sum())
+print(xs.pop(), xs.remove(0), xs)
+print("  Olá  ".trim().toUpper(), "abc".len(), "a,b,c".split(",").len(), "abc".contains("b"), "5".padStart(3, "0"))
+print([1, 2, 3].len(), @array.range(0, 4).len(), xs.concat([9]).reverse())
+let m: map<string, int> = ["a": 1]
+print(m.has("a"), m.len(), m.get("z", -1), m.keys(), m.remove("a"), m.len())
+let b = Box { tags: [], n: 1 }
+b.tags.push("x")
+b.tags.push("y")
+print(b.tags, b.tags.len(), b.tags.join("-"))
+let grid: map<string, array<int>> = ["r": [1]]
+grid["r"].push(2)
+print(grid, grid["r"].len(), grid.values().len())
+print(xs.len() == @array.len(xs), "x".len() == @str.len("x"))

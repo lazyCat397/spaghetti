@@ -1,0 +1,10 @@
+struct Q {
+    n: int
+    function f() -> int {
+        return 1
+    }
+    function f() -> int {
+        return 2
+    }
+}
+print(Q { n: 1 }.f())

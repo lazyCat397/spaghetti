@@ -1,0 +1,1 @@
+export { inc, ler } from "./rx_origem.spg"

@@ -1,0 +1,6 @@
+export enum Color { Red, Green, Blue }
+export function next(c: Color) -> Color {
+    if (c == Color.Red) { return Color.Green }
+    when (c == Color.Green) { return Color.Blue }
+    else { return Color.Red }
+}

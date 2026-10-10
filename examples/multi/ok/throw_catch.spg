@@ -1,0 +1,61 @@
+function risky(n: int) -> int {
+    if (n < 0) { throw "negative: " + @into.string(n) }
+    return n * 2
+}
+function never() -> int { throw "always" }
+function deep(n: int) -> int {
+    if (n == 0) { throw "bottom" }
+    return 1 + deep(n - 1)
+}
+
+try { print(risky(5)) } catch (e) { print("no") }
+try { print(risky(-3)) } catch (e) { print("caught:", e) }
+try { let x = 100 + risky(-1) * 2 print(x) } catch (e) { print("mid-expression:", e, e.len()) }
+try { print(1, 2, deep(5)) } catch (e) { print(e) }
+print("after stack ok", 1 + 2)
+
+try {
+    try { throw "inner" } catch (e) { throw e + "+rethrown" }
+} catch (e) { print(e) }
+
+let n = 0
+for i in 0..6 {
+    try {
+        if (i == 1) { continue }
+        if (i == 4) { break }
+        n += 10
+    } catch (e) { print("never") }
+}
+print("loop done", n)
+try { throw "after loop" } catch (e) { print(e) }
+
+let s = 0
+while (s < 3) {
+    s += 1
+    try { if (s == 2) { break } } catch (e) { }
+}
+try { throw "post-while" } catch (e) { print(e, s) }
+
+try { print(10 / (n - n)) } catch (e) { print("rt:", e) }
+let a: array<int> = [1]
+try { print(a[5]) } catch (e) { print("rt:", e) }
+let m: map<string, int> = ["a": 1]
+try { print(m["zz"]) } catch (e) { print("rt:", e) }
+try { print(@into.int("abc")) } catch (e) { print("rt:", e) }
+try { print(@array.pop(@array.fill(0, 1))) } catch (e: string) { print("rt:", e) }
+
+function safe(n: int) -> int {
+    try { return risky(n) } catch (e) { return -1 }
+}
+print(safe(4), safe(-4))
+function f2() -> int {
+    try { return never() } catch (e) { print("f2", e) }
+    return 7
+}
+print(f2())
+function viaCatch() -> int {
+    try { never() } catch (e) { throw "wrapped(" + e + ")" }
+    return 0
+}
+try { viaCatch() } catch (e) { print(e) }
+print("end")

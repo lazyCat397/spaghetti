@@ -1,0 +1,6 @@
+import { inc } from "../lib/rx_fachada.spg"
+import { ler } from "../lib/rx_origem.spg"
+inc()
+inc()
+inc()
+print(ler())

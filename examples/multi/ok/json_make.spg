@@ -1,0 +1,16 @@
+enum Kind { Tool, Toy }
+struct Item {
+    name: string,
+    qty: int,
+    price: float,
+    kind: Kind,
+    tags: array<string>
+}
+let it = Item { name: "lamp", qty: 2, price: 9.5, kind: Kind.Toy, tags: ["a", "b"] }
+print(@json.stringify(it))
+let m: map<string, int> = ["a": 1, "b": 2]
+print(@json.stringify(m))
+print(@json.stringify([1, 2, 3]))
+print(@json.stringify("oi"))
+print(@json.stringify(1.0))
+print(@json.pretty(it))

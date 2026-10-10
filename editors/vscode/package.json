@@ -1,0 +1,135 @@
+{
+  "name": "spaghetti",
+  "displayName": "Spaghetti",
+  "description": "Spaghetti (.spg) language support: syntax highlighting, live errors, completion, snippets and a Run button.",
+  "version": "0.16.0",
+  "publisher": "spaghetti",
+  "license": "UNLICENSED",
+  "private": true,
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets",
+    "Linters"
+  ],
+  "keywords": [
+    "spaghetti",
+    "spg",
+    "language"
+  ],
+  "icon": "images/icon.png",
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:spg",
+    "onCommand:spg.run",
+    "onCommand:spg.check"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "spg",
+        "aliases": [
+          "Spaghetti",
+          "spg"
+        ],
+        "extensions": [
+          ".spg"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./images/file-icon.svg",
+          "dark": "./images/file-icon.svg"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "spg",
+        "scopeName": "source.spg",
+        "path": "./syntaxes/spg.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "spg",
+        "path": "./snippets/spg.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "spg.run",
+        "title": "Spaghetti: Run file",
+        "icon": "$(play)"
+      },
+      {
+        "command": "spg.check",
+        "title": "Spaghetti: Type-check (don't run)",
+        "icon": "$(check)"
+      },
+      {
+        "command": "spg.restartServer",
+        "title": "Spaghetti: Restart language server"
+      },
+      {
+        "command": "spg.showOutput",
+        "title": "Spaghetti: Show server log"
+      }
+    ],
+    "menus": {
+      "editor/title/run": [
+        {
+          "command": "spg.run",
+          "when": "resourceLangId == spg",
+          "group": "navigation@1"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "spg.run",
+          "when": "resourceLangId == spg",
+          "group": "navigation@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "spg.run",
+          "when": "resourceLangId == spg",
+          "group": "navigation@1"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "spg.run",
+        "key": "ctrl+f5",
+        "when": "editorLangId == spg"
+      }
+    ],
+    "configuration": {
+      "title": "Spaghetti",
+      "properties": {
+        "spg.path": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to the `spg` executable. Empty = use `spg` from the PATH (or the one bundled with the extension, if any)."
+        },
+        "spg.server.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Turns the language server on (live errors and completion)."
+        },
+        "spg.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages"
+          ],
+          "default": "off",
+          "description": "Logs every message exchanged with the server."
+        }
+      }
+    }
+  }
+}

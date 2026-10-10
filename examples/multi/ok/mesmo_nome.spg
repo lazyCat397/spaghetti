@@ -1,0 +1,3 @@
+import { helper } from "../lib/m1.spg"
+function helper2() -> int { return 9 }
+print(helper() + helper2())

@@ -1,0 +1,5 @@
+print("a")
+printError("E1")
+print("b")
+printError("E2")
+print("c")

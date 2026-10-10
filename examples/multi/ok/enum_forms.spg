@@ -1,0 +1,63 @@
+enum Light { Red, Yellow, Green }
+
+struct Signal { now: Light, ticks: int }
+
+let current = Light.Yellow
+
+function localLocal(a: Light, b: Light) -> int {
+    let n = 0
+    if (a == b) { n += 1 }
+    if (a != b) { n += 10 }
+    while (a == b) { n += 100  a = Light.Red  b = Light.Green }
+    return n
+}
+
+function localConst(a: Light) -> int {
+    let n = 0
+    if (a == Light.Green) { n += 1 }
+    when (a != Light.Red) { n += 10 }
+    else { n += 100 }
+    return n
+}
+
+function constLocal(a: Light) -> bool {
+    return Light.Yellow == a
+}
+
+function pick(flag: bool) -> Light {
+    return if (flag) { Light.Green } else { Light.Red }
+}
+
+function viaArray(xs: array<Light>, i: int) -> bool {
+    return xs[i] == Light.Yellow
+}
+
+function viaField(s: Signal) -> bool {
+    return s.now == Light.Green
+}
+
+function viaGlobal() -> bool {
+    return current == Light.Yellow
+}
+
+print(localLocal(Light.Red, Light.Red), localLocal(Light.Red, Light.Green))
+print(localConst(Light.Green), localConst(Light.Yellow), localConst(Light.Red))
+print(constLocal(Light.Yellow), constLocal(Light.Red))
+print(pick(true), pick(false), pick(true) == Light.Green)
+print(viaArray([Light.Red, Light.Yellow], 1), viaArray([Light.Red, Light.Yellow], 0))
+print(viaField(Signal { now: Light.Green, ticks: 0 }), viaField(Signal { now: Light.Red, ticks: 0 }))
+print(viaGlobal())
+current = Light.Red
+print(viaGlobal(), current)
+let s = Signal { now: Light.Red, ticks: 1 }
+s.now = Light.Green
+print(s, s.now == Light.Green)
+let r = [Light.Green, Light.Red, Light.Yellow]
+r[0] = Light.Yellow
+print(r, @array.indexOf(r, Light.Red), @array.indexOf(r, Light.Green))
+let count = 0
+for l in Light {
+    if (l == Light.Yellow) { continue }
+    count += 1
+}
+print(count)

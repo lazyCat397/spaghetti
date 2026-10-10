@@ -1,0 +1,2 @@
+import { Color } from "../lib/en_color.spg"
+let x = Color

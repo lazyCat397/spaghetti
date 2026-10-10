@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/spg-lexer",
+    "crates/spg-parser",
+    "crates/spg-modules",
+    "crates/spg-typecheck",
+    "crates/spg-compiler",
+    "crates/spg-vm",
+    "crates/spg-lsp",
+    "crates/spg-cli",
+]
+
+[workspace.package]
+version = "0.16.0"
+edition = "2021"
+
+[profile.release]
+# strip: only removes symbols from the executable.
+# lto = "fat": whole-program optimization, ~1.07x on tools/perf/bench (measured 2026-10-03).
+# DO NOT add codegen-units = 1: measured 0.80x (slower on every benchmark).
+strip = true
+lto = "fat"

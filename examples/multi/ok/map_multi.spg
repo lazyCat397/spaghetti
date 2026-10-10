@@ -1,0 +1,11 @@
+import { Item, Kind, stock, kinds } from "../lib/mp_types.spg"
+
+struct Item2 { id: int }
+let s: map<string, Item> = stock()
+s["axe"] = Item { name: "axe", qty: 5 }
+s["saw"].qty += 1
+print(s["saw"].qty, s["axe"].name, @map.len(s))
+let k: map<Kind, int> = kinds()
+print(k[Kind.Food])
+let local: map<int, Item2> = [1: Item2 { id: 9 }]
+print(local[1].id)

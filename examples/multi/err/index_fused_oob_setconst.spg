@@ -1,0 +1,10 @@
+function run() -> int {
+    let a = [1, 2, 3]
+    let m = [[1, 2], [3, 4]]
+    let ix = 3
+    let r = 1
+    let x = 5
+    a[ix] = 7
+    return 0
+}
+print(run())

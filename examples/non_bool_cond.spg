@@ -1,0 +1,5 @@
+function checa(x: int) -> void {
+    if (x) {
+        print("oops")
+    }
+}

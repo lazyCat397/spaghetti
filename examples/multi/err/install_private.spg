@@ -1,0 +1,2 @@
+install "../lib/in_a.spg"
+print(hidden())

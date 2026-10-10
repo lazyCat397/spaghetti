@@ -1,0 +1,1 @@
+import { inc } from "../lib/rx_fachada_importa.spg"

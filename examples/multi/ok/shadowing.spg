@@ -1,0 +1,17 @@
+import { valor, g } from "../lib/lib.spg"
+
+function usaParam(valor: int) -> int { return valor + 1 }
+function usaLocal() -> int {
+    let g: int = 7
+    return g
+}
+function usaAmbos() -> int {
+    let r: int = g
+    return r
+}
+
+print(usaParam(5))
+print(usaLocal())
+print(usaAmbos())
+print(valor())
+print(g)

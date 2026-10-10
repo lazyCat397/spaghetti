@@ -1,0 +1,6 @@
+#> strict
+function f() -> int {
+  return 1
+  print(2)
+}
+print(f())

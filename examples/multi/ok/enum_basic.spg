@@ -1,0 +1,30 @@
+enum Color { Red, Green, Blue }
+
+struct Car { name: string, color: Color }
+
+function describe(c: Color) -> string {
+    if (c == Color.Red) { return "hot" }
+    when (c != Color.Blue) { return "natural" }
+    else { return "cool" }
+}
+
+let c = Color.Green
+print(c)
+print("color:", c, @into.string(c))
+print(c == Color.Green, c != Color.Green, c == Color.Red)
+
+for x in Color {
+    print(x, describe(x))
+}
+
+let all = [Color.Blue, Color.Red]
+print(all)
+let car = Car { name: "fusca", color: Color.Blue }
+print(car)
+print(@array.contains(all, Color.Red), @array.contains(all, Color.Green))
+let n = 0
+while (c == Color.Green) {
+    n += 1
+    if (n == 3) { c = Color.Red }
+}
+print(n, c)

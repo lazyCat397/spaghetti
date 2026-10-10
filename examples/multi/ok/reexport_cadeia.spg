@@ -1,0 +1,4 @@
+import { inc, ler } from "../lib/rx_topo.spg"
+inc()
+inc()
+print(ler())

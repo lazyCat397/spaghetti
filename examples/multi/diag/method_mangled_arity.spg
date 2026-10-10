@@ -1,0 +1,3 @@
+import { makeVec } from "../lib/sm_vec.spg"
+let v = makeVec(1, 2)
+v.add()

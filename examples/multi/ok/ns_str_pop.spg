@@ -1,0 +1,7 @@
+print("[" + @str.padStart("7", 3, "0") + "]", "[" + @str.padStart("ab", 5) + "]", "[" + @str.padEnd("ab", 5, "xy") + "]", "[" + @str.padEnd("ab", 5) + "]")
+print(@str.padStart("long", 2, "-"), @str.padEnd("x", 3, ""), @str.padStart("é", 3, "·"))
+print(@str.lastIndexOf("a-b-c", "-"), @str.lastIndexOf("abc", "z"), @str.lastIndexOf("aéaé", "é"), @str.indexOf("aéaé", "é"))
+print("[" + @str.trimStart("  hi  ") + "]", "[" + @str.trimEnd("  hi  ") + "]", "[" + @str.trim("  hi  ") + "]")
+let a = [1, 2, 3]
+print(@array.pop(a), @array.pop(a), a, @array.len(a))
+print([[], [1]], [[1], []])

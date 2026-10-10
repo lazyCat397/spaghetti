@@ -1,0 +1,2 @@
+export function len(x: int) -> int { return x + 1000 }
+export function dentro() -> int { return len(1) }

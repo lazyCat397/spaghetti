@@ -1,0 +1,2 @@
+export { onlyA } from "./in_a.spg"
+export function own() -> int { return 5 }

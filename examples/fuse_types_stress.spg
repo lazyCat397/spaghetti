@@ -1,0 +1,42 @@
+// stress test das superinstructions float/string/bool
+// (locals em ambos os lados, dentro de if/while, pra bater com o
+// mesmo padrao GetLocal(a);GetLocal(b);<op> que o peephole funde)
+
+function testFloat(a: float, b: float) -> void {
+    let sum: float = a + b
+    print(sum)
+    if (a < b) {
+        print("a < b")
+    } when (a > b) {
+        print("a > b")
+    } else {
+        print("a == b")
+    }
+    print(a <= b)
+    print(a >= b)
+    print(a == b)
+    print(a != b)
+}
+
+function testString(a: string, b: string) -> void {
+    let cat: string = a + b
+    print(cat)
+    print(a == b)
+    print(a != b)
+}
+
+function testBool(a: bool, b: bool) -> void {
+    print(a == b)
+    print(a != b)
+}
+
+testFloat(1.5, 2.5)
+testFloat(3.0, 3.0)
+testFloat(9.9, 1.1)
+
+testString("foo", "bar")
+testString("same", "same")
+
+testBool(true, true)
+testBool(true, false)
+testBool(false, true)

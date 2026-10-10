@@ -1,0 +1,11 @@
+[package]
+name = "spg-lsp"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+spg-lexer = { path = "../spg-lexer" }
+spg-parser = { path = "../spg-parser" }
+spg-modules = { path = "../spg-modules" }
+spg-typecheck = { path = "../spg-typecheck" }
+spg-compiler = { path = "../spg-compiler" }

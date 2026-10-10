@@ -1,0 +1,5 @@
+export function helper() -> int { return 1 }
+export function onlyA() -> int { return 10 }
+export enum Mode { Fast, Slow }
+export struct Box { v: int }
+function hidden() -> int { return 99 }

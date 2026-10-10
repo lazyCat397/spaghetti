@@ -1,0 +1,2 @@
+import { dois } from "../lib/diaglib.spg"
+dois(1, 2)

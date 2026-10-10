@@ -1,0 +1,3 @@
+install "../lib/in_a.spg"
+install "../lib/in_b.spg"
+print(helper())

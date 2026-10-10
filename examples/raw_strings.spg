@@ -1,0 +1,7 @@
+// 'single quotes' make a RAW string: no escapes, and "double quotes" may sit inside.
+print('print("hello")')        // print("hello")
+print('a\nb')                  // a\nb   (the backslash is just a character)
+print("a\nb")                  // two lines: escapes still work in "double quotes"
+
+// A raw string ends at the very next single quote, so it cannot contain one.
+// ('print('hi')' is therefore a mistake, on purpose.)

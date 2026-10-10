@@ -1,0 +1,15 @@
+function inc(x: int) -> int {
+    return x + 1
+}
+
+function run() -> int {
+    let a: int = 0
+    let acc: int = 0
+    let i: int = 0
+    while (i < 20000000) {
+        acc = acc + inc(a)
+        i = i + 1
+    }
+    return acc
+}
+print(run())

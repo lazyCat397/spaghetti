@@ -1,0 +1,6 @@
+function run() -> int {
+    let s = "abc"
+    print(@str.substring(s, 2, 1))
+    return 0
+}
+print(run())

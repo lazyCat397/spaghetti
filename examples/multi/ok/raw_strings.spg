@@ -1,0 +1,16 @@
+// '...' is a RAW string: no escapes, and it may contain "double quotes"
+print('print("hi")')
+print('hi')
+let q = 'say "x" and "y"'
+print(@str.len(q))
+print('a\nb')
+print(@str.len('a\nb'))
+print("a\nb")
+print(@str.len("a\nb"))
+print('olá')
+print('')
+print(@str.contains('print("hello")', "hello"))
+print(@str.len('\'))
+print('a' + 'b' + "c")
+print('multi
+line')

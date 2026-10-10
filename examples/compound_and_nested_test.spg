@@ -1,0 +1,55 @@
+// compound assign simples
+let x: int = 10
+x += 5
+x -= 2
+x *= 3
+x /= 2
+print(x) // (((10+5-2)*3)/2) = 19
+
+// compound assign em array simples
+let a: array<int> = [1, 2, 3]
+a[0] += 10
+a[1] -= 1
+a[2] *= 5
+print(a[0])
+print(a[1])
+print(a[2])
+
+// float também
+let f: array<float> = [1.5, 2.5]
+f[0] += 0.5
+print(f[0])
+
+// arrays aninhados: leitura, escrita simples e escrita composta
+let grid: array<array<int>> = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+print(grid[0][0])
+print(grid[2][2])
+
+grid[1][1] = 100
+print(grid[1][1])
+
+grid[0][2] += 1000
+print(grid[0][2])
+
+grid[2][0] *= 2
+print(grid[2][0])
+
+// índice avaliado uma única vez, mesmo aninhado
+function pick() -> int {
+    print("pick chamado")
+    return 1
+}
+grid[pick()][0] += 1
+print(grid[1][0])
+
+// array de array de array, só pra ver se aguenta 3 níveis
+let cube: array<array<array<int>>> = [[[1, 2]], [[3, 4]]]
+print(cube[1][0][1])
+cube[1][0][1] += 100
+print(cube[1][0][1])
+
+// função que devolve array indexado na hora
+function makeRow() -> array<int> {
+    return [9, 8, 7]
+}
+print(makeRow()[1])

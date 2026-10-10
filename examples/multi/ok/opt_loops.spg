@@ -1,0 +1,77 @@
+// loop shapes: back-edge inversion, break/continue, zero iterations, all
+// relations, bound as a local or as a constant
+function skipEvens(n: int) -> int {
+    let s = 0
+    let i = 0
+    while (i < n) {
+        i += 1
+        if (i % 2 == 0) {
+            continue
+        }
+        if (i > 7) {
+            break
+        }
+        s += i
+    }
+    return s
+}
+function countDown(n: int) -> int {
+    let c = 0
+    let i = n
+    while (i > 0) {
+        c += i
+        i -= 1
+    }
+    return c
+}
+function le(n: int) -> int {
+    let c = 0
+    let i = 0
+    while (i <= n) {
+        c += 1
+        i += 1
+    }
+    return c
+}
+function ne(n: int) -> int {
+    let c = 0
+    let i = 0
+    while (i != n) {
+        c += 2
+        i += 1
+    }
+    return c
+}
+function nested(n: int) -> int {
+    let t = 0
+    let i = 0
+    while (i < n) {
+        let j = 0
+        while (j < i) {
+            t += i * j
+            j += 1
+        }
+        i += 1
+    }
+    return t
+}
+function sumArr(a: array<int>) -> int {
+    let t = 0
+    for v in a {
+        if (v == 3) {
+            continue
+        }
+        t += v
+    }
+    return t
+}
+print(skipEvens(20))
+print(skipEvens(0))
+print(countDown(10))
+print(countDown(0))
+print(le(5))
+print(le(0))
+print(ne(4))
+print(ne(0))
+print(nested(5))
+print(sumArr([1, 2, 3, 4, 5]))

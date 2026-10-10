@@ -1,0 +1,11 @@
+function crunch() -> int {
+    let i = 0
+    let a = 0
+    while (i < 1000000000) {
+        a += i % 7
+        i += 1
+    }
+    return a
+}
+print("one")
+print(crunch())

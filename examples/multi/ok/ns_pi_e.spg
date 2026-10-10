@@ -1,0 +1,13 @@
+// @math.pi(n) / @math.e(n): n DECIMAL PLACES, rounded (not truncated)
+print(@math.pi(4))
+print(@math.pi(0))
+print(@math.pi(1))
+print(@math.pi(2))
+print(@math.pi())
+print(@math.pi(15))
+print(@math.pi(40))
+print(@math.e(3))
+print(@math.e())
+print(@math.e(0))
+let n: int = 5
+print(@math.pi(n))

@@ -1,0 +1,23 @@
+let t = '{"name": "spg", "n": 3, "ok": true, "tags": ["a", "b"], "nested": {"x": 1.5, "z": null}}'
+print(@json.get(t, "name"))
+print(@json.get(t, "n"))
+print(@json.get(t, "ok"))
+print(@json.get(t, "tags.1"))
+print(@json.get(t, "nested.x"))
+print(@json.get(t, "nested.z"))
+print(@json.get(t, "tags"))
+print(@json.type(t, "tags"))
+print(@json.type(t, "nested.z"))
+print(@json.has(t, "nested.x"))
+print(@json.has(t, "nested.q"))
+print(@json.len(t, "tags"))
+print(@json.len(t, ""))
+print(@json.keys(t, "nested"))
+print(@json.valid(t))
+print(@json.valid("{oops"))
+print(@into.int(@json.get(t, "n")) + 1)
+try {
+    print(@json.get(t, "nested.q"))
+} catch (e) {
+    print("sem q")
+}

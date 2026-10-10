@@ -1,0 +1,21 @@
+function collatzSteps(n: int) -> int {
+    let steps: int = 0
+    let x: int = n
+    while (x != 1) {
+        if (x % 2 == 0) {
+            x = x / 2
+        } else {
+            x = x * 3 + 1
+        }
+        steps = steps + 1
+    }
+    return steps
+}
+
+function avgFloat(a: float, b: float, c: float) -> float {
+    let sum: float = a + b + c
+    return sum / 3.0
+}
+
+print(collatzSteps(27))
+print(avgFloat(10.0, 20.0, 30.0))

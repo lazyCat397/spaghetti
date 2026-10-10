@@ -1,0 +1,81 @@
+// one line of output per fused shape (local-with-const arithmetic and
+// compares, in-place increments, op+store, struct/array reads, floats, globals)
+struct P { x: int, y: int }
+let g = 10
+let h = 0
+function arith(a: int, b: int) -> int {
+    let r = 0
+    r = a + 7
+    print(r)
+    r = a - 7
+    print(r)
+    r = a * 3
+    print(r)
+    r = a / 4
+    print(r)
+    r = a % 4
+    print(r)
+    r = a * b
+    print(r)
+    r = a - b
+    print(r)
+    r += a
+    print(r)
+    r -= 2
+    print(r)
+    a += -5
+    print(a)
+    return r + b * 2 - 1
+}
+function cmp(a: int) -> int {
+    let n = 0
+    if (a < 5) { n += 1 }
+    if (a > 5) { n += 10 }
+    if (a <= 5) { n += 100 }
+    if (a >= 5) { n += 1000 }
+    if (a == 5) { n += 10000 }
+    if (a != 5) { n += 100000 }
+    if (a % 2 == 0) { n += 1000000 }
+    return n
+}
+function structs(p: P) -> int {
+    p.x += p.y
+    p.y = p.x - p.y
+    p.x += 3
+    p.x = p.x % 7
+    return p.x + p.y
+}
+function arrays(a: array<int>, i: int) -> int {
+    a[i] = a[i] + 10
+    a[i] += 5
+    let k = 0
+    let s = 0
+    while (k < len(a)) {
+        s += a[k] * 2
+        k += 1
+    }
+    return s + a[i]
+}
+function floats(x: float, y: float) -> float {
+    let z = x + y
+    z = z * x
+    z = z - y
+    z += 1.5
+    return z / 2.0
+}
+function globals() -> int {
+    g = g + 1
+    h += g
+    g += 5
+    return g + h
+}
+print(arith(20, 3))
+print(arith(-9, 4))
+print(cmp(5))
+print(cmp(4))
+print(cmp(8))
+print(structs(P { x: 4, y: 9 }))
+print(arrays([1, 2, 3], 1))
+print(floats(2.0, 3.0))
+print(globals())
+print(globals())

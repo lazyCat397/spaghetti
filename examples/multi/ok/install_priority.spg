@@ -1,0 +1,5 @@
+import { helper } from "../lib/in_b.spg"
+install "../lib/in_a.spg"
+install "../lib/in_b.spg"
+function onlyA() -> int { return 77 }
+print(helper(), onlyA(), onlyB())

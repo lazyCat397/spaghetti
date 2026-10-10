@@ -1,0 +1,7 @@
+#> strict
+let a: int = 1
+function f() {
+  let a: int = 2
+  print(a)
+}
+f()

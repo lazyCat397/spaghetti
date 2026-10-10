@@ -1,0 +1,151 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Spaghetti",
+  "scopeName": "source.spg",
+  "patterns": [
+    { "include": "#directives" },
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#raw-strings" },
+    { "include": "#definitions" },
+    { "include": "#keywords" },
+    { "include": "#namespaces" },
+    { "include": "#types" },
+    { "include": "#constants" },
+    { "include": "#numbers" },
+    { "include": "#builtins" },
+    { "include": "#calls" },
+    { "include": "#member" },
+    { "include": "#type-names" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "directives": {
+      "match": "^\\s*(#>)\\s*([A-Za-z][A-Za-z0-9_-]*)(?:[ \\t]+(\\d+))?",
+      "name": "meta.directive.spg",
+      "captures": {
+        "1": { "name": "punctuation.definition.directive.spg" },
+        "2": { "name": "keyword.other.directive.spg" },
+        "3": { "name": "constant.numeric.integer.spg" }
+      }
+    },
+    "comments": {
+      "match": "//.*$",
+      "name": "comment.line.double-slash.spg"
+    },
+    "strings": {
+      "begin": "\"",
+      "end": "\"",
+      "name": "string.quoted.double.spg",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.spg" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.spg" } },
+      "patterns": [{ "match": "\\\\.", "name": "constant.character.escape.spg" }]
+    },
+    "raw-strings": {
+      "begin": "'",
+      "end": "'",
+      "name": "string.quoted.single.spg",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.spg" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.spg" } }
+    },
+    "definitions": {
+      "patterns": [
+        {
+          "match": "\\b(function)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.function.spg" },
+            "2": { "name": "entity.name.function.spg" }
+          }
+        },
+        {
+          "match": "\\b(struct)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.struct.spg" },
+            "2": { "name": "entity.name.type.struct.spg" }
+          }
+        },
+        {
+          "match": "\\b(enum)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.enum.spg" },
+            "2": { "name": "entity.name.type.enum.spg" }
+          }
+        },
+        {
+          "match": "\\b(let|const)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.spg" },
+            "2": { "name": "variable.other.definition.spg" }
+          }
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        { "match": "\\b(if|else|when)\\b", "name": "keyword.control.conditional.spg" },
+        { "match": "\\b(while|for|in|break|continue)\\b", "name": "keyword.control.loop.spg" },
+        { "match": "\\b(try|catch|throw)\\b", "name": "keyword.control.trycatch.spg" },
+        { "match": "\\breturn\\b", "name": "keyword.control.flow.spg" },
+        { "match": "\\b(import|export|from|install)\\b", "name": "keyword.control.import.spg" },
+        { "match": "\\bstep\\b(?=\\s+[-(A-Za-z_0-9])", "name": "keyword.control.loop.step.spg" },
+        { "match": "\\bme\\b", "name": "variable.language.me.spg" }
+      ]
+    },
+    "types": {
+      "match": "\\b(int|float|bool|string|void|array)\\b|\\bmap\\b(?=\\s*<)",
+      "name": "support.type.primitive.spg"
+    },
+    "constants": {
+      "match": "\\b(true|false)\\b",
+      "name": "constant.language.boolean.spg"
+    },
+    "numbers": {
+      "patterns": [
+        { "match": "\\b\\d+\\.\\d+\\b", "name": "constant.numeric.float.spg" },
+        { "match": "\\b\\d+\\b", "name": "constant.numeric.integer.spg" }
+      ]
+    },
+    "namespaces": {
+      "patterns": [
+        {
+          "match": "(?<![.A-Za-z0-9_@])(@(?:str|array|map|into|math|time|file|sys|json))(\\.)([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
+          "captures": {
+            "1": { "name": "entity.name.namespace.spg" },
+            "2": { "name": "punctuation.accessor.spg" },
+            "3": { "name": "support.function.builtin.spg" }
+          }
+        },
+        {
+          "match": "(?<![.A-Za-z0-9_@])@(?:str|array|map|into|math|time|file|sys|json)\\b(?=\\s*\\.)",
+          "name": "entity.name.namespace.spg"
+        }
+      ]
+    },
+    "builtins": {
+      "match": "\\b(print|printError|readLine|len)\\b(?=\\s*\\()",
+      "name": "support.function.builtin.spg"
+    },
+    "calls": {
+      "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
+      "name": "entity.name.function.call.spg"
+    },
+    "member": {
+      "match": "(?<=[^.]\\.)\\s*[A-Za-z_][A-Za-z0-9_]*",
+      "name": "variable.other.property.spg"
+    },
+    "type-names": {
+      "match": "\\b[A-Z][A-Za-z0-9_]*\\b",
+      "name": "entity.name.type.spg"
+    },
+    "operators": {
+      "patterns": [
+        { "match": "\\.\\.", "name": "keyword.operator.range.spg" },
+        { "match": "->", "name": "keyword.operator.arrow.spg" },
+        { "match": "==|!=|<=|>=|&&|\\|\\|", "name": "keyword.operator.logical.spg" },
+        { "match": "\\+=|-=|\\*=|/=", "name": "keyword.operator.assignment.compound.spg" },
+        { "match": "=", "name": "keyword.operator.assignment.spg" },
+        { "match": "[-+*/%<>!]", "name": "keyword.operator.arithmetic.spg" }
+      ]
+    }
+  }
+}

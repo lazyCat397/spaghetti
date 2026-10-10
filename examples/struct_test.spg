@@ -1,0 +1,98 @@
+// teste completo de structs
+
+struct Point {
+    x: int,
+    y: int
+}
+
+let p: Point = Point { x: 1, y: 2 }
+print(p.x)
+print(p.y)
+
+// escrita simples
+p.x = 100
+print(p.x)
+
+// compound assign em campo
+p.y += 50
+print(p.y)
+p.x *= 2
+print(p.x)
+
+// print direto do struct
+print(p)
+
+// struct com campo float e string
+struct Player {
+    name: string,
+    health: float,
+    level: int
+}
+
+let hero: Player = Player { name: "Aragorn", health: 100.0, level: 5 }
+print(hero.name)
+print(hero.health)
+hero.health -= 25.5
+print(hero.health)
+
+// struct aninhado dentro de struct
+struct Line {
+    start: Point,
+    end: Point
+}
+
+let l: Line = Line { start: Point { x: 0, y: 0 }, end: Point { x: 10, y: 10 } }
+print(l.start.x)
+print(l.end.y)
+l.start.x = 5
+print(l.start.x)
+l.end.y += 1
+print(l.end.y)
+
+// array de structs
+let points: array<Point> = [Point { x: 1, y: 1 }, Point { x: 2, y: 2 }]
+print(points[0].x)
+print(points[1].y)
+points[0].x = 99
+print(points[0].x)
+points[1].y += 100
+print(points[1].y)
+
+// struct dentro de array dentro de struct
+struct Path {
+    points: array<Point>
+}
+let path: Path = Path { points: [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }] }
+print(path.points[0].x)
+print(path.points[1].y)
+path.points[0].x += 1000
+print(path.points[0].x)
+
+// função recebendo e devolvendo struct
+function makeOrigin() -> Point {
+    return Point { x: 0, y: 0 }
+}
+function distSq(a: Point, b: Point) -> int {
+    let dx: int = a.x - b.x
+    let dy: int = a.y - b.y
+    return dx * dx + dy * dy
+}
+let origin: Point = makeOrigin()
+print(origin.x)
+print(distSq(Point { x: 0, y: 0 }, Point { x: 3, y: 4 }))
+
+// side effect avaliado uma única vez em field compound assign
+function getPoint(pt: Point) -> Point {
+    print("getPoint chamado")
+    return pt
+}
+getPoint(p).x += 1
+print(p.x)
+
+// struct literal dentro de condição (a ambiguidade que resolvemos)
+if (p.x == 201) {
+    print("condicao ok, sem ambiguidade com struct literal")
+}
+for i in [1, 2, 3] {
+    print(i)
+}

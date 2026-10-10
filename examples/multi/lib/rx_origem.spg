@@ -1,0 +1,5 @@
+export let contador: int = 0
+export function inc() -> void { contador += 1 }
+export function ler() -> int { return contador }
+export struct Ponto { x: int }
+function privada() -> int { return 1 }

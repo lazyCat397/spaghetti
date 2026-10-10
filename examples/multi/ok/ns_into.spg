@@ -1,0 +1,14 @@
+// @into has exactly three members: .string .int .float
+print(@into.int(42.0))
+print(@into.int(5.9))
+print(@into.int(-5.9))
+print(@into.int("42"))
+print(@into.int("  7 "))
+print(@into.float(3))
+print(@into.float("3.5"))
+print(@into.string(42) + @into.string(true) + @into.string(1.5))
+// the member names double as type keywords and must still parse
+let a: int = @into.int("1") + @into.int(2.0)
+let b: float = @into.float(a)
+let c: string = @into.string(b)
+print(c)

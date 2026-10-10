@@ -1,0 +1,5 @@
+print("antes", @sys.args())
+try {
+    @sys.exit(7)
+} catch (e) { print("NUNCA") }
+print("nem aqui")

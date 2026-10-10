@@ -1,0 +1,3 @@
+enum Color { Red }
+let c = Color.Red
+print(c.foo)

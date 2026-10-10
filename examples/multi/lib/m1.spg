@@ -1,0 +1,2 @@
+export function helper() -> int { return 1 }
+export struct Item { v: int }

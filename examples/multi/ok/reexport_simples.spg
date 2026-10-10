@@ -1,0 +1,6 @@
+import { inc, ler, Ponto } from "../lib/rx_fachada.spg"
+inc()
+inc()
+print(ler())
+let p: Ponto = Ponto { x: 7 }
+print(p.x)

@@ -1,0 +1,1 @@
+print(@file.read("this/does/not/exist.txt"))

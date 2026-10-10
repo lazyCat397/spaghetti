@@ -1,0 +1,4 @@
+import { hipotenusa, gritar, relogioOk } from "./ns_lib.spg"
+print(hipotenusa(3.0, 4.0))
+print(gritar("  oi  "))
+print(relogioOk())

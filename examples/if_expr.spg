@@ -1,0 +1,8 @@
+function checa(result: bool) -> string {
+    let this = if (result == true) {
+        "yes"
+    } else {
+        "nuh uh"
+    }
+    return (this)
+}

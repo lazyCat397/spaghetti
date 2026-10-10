@@ -1,0 +1,8 @@
+[package]
+name = "spg-vm"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+spg-lexer = { path = "../spg-lexer" }
+spg-typecheck = { path = "../spg-typecheck" }

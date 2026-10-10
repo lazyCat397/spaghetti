@@ -1,0 +1,6 @@
+struct Q {
+    x: int
+    function x() -> int {
+        return 1
+    }
+}

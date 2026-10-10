@@ -1,0 +1,1 @@
+print(@file.writeBytes("x.bin", ["a"]))

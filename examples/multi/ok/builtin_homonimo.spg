@@ -1,0 +1,3 @@
+import { dentro } from "../lib/bi.spg"
+print(dentro())
+print(len([1, 2, 3]))

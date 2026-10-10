@@ -1,0 +1,1 @@
+export { fantasma } from "../lib/rx_origem.spg"

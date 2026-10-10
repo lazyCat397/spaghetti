@@ -1,0 +1,14 @@
+// primeiro teste do lexer
+
+function soma(a: int, b: int) -> int {
+    return a + b
+}
+
+let x = 10
+const nome: string = "spaghetti"
+
+if (x > 5) {
+    print("grande")
+} else {
+    print("pequeno")
+}

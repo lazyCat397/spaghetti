@@ -1,0 +1,16 @@
+struct V { x: int, y: int, n: int }
+function run(iters: int) -> int {
+    let v = V { x: 1, y: 2, n: 0 }
+    let i = 0
+    while (i < iters) {
+        v.x += v.y
+        v.y = v.x - v.y
+        v.n += 1
+        if (v.x > 1000000) {
+            v.x = v.x % 1000
+        }
+        i += 1
+    }
+    return v.x + v.y + v.n
+}
+print(run(8000000))

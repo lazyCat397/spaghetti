@@ -1,0 +1,2 @@
+export { inc } from "../lib/rx_origem.spg"
+export { inc } from "../lib/rx_origem.spg"

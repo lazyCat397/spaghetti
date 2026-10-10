@@ -1,0 +1,20 @@
+// enums: a closed set of named options, compared with == / != and listed with `for`
+enum Direction { North, East, South, West }
+
+function turnRight(d: Direction) -> Direction {
+    if (d == Direction.North) { return Direction.East }
+    when (d == Direction.East) { return Direction.South }
+    when (d == Direction.South) { return Direction.West }
+    else { return Direction.North }
+}
+
+let facing = Direction.North
+for step in 0..5 {
+    print(step, facing)
+    facing = turnRight(facing)
+}
+
+print("all directions:")
+for d in Direction {
+    print("-", d, @into.string(d))
+}

@@ -1,0 +1,2 @@
+export { inc } from "./rx_origem.spg"
+export function usaInc() -> void { inc() }

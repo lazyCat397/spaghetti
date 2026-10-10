@@ -1,0 +1,17 @@
+// `for i in a..b` counts from a up to b, NOT including b. No array is built.
+for i in 1..4 {
+    print(i)           // 1 2 3
+}
+
+// `step` changes the stride; a negative step counts down
+for i in 0..10 step 3 {
+    print(i)           // 0 3 6 9
+}
+for i in 5..0 step -2 {
+    print(i)           // 5 3 1
+}
+
+// the same numbers as an actual array
+let evens = @array.range(0, 10, 2)
+print(evens)           // [0, 2, 4, 6, 8]
+print(@array.len(@array.range(1, 4)))   // 3

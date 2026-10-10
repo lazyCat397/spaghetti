@@ -1,0 +1,1 @@
+print(@mth.sqrt(4.0))

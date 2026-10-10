@@ -1,0 +1,1 @@
+print(@json.get('{"a": 1,}', "a"))

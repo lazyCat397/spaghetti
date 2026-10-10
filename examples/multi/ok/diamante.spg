@@ -1,0 +1,8 @@
+import { addB } from "../lib/b.spg"
+import { addC, verC } from "../lib/c.spg"
+import { lerTotal } from "../lib/base.spg"
+addB()
+addC()
+addB()
+print(verC())
+print(lerTotal())

@@ -1,0 +1,29 @@
+// print takes any number of arguments of any type: values are joined by ONE space
+print()
+print("a")
+print(1, 2)
+print("x", 1, 2.5, true, 'raw "q"')
+print([1, 2], "arr")
+print(@str.len("abc"), @array.len([1, 2, 3]))
+print(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+
+// arguments are evaluated left to right, once each
+let n = 0
+function next() -> int {
+    n += 1
+    return n
+}
+print(next(), next(), next())
+print(n)
+
+// empty strings still get their separators
+print("", "")
+print("", "", "")
+print("only", "")
+print()
+
+// printError follows the same rule (the test captures stderr too, in order)
+printError("e", 1, false)
+print("after")
+printError()
+print("last")

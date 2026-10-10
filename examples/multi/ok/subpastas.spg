@@ -1,0 +1,2 @@
+import { meio } from "../lib/meio.spg"
+print(meio())

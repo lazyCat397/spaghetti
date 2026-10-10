@@ -1,0 +1,29 @@
+// @time.* — now / unix / elapsed / sleep
+
+// @time.elapsed(): readable time since the program started, e.g. "45ms", "3s 250ms", "1h 2m"
+let start: string = @time.elapsed()
+let u1: int = @time.unix()
+
+// @time.sleep(ms): pauses the script at this point (like a wait())
+@time.sleep(60)
+
+// to measure a section, subtract two @time.unix() readings (whole ms)
+print(@time.unix() - u1 >= 60)
+print(@time.unix() - u1 < 1000)
+print(@str.endsWith(@time.elapsed(), "s"))
+print(len(start) > 0)
+
+// @time.unix(): whole ms since 1970, wall clock
+print(@time.unix() > 1700000000000)
+
+// @time.now(): ISO-8601 UTC string, e.g. 2026-09-30T14:03:22Z
+let now: string = @time.now()
+print(len(now))
+print(@str.charAt(now, 4))
+print(@str.charAt(now, 10))
+print(@str.endsWith(now, "Z"))
+print(@into.int(@str.substring(now, 0, 4)) >= 2026)
+
+// sleep(0) is fine
+@time.sleep(0)
+print("done")

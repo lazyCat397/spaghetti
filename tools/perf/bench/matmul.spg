@@ -1,0 +1,39 @@
+function run(n: int) -> int {
+    let a: array<array<int>> = [[0]]
+    let b: array<array<int>> = [[0]]
+    let c: array<array<int>> = [[0]]
+    let i = 1
+    while (i <= n) {
+        let ra: array<int> = [0]
+        let rb: array<int> = [0]
+        let rc: array<int> = [0]
+        let j = 1
+        while (j <= n) {
+            @array.push(ra, i + j)
+            @array.push(rb, i - j)
+            @array.push(rc, 0)
+            j += 1
+        }
+        @array.push(a, ra)
+        @array.push(b, rb)
+        @array.push(c, rc)
+        i += 1
+    }
+    i = 1
+    while (i <= n) {
+        let j = 1
+        while (j <= n) {
+            let s = 0
+            let k = 1
+            while (k <= n) {
+                s += a[i][k] * b[k][j]
+                k += 1
+            }
+            c[i][j] = s
+            j += 1
+        }
+        i += 1
+    }
+    return c[n][n]
+}
+print(run(140))

@@ -1,0 +1,6 @@
+export function dobro(n: int) -> int { return n * 2 }
+export const PI2: float = 6.28
+export let contador: int = 0
+export struct Ponto { x: int, y: int }
+function segredo() -> int { return 42 }
+export function usaSegredo() -> int { return segredo() }

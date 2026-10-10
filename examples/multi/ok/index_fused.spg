@@ -1,0 +1,46 @@
+function run() -> int {
+    let a = [1, 2, 3, 4]
+    let f = [1.5, 2.5]
+    let b = [true, true, false]
+    let m = [[1, 2], [3, 4]]
+    let i = 2
+    let j = 1
+    let r = 1
+    let x = 10
+    let y = 3
+    let z = 0
+    let w = 3
+    a[i] += 5
+    a[i] -= 3
+    a[j] += x
+    a[z] = y
+    a[w] = 7
+    a[i] *= y
+    a[j] -= x
+    f[j] += 1.25
+    f[z] *= 2.0
+    let fx = 0.5
+    f[z] += fx
+    f[j] -= fx
+    f[z] *= fx
+    b[i] = true
+    b[z] = false
+    m[r][j] = y
+    m[0][j] += x
+    print(a)
+    print(f)
+    print(b)
+    print(m)
+    return a[0] + a[1]
+}
+function alias() -> int {
+    let row = [1, 2]
+    let m = [[0, 0], [0, 0]]
+    let r = 0
+    let z = 0
+    m[r] = row
+    row[z] = 9
+    return m[0][0]
+}
+print(run())
+print(alias())

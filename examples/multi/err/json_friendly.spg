@@ -1,0 +1,2 @@
+#> friendly-terminal
+print(@json.get('{"a": 1}', "b"))

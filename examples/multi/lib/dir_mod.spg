@@ -1,0 +1,2 @@
+#> strict
+export let v: int = 1

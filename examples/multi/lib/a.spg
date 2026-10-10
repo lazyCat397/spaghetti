@@ -1,0 +1,2 @@
+function privada() -> int { return 1 }
+export function publica() -> int { return 2 }

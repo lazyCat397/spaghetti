@@ -1,0 +1,1 @@
+export { privada } from "../lib/rx_origem.spg"

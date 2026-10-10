@@ -1,0 +1,17 @@
+enum Ns { one = 1, two = 2, three = 2 }
+enum Level { Low, Mid = 10, High, Top }
+enum Name { A = "alfa", B = "beta" }
+enum Flag { On = true, Off = false }
+enum Ratio { Half = 0.5, Neg = -1.5 }
+enum Neg { A = -5, B }
+enum Plain { X, Y, Z }
+
+print(Ns.three.value, Ns.one.value, Ns.two == Ns.three, Ns.two.value == Ns.three.value)
+print(Level.Low.value, Level.Mid.value, Level.High.value, Level.Top.value)
+print(Name.B.value, Flag.Off.value, Ratio.Half.value + 1.0, Ratio.Neg.value)
+print(Neg.A.value, Neg.B.value, Plain.Z.value)
+let l = Level.High
+print(l.value + 1, l, @into.string(l))
+for n in Name { print(n, n.value) }
+function code(s: Ns) -> int { return s.value * 100 }
+print(code(Ns.two))

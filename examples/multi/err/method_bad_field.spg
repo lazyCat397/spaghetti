@@ -1,0 +1,6 @@
+struct Q {
+    function f() -> int {
+        return me.zzz
+    }
+}
+print(Q {}.f())

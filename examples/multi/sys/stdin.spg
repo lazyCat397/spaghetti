@@ -1,0 +1,7 @@
+print("nome?")
+let a = @sys.readLine()
+let b = @sys.readLine()
+print("oi", a, b.len())
+let rest = @sys.readAll()
+print(rest.len())
+try { @sys.readLine() } catch (e) { print("fim:", e) }

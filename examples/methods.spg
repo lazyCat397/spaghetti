@@ -1,0 +1,23 @@
+// Struct methods: a `function` inside a struct is called as `value.name()`.
+// Inside it, `me` is the value the method was called on (nothing to declare).
+struct Counter {
+    n: int,
+    step: int
+
+    function tick() -> Counter {
+        me.n += me.step
+        return me          // returning `me` lets calls chain
+    }
+    function describe() -> string {
+        return "Counter at " + @into.string(me.n)
+    }
+    function reset() {
+        me.n = 0
+    }
+}
+
+let c = Counter { n: 0, step: 5 }
+c.tick().tick().tick()
+print(c.describe())    // Counter at 15
+c.reset()
+print(c.describe())    // Counter at 0

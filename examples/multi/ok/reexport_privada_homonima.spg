@@ -1,0 +1,3 @@
+import { inc, viaLocal } from "../lib/rx_privada_homonima.spg"
+print(viaLocal())
+inc()

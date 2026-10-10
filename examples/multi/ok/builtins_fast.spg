@@ -1,0 +1,37 @@
+function run() -> int {
+    let a = [3, 1, 4, 1, 5]
+    let names = ["ana", "bia"]
+    let u = "olá"
+    let x = -7
+    let y = 4
+    let f = 2.5
+    let g = -3.5
+    print(@array.len(a))
+    print(len(a))
+    print(@str.len(u))
+    print(len(u))
+    print(@array.contains(a, 4))
+    print(@array.contains(a, 9))
+    print(@array.contains(names, "bia"))
+    print(@array.contains(names, "zed"))
+    @array.push(a, 9)
+    print(a)
+    print(@array.pop(a))
+    print(@array.pop(a))
+    print(a)
+    print(@math.abs(x))
+    print(@math.abs(g))
+    print(@math.min(x, y))
+    print(@math.max(x, y))
+    print(@math.min(f, g))
+    print(@math.max(f, g))
+    print(@math.floor(g))
+    print(@math.ceil(g))
+    print(@math.round(f))
+    print(@math.round(g))
+    print(@math.sqrt(16.0))
+    print(@into.float(x))
+    print(@into.int(g))
+    return @array.len(a)
+}
+print(run())

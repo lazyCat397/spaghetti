@@ -1,0 +1,17 @@
+let dir = @sys.args()[0]
+let f = @file.join(dir, "a.txt")
+print(@file.exists(f), @file.isDir(dir))
+@file.write(f, "um\ndois\r\ntres\n")
+@file.append(f, "quatro")
+print(@file.read(f).len(), @file.lines(f), @file.lines(f).len())
+@file.mkdir(@file.join(dir, "sub/fundo"))
+@file.copy(f, @file.join(dir, "sub/b.txt"))
+@file.rename(@file.join(dir, "sub/b.txt"), @file.join(dir, "sub/c.txt"))
+print(@file.list(dir), @file.list(@file.join(dir, "sub")), @file.isDir(@file.join(dir, "sub")))
+@file.delete(@file.join(dir, "sub/c.txt"))
+@file.delete(@file.join(dir, "sub/fundo"))
+print(@file.list(@file.join(dir, "sub")))
+try { print(@file.read(@file.join(dir, "nope.txt"))) } catch (e) { print("caught:", e.contains("no such file")) }
+try { @file.delete(@file.join(dir, "sub")) @file.delete(@file.join(dir, "sub")) } catch (e) { print("again:", e.contains("sub")) }
+try { @file.write(@file.join(dir, "nodir/x.txt"), "x") } catch (e) { print("write fails:", e.contains("no such file")) }
+print(@sys.args().len(), @sys.platform().len() > 0, @sys.cwd().len() > 0, @sys.env("SPG_SURELY_UNSET_VAR", "fallback"))

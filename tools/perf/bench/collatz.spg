@@ -1,0 +1,26 @@
+function steps(n: int) -> int {
+    let s = 0
+    let x = n
+    while (x != 1) {
+        if (x % 2 == 0) {
+            x = x / 2
+        } else {
+            x = x * 3 + 1
+        }
+        s += 1
+    }
+    return s
+}
+function run() -> int {
+    let best = 0
+    let n = 1
+    while (n < 300000) {
+        let c = steps(n)
+        if (c > best) {
+            best = c
+        }
+        n += 1
+    }
+    return best
+}
+print(run())

@@ -1,0 +1,1 @@
+print(@math.clamp(1, 5, 2))

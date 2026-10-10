@@ -1,0 +1,1 @@
+C:\spaghetti-prot\target\release\libspg_parser.rlib: C:\spaghetti-prot\crates\spg-lexer\src\lexer.rs C:\spaghetti-prot\crates\spg-lexer\src\lib.rs C:\spaghetti-prot\crates\spg-lexer\src\token.rs C:\spaghetti-prot\crates\spg-parser\src\ast.rs C:\spaghetti-prot\crates\spg-parser\src\lib.rs C:\spaghetti-prot\crates\spg-parser\src\parser.rs

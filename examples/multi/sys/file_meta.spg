@@ -1,0 +1,23 @@
+let dir = @sys.args()[0]
+let f = @file.join(dir, "bin.dat")
+@file.writeBytes(f, [0, 255, 10, 13, 65])
+print(@file.size(f), @file.readBytes(f))
+let now = @time.unix()
+print(@file.modified(f) <= now, @file.modified(f) > now - 60000, @file.modifiedDate(f).len())
+let t = @file.join(dir, "t.txt")
+@file.write(t, "héllo")
+print(@file.size(t), @file.readBytes(t).len())
+@file.mkdir(@file.join(dir, "tree/a/b"))
+@file.write(@file.join(dir, "tree/a/b/x.txt"), "x")
+@file.write(@file.join(dir, "tree/y.txt"), "y")
+try { @file.delete(@file.join(dir, "tree")) } catch (e) { print("non-empty dir refuses delete") }
+@file.deleteAll(@file.join(dir, "tree"))
+print(@file.exists(@file.join(dir, "tree")))
+@file.deleteAll(f)
+print(@file.exists(f))
+try { @file.writeBytes(f, [1, 300]) } catch (e) { print(e) }
+print(@file.exists(f))
+try { @file.size(dir) } catch (e) { print("dir:", e.contains("is a directory")) }
+try { @file.deleteAll(@file.join(dir, "ghost")) } catch (e) { print("ghost:", e.contains("no such file")) }
+@file.writeBytes(f, [])
+print(@file.size(f), @file.readBytes(f))

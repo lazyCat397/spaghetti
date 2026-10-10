@@ -1,0 +1,17 @@
+[package]
+name = "spg-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "spg"
+path = "src/main.rs"
+
+[dependencies]
+spg-lexer = { path = "../spg-lexer" }
+spg-parser = { path = "../spg-parser" }
+spg-modules = { path = "../spg-modules" }
+spg-typecheck = { path = "../spg-typecheck" }
+spg-compiler = { path = "../spg-compiler" }
+spg-vm = { path = "../spg-vm" }
+spg-lsp = { path = "../spg-lsp" }

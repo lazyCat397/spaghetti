@@ -1,0 +1,2 @@
+import { v } from "../lib/dir_mod.spg"
+print(v)

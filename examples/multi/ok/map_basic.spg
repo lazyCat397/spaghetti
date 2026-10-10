@@ -1,0 +1,24 @@
+function total(m: map<string, int>) -> int {
+    let s = 0
+    for k in @map.keys(m) {
+        s += m[k]
+    }
+    return s
+}
+
+let ages: map<string, int> = ["ana": 30, "bia": 25]
+ages["caio"] = 41
+ages["ana"] += 1
+ages["bia"] = 26
+print(ages)
+print(ages["ana"], @map.len(ages), @map.has(ages, "bia"), @map.has(ages, "zed"))
+print(@map.get(ages, "zed", -1), @map.get(ages, "bia", -1))
+print(@map.keys(ages), @map.values(ages))
+print(@map.remove(ages, "bia"), @map.remove(ages, "bia"))
+print(ages, total(ages))
+ages["bia"] = 1
+print(@map.keys(ages))
+let none: map<string, int> = [:]
+print(none, @map.len(none), total(none))
+let dup: map<int, string> = [1: "a", 2: "b", 1: "c"]
+print(dup)

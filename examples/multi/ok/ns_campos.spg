@@ -1,0 +1,5 @@
+// namespaces carry an '@', so `time` and `list` are ordinary names (fields here)
+struct Evento { time: int, list: string }
+let e: Evento = Evento { time: 7, list: "x" }
+print(e.time)
+print(e.list)

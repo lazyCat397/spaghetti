@@ -1,0 +1,1 @@
+print(@array.concat([1], ["a"]))

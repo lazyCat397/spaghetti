@@ -1,0 +1,4 @@
+export struct Ponto { x: int }
+export function faz(p: Ponto) -> int { return p.x }
+export function dois() -> int { return 2 }
+export let g: int = 1

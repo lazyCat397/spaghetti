@@ -1,0 +1,6 @@
+struct Q {
+    n: int
+    function f() -> int {
+        return "no"
+    }
+}

@@ -1,0 +1,3 @@
+export { inc } from "../lib/rx_origem.spg"
+
+export function inc() -> void { }

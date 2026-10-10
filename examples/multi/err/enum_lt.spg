@@ -1,0 +1,2 @@
+enum Color { Red, Green }
+print(Color.Red < Color.Green)

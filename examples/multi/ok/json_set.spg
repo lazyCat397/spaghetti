@@ -1,0 +1,8 @@
+let t = '{' + "\n" + '    "version": "0.14.0",' + "\n" + '    "items": [1, 2]' + "\n" + '}'
+let u1 = @json.set(t, "version", "0.15.0")
+let u2 = @json.set(u1, "items.2", 3)
+let u3 = @json.set(u2, "author", "ana")
+print(u3)
+print(@json.set('{"a":1}', "a", 2))
+print(@json.set('{"a":1}', "tags", ["x", "y"]))
+print(@json.get(u3, "items.2"))

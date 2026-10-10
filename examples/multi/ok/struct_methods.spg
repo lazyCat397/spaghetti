@@ -1,0 +1,116 @@
+struct Point {
+    x: int,
+    y: int
+
+    function sum() -> int {
+        return me.x + me.y
+    }
+    function scale(k: int) {
+        me.x *= k
+        me.y *= k
+    }
+    function dist2(other: Point) -> int {
+        let dx = me.x - other.x
+        let dy = me.y - other.y
+        return dx * dx + dy * dy
+    }
+    function describe() -> string {
+        return "(" + @into.string(me.x) + ", " + @into.string(me.y) + ")"
+    }
+}
+let p = Point { x: 3, y: 4 }
+print(p.sum())
+p.scale(2)
+print(p.describe())
+print(p.dist2(Point { x: 0, y: 0 }))
+print(Point { x: 1, y: 1 }.sum())
+
+struct Counter {
+    n: int
+
+    function inc() -> Counter {
+        me.n += 1
+        return me
+    }
+    function twice() {
+        me.inc()
+        me.inc()
+    }
+    function fact(k: int) -> int {
+        if (k <= 1) {
+            return 1
+        }
+        return k * me.fact(k - 1)
+    }
+    function isBig() -> bool {
+        return me.n > 2
+    }
+    function label() {
+        return "n=" + @into.string(me.n)
+    }
+}
+struct Box {
+    c: Counter,
+    items: array<Counter>
+
+    function total() -> int {
+        let t = me.c.n
+        for it in me.items {
+            t += it.n
+        }
+        return t
+    }
+}
+let c = Counter { n: 0 }
+c.inc().inc().inc()
+print(c.n)
+c.twice()
+print(c.n)
+print(c.fact(5))
+print(c.isBig())
+print(c.label())
+let alias = c
+alias.inc()
+print(c.n)
+let b = Box { c: c, items: [Counter { n: 10 }, Counter { n: 20 }] }
+print(b.total())
+b.items[0].inc()
+print(b.items[0].n)
+print(b.c.fact(3) + b.items[1].fact(4))
+for i in 0..3 {
+    b.c.inc()
+}
+print(c.n)
+function useIt(k: Counter) -> int {
+    k.inc()
+    return k.n
+}
+print(useIt(c))
+
+// the receiver is evaluated exactly once, before the arguments
+let made = 0
+function newCounter() -> Counter {
+    made += 1
+    return Counter { n: 100 }
+}
+print(newCounter().inc().n)
+print(made)
+
+// `me` is an ordinary name outside methods
+let me = 5
+print(me + 1)
+
+// a method may be declared before the struct's other members and before use
+struct Late {
+    function hello() -> string {
+        return "hi"
+    }
+}
+print(Late {}.hello())
+
+// a method named like a global function / a variable does not clash
+function sum() -> int {
+    return -1
+}
+print(sum())
+print(p.sum())

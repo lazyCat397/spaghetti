@@ -1,0 +1,2 @@
+import { Ponto } from "../lib/diaglib.spg"
+function f(p: Ponto) -> int { return p.y }

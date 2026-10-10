@@ -1,0 +1,2 @@
+import { usaInc } from "../lib/rx_fachada_local.spg"
+usaInc()

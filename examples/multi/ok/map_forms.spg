@@ -1,0 +1,26 @@
+enum Color { Red, Green }
+struct P { x: int }
+
+let byColor: map<Color, string> = [Color.Red: "r", Color.Green: "g"]
+print(byColor[Color.Green])
+let nested: map<int, array<int>> = [1: [1, 2], 2: [3]]
+nested[2][0] = 99
+print(nested)
+let ps: map<bool, P> = [true: P { x: 1 }]
+ps[true].x += 5
+print(ps[true].x)
+let map = 3
+print(map + 1)
+let ages: map<string, int> = ["a": 1]
+let alias = ages
+alias["b"] = 2
+print(@map.len(ages))
+let grid: map<string, map<string, float>> = ["x": ["y": 1.5]]
+grid["x"]["y"] *= 2.0
+print(grid["x"]["y"])
+let n = 5
+let counts: map<int, int> = [n: 1]
+counts[n] += 1
+counts[n * 2] = 7
+print(counts)
+print(@array.contains(@map.keys(counts), 10))

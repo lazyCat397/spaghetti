@@ -1,0 +1,3 @@
+#> timeout 300
+print("antes")
+while (true) { }

@@ -1,0 +1,8 @@
+import { dobro, PI2, contador, Ponto, usaSegredo } from "../lib/util.spg"
+
+print(dobro(21))
+print(PI2)
+print(contador)
+let p: Ponto = Ponto { x: 3, y: 4 }
+print(p.x + p.y)
+print(usaSegredo())

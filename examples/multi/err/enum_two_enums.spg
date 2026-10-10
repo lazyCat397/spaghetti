@@ -1,0 +1,3 @@
+enum Color { Red }
+enum Size { Small }
+print(Color.Red == Size.Small)

@@ -1,0 +1,2 @@
+enum Color { Red }
+print(Color.Red + Color.Red)
