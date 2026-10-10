@@ -1,6 +1,5 @@
 name: release
 
-# Dispara quando você cria uma tag tipo v0.16.0
 on:
   push:
     tags: ["v*"]
@@ -31,28 +30,26 @@ jobs:
         run: |
           choco install innosetup -y --no-progress
           New-Item -ItemType Directory -Force installer/payload | Out-Null
+          New-Item -ItemType Directory -Force release-out | Out-Null
           Copy-Item target/release/spg.exe installer/payload/spg.exe
           Copy-Item "dist/spaghetti-${{ steps.ver.outputs.version }}.vsix" installer/payload/spaghetti.vsix
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=${{ steps.ver.outputs.version }}" "installer/spaghetti.iss"
-          Rename-Item "installer/spaghetti-${{ steps.ver.outputs.version }}.exe" "spaghetti-${{ steps.ver.outputs.version }}-windows-setup.exe"
+          Move-Item "installer/spaghetti-${{ steps.ver.outputs.version }}.exe" "release-out/spaghetti-${{ steps.ver.outputs.version }}-windows-setup.exe"
 
       - name: Empacotar (Linux)
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
-          mkdir -p pkg/spaghetti
+          mkdir -p pkg/spaghetti release-out
           cp target/release/spg pkg/spaghetti/
           cp "dist/spaghetti-${{ steps.ver.outputs.version }}.vsix" pkg/spaghetti/spaghetti.vsix
           cp installer/install-linux.sh pkg/spaghetti/install.sh
-          tar -czf "spaghetti-${{ steps.ver.outputs.version }}-linux.tar.gz" -C pkg spaghetti
+          tar -czf "release-out/spaghetti-${{ steps.ver.outputs.version }}-linux.tar.gz" -C pkg spaghetti
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.os }}
-          path: |
-            *-setup.exe
-            installer/*-setup.exe
-            *-linux.tar.gz
+          path: release-out/*
 
   publish:
     needs: build
