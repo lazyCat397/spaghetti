@@ -86,7 +86,8 @@ ok field_fused.spg       '57\n14\n0.875\n7\n99\n0.5\n8\n297\n100\n200\n9.5\n305'
 lines print_stress.spg 300000 299999
 # ...and nothing held back: the first print must reach a pipe while the program is still crunching
 # (the program is killed as soon as it shows up, so this takes ~15 ms)
-if command -v python3 >/dev/null 2>&1; then
+if [[ "$OSTYPE" == msys* || "$OSTYPE" == cygwin* ]]; then echo "skip timing/flush_latency (Windows: select() nao funciona em pipes)"
+elif command -v python3 >/dev/null 2>&1; then
     if python3 - "$SPG" timing/flush_latency.spg <<'PYEOF'
 import subprocess, sys, time, select
 st = time.perf_counter()
@@ -199,7 +200,8 @@ err opt_index_oob.spg       'index out of bounds: 7 (array has 3 element(s))'
 # formato interno: nome mangled ('#'/'::') e Debug do Rust (Named(/Array().
 diag() {  # diag <arquivo> <nº de erros> <trecho> [<trecho>...] — TODOS devem aparecer
     f="$1"; n_esperado="$2"; shift 2
-    got=$(spgrun "diag/$f" 2>&1); code=$?
+    raw=$(spgrun "diag/$f" 2>&1); code=$?
+    got=$(echo "$raw" | tr '\\' '/')   # Windows prints lib\x.spg: compare with /
     n=$(echo "$got" | grep -c "^  type error")
     bad=$(echo "$got" | grep -E 'Named\(|Array\(|[a-z]#[0-9a-f]+::|::' | head -1)
     miss=""
