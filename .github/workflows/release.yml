@@ -16,15 +16,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Versão (a partir da tag)
+      - name: Read version from tag
         id: ver
         shell: bash
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Compilar spg
+      - name: Build spg
         run: cargo build --release
 
-      - name: Gerar instalador (Windows)
+      - name: Build installer (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
@@ -36,7 +36,7 @@ jobs:
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=${{ steps.ver.outputs.version }}" "installer/spaghetti.iss"
           Move-Item "installer/spaghetti-${{ steps.ver.outputs.version }}.exe" "release-out/spaghetti-${{ steps.ver.outputs.version }}-windows-setup.exe"
 
-      - name: Empacotar (Linux)
+      - name: Package (Linux)
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
@@ -60,7 +60,7 @@ jobs:
           path: assets
           merge-multiple: true
 
-      - name: Publicar release no repositório público
+      - name: Publish release to the public repository
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           TAG: ${{ github.ref_name }}
@@ -68,4 +68,4 @@ jobs:
           gh release create "$TAG" assets/* \
             --repo lazyCat397/spaghetti-releases \
             --title "Spaghetti $TAG" \
-            --notes "Versão $TAG da linguagem Spaghetti. Baixe o instalador para Windows ou o pacote para Linux."
+            --notes "Spaghetti $TAG. Download the installer for Windows or the package for Linux."
