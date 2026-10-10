@@ -617,6 +617,18 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             let keys: Vec<Value> = map.borrow().entries().iter().map(|(k, _)| k.clone()).collect();
             Value::Array(Rc::new(std::cell::RefCell::new(keys)))
         }
+        MapKeysOf => {
+            let map = as_map(args.remove(0));
+            let needle = args.remove(0);
+            let keys: Vec<Value> = map
+                .borrow()
+                .entries()
+                .iter()
+                .filter(|(_, v)| v.structurally_equal(&needle))
+                .map(|(k, _)| k.clone())
+                .collect();
+            Value::Array(Rc::new(std::cell::RefCell::new(keys)))
+        }
         MapValues => {
             let map = as_map(args.remove(0));
             let values: Vec<Value> = map.borrow().entries().iter().map(|(_, v)| v.clone()).collect();

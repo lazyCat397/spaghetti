@@ -151,6 +151,7 @@ pub enum BuiltinId {
     MapLen,
     MapKeys,
     MapValues,
+    MapKeysOf,
 
     // ---- math ----
     Abs,
@@ -224,6 +225,7 @@ impl BuiltinId {
                 | BuiltinId::MapLen
                 | BuiltinId::MapKeys
                 | BuiltinId::MapValues
+                | BuiltinId::MapKeysOf
         )
     }
 }
@@ -481,6 +483,7 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
     add("@map.len", BuiltinSig { id: BuiltinId::MapLen, params: vec![Ty::AnyMap], return_type: Ty::Int });
     add("@map.keys", BuiltinSig { id: BuiltinId::MapKeys, params: vec![Ty::AnyMap], return_type: Ty::AnyArray });
     add("@map.values", BuiltinSig { id: BuiltinId::MapValues, params: vec![Ty::AnyMap], return_type: Ty::AnyArray });
+    add("@map.keysOf", BuiltinSig { id: BuiltinId::MapKeysOf, params: vec![Ty::AnyMap, Ty::Any], return_type: Ty::AnyArray });
 
     // ---- math ----
     add("@math.abs", BuiltinSig { id: BuiltinId::Abs, params: vec![Ty::Int], return_type: Ty::Int });

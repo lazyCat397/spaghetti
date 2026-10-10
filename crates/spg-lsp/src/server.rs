@@ -1050,10 +1050,10 @@ mod tests {
     fn at_map_dot_offers_the_map_members() {
         let items = complete_at("compl_map", "let a = @map.\n", 0, 13);
         let labels = labels_of(&items);
-        for member in ["has", "get", "remove", "len", "keys", "values"] {
+        for member in ["has", "get", "remove", "len", "keys", "values", "keysOf"] {
             assert!(labels.iter().any(|l| l == member), "missing {} in {:?}", member, labels);
         }
-        assert_eq!(items.len(), 6, "{:?}", labels);
+        assert_eq!(items.len(), 7, "{:?}", labels);
     }
 
     #[test]

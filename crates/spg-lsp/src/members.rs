@@ -642,7 +642,7 @@ mod tests {
         let st = names(&after_dot(&t, at, &["s".into()], &d));
         assert!(st.iter().any(|n| n == "trim") && st.iter().any(|n| n == "padStart") && !st.iter().any(|n| n == "push"));
         let mp = names(&after_dot(&t, at, &["m".into()], &d));
-        assert_eq!(mp, ["get", "has", "keys", "len", "remove", "values"]);
+        assert_eq!(mp, ["get", "has", "keys", "keysOf", "len", "remove", "values"]);
         assert_eq!(names(&after_dot(&t, at, &["e".into()], &d)), mp, "`[:]` is a map");
         // a struct field of type array<string>
         assert_eq!(names(&after_dot(&t, at, &["l".into(), "tag".into()], &d)), arr);

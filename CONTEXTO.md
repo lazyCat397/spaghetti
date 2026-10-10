@@ -5,7 +5,7 @@ Crates: spg-lexer → spg-parser → **spg-modules** → spg-typecheck → spg-c
 `spg-modules` resolve o grafo de imports e devolve UM `Program` fundido; do typecheck em diante
 nada sabe que existiam vários arquivos.
 
-> **Versão atual: 0.16.0** (spg e extensão alinhados; 0.16.0 = namespace `@json` com 9 funções (seção "`@json`" no fim deste arquivo); 0.15.0 = diretivas de arquivo `#>` (`friendly-terminal`, `timeout N`, `strict`) com LSP e extensão cientes delas (seções "Diretivas de arquivo" no fim deste arquivo); 0.14.0 = `@file` completo: deleteAll, size, modified, bytes; 0.13.0 = `@file` e `@sys`; 0.12.0 = `throw` + `try`/`catch` de verdade; 0.11.0 = métodos nativos `s.len()` / `xs.push(1)` / `m.has(k)`; 0.10.0 = `@str` completo, `@array.pop` vazio vira erro, literal de array homogêneo). 0.8.1 = autocomplete de `p.`/`Struct { ` (só LSP); 0.9.0 = `@array` e `@math` completos (seção "Sessão `@array`/`@math` completos"). 0.6.2 = só ícones novos; 0.7.0 = `map<K,V>` (seção "Sessão `map`"); 0.8.0 = enum com valores + `array == array` + `[]` vazio (seção "Sessão `enum` com valores"). A linguagem voltou a crescer depois de "fechada":
+> **Versão atual: 0.17.0** (spg e extensão alinhados; 0.17.0 = `@map.keysOf(m, valor)` (seção "`@map.keysOf`" no fim deste arquivo); 0.16.0 = namespace `@json` com 9 funções (seção "`@json`" no fim deste arquivo); 0.15.0 = diretivas de arquivo `#>` (`friendly-terminal`, `timeout N`, `strict`) com LSP e extensão cientes delas (seções "Diretivas de arquivo" no fim deste arquivo); 0.14.0 = `@file` completo: deleteAll, size, modified, bytes; 0.13.0 = `@file` e `@sys`; 0.12.0 = `throw` + `try`/`catch` de verdade; 0.11.0 = métodos nativos `s.len()` / `xs.push(1)` / `m.has(k)`; 0.10.0 = `@str` completo, `@array.pop` vazio vira erro, literal de array homogêneo). 0.8.1 = autocomplete de `p.`/`Struct { ` (só LSP); 0.9.0 = `@array` e `@math` completos (seção "Sessão `@array`/`@math` completos"). 0.6.2 = só ícones novos; 0.7.0 = `map<K,V>` (seção "Sessão `map`"); 0.8.0 = enum com valores + `array == array` + `[]` vazio (seção "Sessão `enum` com valores"). A linguagem voltou a crescer depois de "fechada":
 > veja "Sessão de expansão da linguagem (2026-10-04)" (`'...'`, `a..b`, métodos de struct) e "Sessão `enum` (2026-10-05)" (enum percorrível).
 > Suíte `examples/multi/run.sh`: **290 ok**; LSP 40 testes. `map<K,V>` (0.7.0), `enum` com valores (0.8.0), autocomplete de structs (0.8.1) `@array`/`@math` completos (0.9.0) e `@str` completo (0.10.0) FEITOS. Próximo: ver "Plano da PRÓXIMA sessão" (lacunas do pacote).
 
@@ -936,3 +936,13 @@ Nomes expostos ao .spg em camelCase, sem "_". Prefere eficiência e praticidade.
 - `.vsix` empacotado como na 0.15.0 (`vsce package --no-dependencies --allow-missing-repository --skip-license`); conteúdo conferido contra os arquivos do repositório. Não embute binário.
 - NÃO rodado nesta sessão (precisa do Windows/VSCode do dono): `tools/installer-tests/run.ps1`, a instalação real do `.vsix` e `tools/ext-tests/run.sh`.
 - Decisões em aberto que NÃO foram feitas: dica do `friendly-terminal` também no terminal técnico (princípio dele: só o tom muda); métodos estáticos (descartados por custo/uso); `#> version` (descartado: um download por versão).
+
+## `@map.keysOf` (0.17.0)
+
+- Busca reversa: `@map.keysOf(m, valor)` devolve `array<K>` com TODAS as chaves cujo valor é igual a `valor` (na ordem de inserção). Sem achado = array vazio (não é erro). Empate = várias chaves, sem "último ganha".
+- Assinatura no checker: segundo argumento tem o tipo do VALOR do map (`check_map_call`, mesmo `want` do `@map.get`). Erro de tipo: `'@map.keysOf' argument #2 expects int, got string`.
+- Igualdade: `Value::structurally_equal` (mesma regra de `@array.contains`/`indexOf`). Como é O(n) como o `contains`, não há índice reverso.
+- Aparece sozinho no autocomplete (`@map.` agora lista 7; `m.` também, via tabela de builtins).
+- Testes: `ok/map_keysof.spg` (inclui empate, chave bool/int, vazio, forma `m.keysOf(v)`), `err/map_keysof_tipo.spg`; LSP `at_map_dot` 6 -> 7 e lista de `m.` atualizada. Suíte 324 ok.
+- Empacotamento: `dist/spaghetti-0.17.0.vsix` (o 0.16.0 foi removido do dist). A extensão não mudou além da versão (a lógica de autocomplete vem do LSP do binário).
+

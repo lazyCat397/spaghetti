@@ -269,6 +269,7 @@ err install_no_ext.spg        "must end in '.spg'"
 ok map_basic.spg  '[ana: 31, bia: 26, caio: 41]\n31 3 true false\n-1 26\n[ana, bia, caio] [31, 26, 41]\ntrue false\n[ana: 31, caio: 41] 72\n[ana, caio, bia]\n[:] 0 0\n[1: c, 2: b]'
 ok map_forms.spg  'g\n[1: [1, 2], 2: [99]]\n6\n4\n2\n3\n[5: 2, 10: 7]\ntrue'
 ok map_multi.spg  '3 axe 2\n2\n9'
+ok map_keysof.spg '[Ovos, Café]\n[Manteiga] []\n[1, 3] 2\n[Leite]\n[]'
 err map_float_key.spg       "map keys must be int, string, bool or an enum, found float" "line 2, column 8"
 err map_key_mismatch.spg    "this map's keys are string, found int" "line 2, column 8"
 err map_value_mismatch.spg  "this map's values are int, found string" "line 2, column 8"
@@ -278,6 +279,7 @@ err map_untyped_empty.spg   "cannot tell what '[:]' holds" "let m: map<string, i
 err map_get_fallback.spg    "'@map.get' argument #3 expects int, got string"
 err map_not_a_map.spg       "'@map.len' argument #1 expects map<any, any>, got array<int>"
 err map_missing_key.spg     'key not found in map: "zz"' "@map.has"
+err map_keysof_tipo.spg      "'@map.keysOf' argument #2 expects int, got string" "line 2, column 18"
 err map_missing_compound.spg 'key not found in map: "zz"'
 err map_parse_colon.spg     "expected ']'" "line 1, column 14"
 diag map_mangled.spg 2 "declared type is map<string, Item> but value is map<int, Item>" "this map's values are int, found Item"
