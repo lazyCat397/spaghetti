@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use spg_parser::ast::{self as p, BinaryOp, Expr, Param, Stmt, TypeExpr, UnaryOp};
 
-use crate::builtins::{builtin_signatures, BuiltinId};
+use crate::builtins::{builtin_signatures, method_namespace, BuiltinId};
 use crate::error::TypeError;
 use crate::typed_ast::{RangeStep, Ty, TypedBlock, TypedExpr, TypedProgram, TypedStmt};
 
@@ -377,6 +377,19 @@ impl Checker {
                 builtin: Some(BuiltinId::EnumToString),
             });
         }
+        // `@into.string(x)` for any type with no overload of its own (array, map,
+        // struct, ...): the same text `print` shows
+        if name == "@into.string"
+            && typed_args.len() == 1
+            && !matches!(typed_args[0].ty(), Ty::Int | Ty::Float | Ty::Bool)
+        {
+            return Some(TypedExpr::Call {
+                callee: Box::new(TypedExpr::Ident { name, ty: Ty::String }),
+                args: typed_args,
+                ty: Ty::String,
+                builtin: Some(BuiltinId::AnyToString),
+            });
+        }
         let arg_types: Vec<&Ty> = typed_args.iter().map(|a| a.ty()).collect();
         let matched = overloads.iter().find(|sig| {
             sig.params.len() == arg_types.len()
@@ -494,6 +507,17 @@ impl Checker {
     /// caller wrote, never `me`.
     fn check_method_call(&mut self, object: &Expr, method: &str, args: &[Expr], pos: &p::Pos) -> Option<TypedExpr> {
         let typed_object = self.check_expr(object)?;
+        // `x.string()`, `x.int()`, `x.float()`: shorthand for `@into.string(x)` etc. on
+        // any value; a struct's own method of the same name wins
+        if matches!(method, "string" | "int" | "float") && args.is_empty() {
+            let user_method = match typed_object.ty() {
+                Ty::Named(n) => self.functions.contains_key(&format!("{}.{}", n, method)),
+                _ => false,
+            };
+            if !user_method {
+                return self.check_builtin_call(format!("@into.{}", method), vec![typed_object], pos);
+            }
+        }
         if self.is_enum_ty(typed_object.ty()) {
             self.errors.push(TypeError::NoMethodsOnType {
                 found: typed_object.ty().clone(),
@@ -502,16 +526,19 @@ impl Checker {
             });
             return None;
         }
-        // `s.len()`, `xs.push(1)`, `m.has(k)`: the methods of a string, array or map are
-        // the builtins of `@str` / `@array` / `@map` that take it first
-        let native = match typed_object.ty() {
-            Ty::String => Some("str"),
-            Ty::Array(_) => Some("array"),
-            Ty::Map(..) => Some("map"),
-            _ => None,
-        };
-        if let Some(ns) = native {
+        // `s.len()`, `xs.push(1)`, `m.has(k)`, `n.abs()`, `f.sqrt()`: the methods of a
+        // value are the builtins of the method namespaces that take it first
+        let receiver_ty = typed_object.ty().clone();
+        if let Some(ns) = method_namespace(&receiver_ty, method) {
             return self.check_native_method(typed_object, ns, method, args, pos);
+        }
+        if matches!(receiver_ty, Ty::String | Ty::Array(_) | Ty::Map(..) | Ty::Int | Ty::Float) {
+            self.errors.push(TypeError::NoSuchNativeMethod {
+                found: receiver_ty,
+                method: method.to_string(),
+                pos: pos.clone(),
+            });
+            return None;
         }
         let struct_name = match typed_object.ty() {
             Ty::Named(n) => n.clone(),
@@ -588,6 +615,9 @@ impl Checker {
             Stmt::Let { name, type_ann, value, exported, pos } => {
                 let typed_value = self.check_expr(value)?;
                 let inferred = typed_value.ty().clone();
+                if inferred == Ty::Void {
+                    self.errors.push(TypeError::VoidValue { pos: pos.clone() });
+                }
 
                 let final_ty = if let Some(ann) = type_ann {
                     let declared = resolve_type_expr(ann);
@@ -613,6 +643,9 @@ impl Checker {
             Stmt::Const { name, type_ann, value, exported, pos } => {
                 let typed_value = self.check_expr(value)?;
                 let inferred = typed_value.ty().clone();
+                if inferred == Ty::Void {
+                    self.errors.push(TypeError::VoidValue { pos: pos.clone() });
+                }
 
                 let final_ty = if let Some(ann) = type_ann {
                     let declared = resolve_type_expr(ann);
@@ -1756,7 +1789,7 @@ fn resolve_wildcard_return(declared_return: &Ty, params: &[Ty], arg_types: &[&Ty
 /// matches every type; `AnyArray` (builtins only) matches `array<T>` for
 /// any T; every other pair must match exactly — no implicit numeric
 /// coercion in v1.0.
-fn ty_matches(expected: &Ty, found: &Ty) -> bool {
+pub(crate) fn ty_matches(expected: &Ty, found: &Ty) -> bool {
     match expected {
         Ty::Any => true,
         Ty::AnyArray => matches!(found, Ty::Array(_)),

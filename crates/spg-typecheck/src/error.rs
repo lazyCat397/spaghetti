@@ -108,6 +108,10 @@ pub enum TypeError {
     /// `let m = [:]` with nothing to say what the map holds
     EmptyMapNeedsType { pos: Pos },
 
+    /// `let x = <expr>` / `const` where the value has type void (e.g. an `if`
+    /// whose branches only call print): there is no value to store
+    VoidValue { pos: Pos },
+
     /// `arr[i] = value` where `value`'s type disagrees with the array's
     /// element type
     IndexAssignTypeMismatch { expected: Ty, found: Ty, pos: Pos },
@@ -192,6 +196,7 @@ impl TypeError {
             | TypeError::MapKeyMismatch { pos, .. }
             | TypeError::MapValueMismatch { pos, .. }
             | TypeError::EmptyMapNeedsType { pos, .. }
+            | TypeError::VoidValue { pos, .. }
             | TypeError::ArrayFillType { pos, .. }
             | TypeError::ArrayItemMismatch { pos, .. }
             | TypeError::IndexAssignTypeMismatch { pos, .. }
@@ -373,6 +378,10 @@ impl fmt::Display for TypeError {
                 f, "{}@array.fill repeats ONE value, so it only takes int, float, bool or string (an array or struct would be shared, not copied), found {}",
                 self.location(), found
             ),
+            TypeError::VoidValue { .. } => write!(
+                f, "{}this expression has no value (void), so it cannot be stored in a variable",
+                self.location()
+            ),
             TypeError::EmptyMapNeedsType { .. } => write!(
                 f, "{}cannot tell what '[:]' holds; write the type, e.g. 'let m: map<string, int> = [:]'",
                 self.location()
@@ -425,17 +434,23 @@ impl fmt::Display for TypeError {
                 f, "{}'catch' receives the thrown string, so its variable is a string; write 'catch (e)' or 'catch (e: string)', not {}",
                 self.location(), found
             ),
-            TypeError::NoSuchNativeMethod { found, method, .. } => {
-                let ns = match found {
-                    Ty::String => "@str",
-                    Ty::Array(_) => "@array",
-                    _ => "@map",
-                };
-                write!(
-                    f, "{}type {} has no method '{}': its methods are the {} functions that take it first (xs.len() is {}.len(xs))",
-                    self.location(), found, method, ns, ns
-                )
-            }
+            TypeError::NoSuchNativeMethod { found, method, .. } => match found {
+                Ty::Int | Ty::Float => write!(
+                    f, "{}type {} has no method '{}': its methods are the @math and @into functions that take it first (x.abs() is @math.abs(x))",
+                    self.location(), found, method
+                ),
+                _ => {
+                    let ns = match found {
+                        Ty::String => "@str",
+                        Ty::Array(_) => "@array",
+                        _ => "@map",
+                    };
+                    write!(
+                        f, "{}type {} has no method '{}': its methods are the {} functions that take it first (xs.len() is {}.len(xs))",
+                        self.location(), found, method, ns, ns
+                    )
+                }
+            },
             TypeError::MethodNotCalled { struct_name, method, .. } => write!(
                 f, "{}'{}' is a method of struct '{}', not a field; call it with '.{}()'",
                 self.location(), method, display_name(struct_name), method

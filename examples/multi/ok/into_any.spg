@@ -1,0 +1,14 @@
+enum Cor { Vermelho, Verde }
+struct P { x: int, y: int }
+let arr: array<string> = ["a", "b"]
+let m: map<string, int> = ["ana": 1]
+let p: P = P { x: 1, y: 2 }
+print(@into.string(arr))
+print(@into.string([1, 2, 3]))
+print(@into.string(m))
+print(@into.string(p))
+print(@into.string(Cor.Verde))
+print(@into.string(true), @into.string(3), @into.string(2.5))
+print(@into.string("texto") + "!")
+let s: string = @into.string(arr)
+print(s.len())

@@ -56,6 +56,8 @@ pub enum BuiltinId {
     BoolToString,
     /// `@into.string(enumValue)` — chosen by the checker (no table entry)
     EnumToString,
+    /// `@into.string(x)` for any other type: the same text `print` shows
+    AnyToString,
 
     // ---- arrays ----
     ArrayLenBuiltin,
@@ -637,4 +639,66 @@ pub fn renamed_namespace_call(old_ns: &str, member: &str) -> Option<String> {
         _ => return None,
     };
     builtin_signatures().contains_key(&new).then_some(new)
+}
+
+/// the namespaces whose functions can be called as methods: `x.fn(...)` is
+/// `@ns.fn(x, ...)` whenever the first parameter of `@ns.fn` takes `x`
+pub const METHOD_NAMESPACES: [&str; 5] = ["str", "array", "map", "math", "into"];
+
+/// builtins that never act as methods even though their first parameter is an
+/// int or float: constants, a random source, and the two builders whose first
+/// argument is a count or a bound, not a receiver
+pub const NOT_METHOD_BUILTINS: [&str; 6] = [
+    "@math.pi",
+    "@math.e",
+    "@math.tau",
+    "@math.random",
+    "@array.range",
+    "@array.fill",
+];
+
+/// the namespace (of `METHOD_NAMESPACES`) whose function `method` takes a value
+/// of type `ty` as its first argument: `x.abs()` for an int is `@math.abs(x)`.
+/// `None` when no such function exists. A namespace listed earlier wins, and
+/// the table has no name shared by two namespaces for the same receiver type.
+pub fn method_namespace(ty: &Ty, method: &str) -> Option<&'static str> {
+    let table = builtin_signatures();
+    METHOD_NAMESPACES.iter().copied().find(|ns| {
+        let name = format!("@{}.{}", ns, method);
+        !NOT_METHOD_BUILTINS.contains(&name.as_str())
+            && table.get(&name).map_or(false, |overloads| {
+                overloads
+                    .iter()
+                    .any(|sig| sig.params.first().map_or(false, |p| crate::checker::ty_matches(p, ty)))
+            })
+    })
+}
+
+/// every method a value of type `ty` has, sorted by name, as
+/// `(name, parameters after the receiver, return type)`. Each name is taken
+/// from the first overload that takes `ty` first, so `x.min(y)` on an int
+/// shows the int overload. Used by the LSP to offer the methods of numbers.
+pub fn methods_of(ty: &Ty) -> Vec<(String, Vec<Ty>, Ty)> {
+    let mut out: Vec<(String, Vec<Ty>, Ty)> = Vec::new();
+    for (name, overloads) in builtin_signatures() {
+        let Some(short) = name
+            .strip_prefix('@')
+            .and_then(|rest| rest.split_once('.'))
+            .filter(|(ns, _)| METHOD_NAMESPACES.contains(ns))
+            .map(|(_, short)| short.to_string())
+        else {
+            continue;
+        };
+        if NOT_METHOD_BUILTINS.contains(&name.as_str()) {
+            continue;
+        }
+        if let Some(sig) = overloads
+            .iter()
+            .find(|sig| sig.params.first().map_or(false, |p| crate::checker::ty_matches(p, ty)))
+        {
+            out.push((short, sig.params[1..].to_vec(), sig.return_type.clone()));
+        }
+    }
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
 }

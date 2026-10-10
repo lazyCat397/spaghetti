@@ -1092,7 +1092,15 @@ impl Parser {
             } else if self.check(&TokenKind::Dot) {
                 let pos = self.peek_pos();
                 self.advance(); // .
-                let field = self.parse_ident_name()?;
+                // `x.string()`, `x.int()`, `x.float()`: the type keywords are also
+                // method names after a dot (the other names are not affected)
+                let field = match self.peek().kind {
+                    TokenKind::TypeInt | TokenKind::TypeFloat | TokenKind::TypeString | TokenKind::TypeBool => {
+                        let name = self.parse_member_name()?;
+                        name
+                    }
+                    _ => self.parse_ident_name()?,
+                };
 
                 expr = Expr::Field { object: Box::new(expr), field, pos };
             } else {

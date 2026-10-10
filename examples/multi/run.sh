@@ -134,7 +134,7 @@ err method_field_called.spg   "'x' is a field of struct 'P', not a method"
 err method_arity_few.spg      "'P.add' expects 1 argument(s), got 0"
 err method_arity_many.spg     "'P.add' expects 1 argument(s), got 2"
 err method_argtype.spg        "'P.add' argument #1 expects int, got string"
-err method_on_int.spg         "type int has no methods (cannot call '.get()' on it)"
+err method_on_int.spg         "type int has no method 'get'" "@math and @into functions that take it first"
 err method_not_called.spg     "'get' is a method of struct 'P', not a field; call it with '.get()'"
 err method_field_clash.spg    "struct 'Q' has both a field and a method named 'x'" '(line 3, column 5)'
 err method_me_param.spg       "'me' is already declared in this scope"
@@ -272,6 +272,8 @@ ok map_basic.spg  '[ana: 31, bia: 26, caio: 41]\n31 3 true false\n-1 26\n[ana, b
 ok map_forms.spg  'g\n[1: [1, 2], 2: [99]]\n6\n4\n2\n3\n[5: 2, 10: 7]\ntrue'
 ok map_multi.spg  '3 axe 2\n2\n9'
 ok map_keysof.spg '[Ovos, Café]\n[Manteiga] []\n[1, 3] 2\n[Leite]\n[]'
+ok into_any.spg       '[a, b]\n[1, 2, 3]\n[ana: 1]\nP { x: 1, y: 2 }\nVerde\ntrue 3 2.5\ntexto!\n6'
+ok into_methods.spg   '[a, b] 42 2.5 true Verde\n18 7 10.5\nP { x: 1, y: 2 } 1'
 err map_float_key.spg       "map keys must be int, string, bool or an enum, found float" "line 2, column 8"
 err map_key_mismatch.spg    "this map's keys are string, found int" "line 2, column 8"
 err map_value_mismatch.spg  "this map's values are int, found string" "line 2, column 8"
@@ -282,6 +284,9 @@ err map_get_fallback.spg    "'@map.get' argument #3 expects int, got string"
 err map_not_a_map.spg       "'@map.len' argument #1 expects map<any, any>, got array<int>"
 err map_missing_key.spg     'key not found in map: "zz"' "@map.has"
 err map_keysof_tipo.spg      "'@map.keysOf' argument #2 expects int, got string" "line 2, column 18"
+err let_void.spg             "this expression has no value (void)" "line 1, column 1"
+err const_void.spg           "this expression has no value (void)" "line 1, column 1"
+err into_method_int.spg     "'@into.int' argument #1 expects float, got int" "line 2, column 12"
 err map_missing_compound.spg 'key not found in map: "zz"'
 err map_parse_colon.spg     "expected ']'" "line 1, column 14"
 diag map_mangled.spg 2 "declared type is map<string, Item> but value is map<int, Item>" "this map's values are int, found Item"
@@ -389,6 +394,7 @@ exit124 dir_timeout_sleep.spg   ''
 ok json_basic.spg  'spg\n3\ntrue\nb\n1.5\nnull\n["a","b"]\narray\nnull\ntrue\nfalse\n2\n5\n[x, z]\ntrue\nfalse\n4\nsem q'
 ok json_make.spg   '{"name":"lamp","qty":2,"price":9.5,"kind":"Toy","tags":["a","b"]}\n{"a":1,"b":2}\n[1,2,3]\n"oi"\n1.0\n{\n  "name": "lamp",\n  "qty": 2,\n  "price": 9.5,\n  "kind": "Toy",\n  "tags": [\n    "a",\n    "b"\n  ]\n}'
 ok json_set.spg    '{\n    "version": "0.15.0",\n    "items": [\n        1,\n        2,\n        3\n    ],\n    "author": "ana"\n}\n{"a":2}\n{"a":1,"tags":["x","y"]}\n3'
+ok methods_numeric.spg '7\n2.5\n3\n9\n2.5\n9.5\nNaN\n4\n3\n1\n0.7853981633974483\n1\n9\n-1\n-7\n-2\n-7\n-2.5\ntrue\n3\nOLÁ\n3\n6\na-b'
 err json_missing.spg  "@json.get: path not found: 'b'" "has no key 'b'"
 err json_invalid.spg  'invalid JSON: expected a string key' 'line 1, column'
 err json_friendly.spg 'Oops! @json.get: path not found'

@@ -442,6 +442,29 @@ fn members_of(ty: &str, decls: &Decls) -> Vec<Member> {
     if let Some(ns) = native_namespace(ty) {
         return native_methods(ns);
     }
+    // numbers and bools: every function of the method namespaces that takes that type first
+    let prim = match ty {
+        "int" => Some(spg_typecheck::typed_ast::Ty::Int),
+        "float" => Some(spg_typecheck::typed_ast::Ty::Float),
+        "bool" => Some(spg_typecheck::typed_ast::Ty::Bool),
+        _ => None,
+    };
+    if let Some(t) = prim {
+        return spg_typecheck::builtins::methods_of(&t)
+            .into_iter()
+            .map(|(name, params, ret)| Member {
+                detail: format!(
+                    "{}({}) -> {}",
+                    name,
+                    params.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", "),
+                    ret
+                ),
+                name,
+                kind: KIND_METHOD,
+                insert: None,
+            })
+            .collect();
+    }
     if let Some(info) = decls.structs.get(ty) {
         for (n, t) in &info.fields {
             out.push(Member { name: n.clone(), detail: t.clone(), kind: KIND_FIELD, insert: None });
@@ -603,7 +626,7 @@ mod tests {
         let param = format!("{}function f(q: Point, n: int) {{\n    q.\n}}\n", SRC);
         let (t, at, d) = setup(&param, 10, 6);
         assert_eq!(names(&after_dot(&t, at, &["q".into()], &d)), ["x", "y", "len2", "shift"]);
-        assert!(after_dot(&t, at, &["n".into()], &d).is_empty(), "an int has no members");
+        assert!(names(&after_dot(&t, at, &["n".into()], &d)).iter().any(|n| n == "abs"), "an int offers its @math methods");
 
         let global = format!("{}let g = origin()\nfunction f() {{\n    g.\n}}\n", SRC);
         let (t, at, d) = setup(&global, 11, 6);
@@ -621,7 +644,7 @@ mod tests {
         assert_eq!(names(&after_dot(&t, at, &["l".into(), "a".into()], &d)).len(), 4);
         let tag = names(&after_dot(&t, at, &["l".into(), "tag".into()], &d));
         assert!(tag.iter().any(|n| n == "push"), "array<string> offers the array methods: {:?}", tag);
-        assert!(after_dot(&t, at, &["l".into(), "a".into(), "x".into()], &d).is_empty(), "an int field has no members");
+        assert!(names(&after_dot(&t, at, &["l".into(), "a".into(), "x".into()], &d)).iter().any(|n| n == "abs"), "an int field offers its @math methods");
         assert_eq!(names(&after_dot(&t, at, &["c".into()], &d)), ["value"]);
         assert_eq!(names(&after_dot(&t, at, &["Color".into(), "Red".into()], &d)), ["value"]);
     }

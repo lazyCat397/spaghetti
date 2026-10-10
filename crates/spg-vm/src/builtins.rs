@@ -582,6 +582,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
         FloatToString => Value::String(Rc::new(as_float(args.remove(0)).to_string())),
         // the variant's name (`Value`'s Display prints exactly that)
         EnumToString => Value::String(Rc::new(args.remove(0).to_string())),
+        AnyToString => Value::String(Rc::new(args.remove(0).to_string())),
         BoolToString => Value::String(Rc::new(match args.remove(0) {
             Value::Bool(b) => b.to_string(),
             other => panic!("VM bug: builtin expected bool, got {}", other.type_name()),

@@ -1,0 +1,5 @@
+let hasItem = if (true) {
+    print("a")
+} else {
+    print("b")
+}

@@ -1,0 +1,31 @@
+let i: int = -7
+let f: float = -2.5
+print(i.abs())
+print(f.abs())
+print(3.min(9))
+print(3.max(9))
+print(2.5.min(9.5))
+print(2.5.max(9.5))
+print(f.sqrt())
+print(16.0.sqrt())
+print(5.clamp(0, 3))
+print(2.5.clamp(0.0, 1.0))
+print(1.0.atan2(1.0))
+print(0.5.round())
+print(9.7.floor())
+print(-3.sign())
+print(i.float())
+print(f.int())
+print(i.string())
+print(f.string())
+let b: bool = true
+print(b.string())
+let s: string = "olá"
+print(s.len())
+print(s.toUpper())
+let xs: array<int> = [3, 1, 2]
+print(xs.len())
+print(xs.sum())
+xs.push(4)
+let ws: array<string> = ["a", "b"]
+print(ws.join("-"))

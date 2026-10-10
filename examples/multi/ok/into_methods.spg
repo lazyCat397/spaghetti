@@ -1,0 +1,13 @@
+enum Cor { Vermelho, Verde }
+struct P {
+    x: int,
+    y: int
+}
+let arr: array<string> = ["a", "b"]
+let n: int = 42
+let f: float = 2.5
+let s: string = "17"
+print(arr.string(), n.string(), f.string(), true.string(), Cor.Verde.string())
+print(s.int() + 1, "3.5".float() * 2.0, n.float() / 4.0)
+let p: P = P { x: 1, y: 2 }
+print(p.string(), p.x)

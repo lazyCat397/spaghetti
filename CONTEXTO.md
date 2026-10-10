@@ -5,7 +5,7 @@ Crates: spg-lexer → spg-parser → **spg-modules** → spg-typecheck → spg-c
 `spg-modules` resolve o grafo de imports e devolve UM `Program` fundido; do typecheck em diante
 nada sabe que existiam vários arquivos.
 
-> **Versão atual: 0.17.1** (spg e extensão alinhados; 0.17.1 = release de teste do script `update-spg.bat`, sem mudança de linguagem; 0.17.0 = `@map.keysOf(m, valor)` (seção "`@map.keysOf`" no fim deste arquivo); 0.16.0 = namespace `@json` com 9 funções (seção "`@json`" no fim deste arquivo); 0.15.0 = diretivas de arquivo `#>` (`friendly-terminal`, `timeout N`, `strict`) com LSP e extensão cientes delas (seções "Diretivas de arquivo" no fim deste arquivo); 0.14.0 = `@file` completo: deleteAll, size, modified, bytes; 0.13.0 = `@file` e `@sys`; 0.12.0 = `throw` + `try`/`catch` de verdade; 0.11.0 = métodos nativos `s.len()` / `xs.push(1)` / `m.has(k)`; 0.10.0 = `@str` completo, `@array.pop` vazio vira erro, literal de array homogêneo). 0.8.1 = autocomplete de `p.`/`Struct { ` (só LSP); 0.9.0 = `@array` e `@math` completos (seção "Sessão `@array`/`@math` completos"). 0.6.2 = só ícones novos; 0.7.0 = `map<K,V>` (seção "Sessão `map`"); 0.8.0 = enum com valores + `array == array` + `[]` vazio (seção "Sessão `enum` com valores"). A linguagem voltou a crescer depois de "fechada":
+> **Versão atual: 0.18.0** (spg e extensão alinhados; 0.18.0 = todas as funções de `@str`, `@array`, `@map`, `@math` e `@into` chamáveis como método (`x.fn(...)`), inclusive em int e float (seção \"Métodos em todos os namespaces\" no fim deste arquivo); 0.17.4 = atalhos `x.string()`, `x.int()`, `x.float()` para `@into.*` (qualquer valor; sem argumentos); o parser aceita essas palavras de tipo depois de `.`; `function string()` em struct continua impossível (palavra reservada). 0.17.3 = `@into.string(x)` aceita QUALQUER tipo (array, map, struct, enum...), com o mesmo texto de `print` (builtin `AnyToString`); int/float/bool seguem com o overload próprio. 0.17.2 = `let`/`const` com valor void vira erro de tipo (VoidValue) em vez de "VM bug: operand stack underflow"; ex.: `let x = if (c) { print(..) } else { print(..) }`. 0.17.1 = release de teste do `update-spg.bat`; 0.17.0 = `@map.keysOf(m, valor)` (seção "`@map.keysOf`" no fim deste arquivo); 0.16.0 = namespace `@json` com 9 funções (seção "`@json`" no fim deste arquivo); 0.15.0 = diretivas de arquivo `#>` (`friendly-terminal`, `timeout N`, `strict`) com LSP e extensão cientes delas (seções "Diretivas de arquivo" no fim deste arquivo); 0.14.0 = `@file` completo: deleteAll, size, modified, bytes; 0.13.0 = `@file` e `@sys`; 0.12.0 = `throw` + `try`/`catch` de verdade; 0.11.0 = métodos nativos `s.len()` / `xs.push(1)` / `m.has(k)`; 0.10.0 = `@str` completo, `@array.pop` vazio vira erro, literal de array homogêneo). 0.8.1 = autocomplete de `p.`/`Struct { ` (só LSP); 0.9.0 = `@array` e `@math` completos (seção "Sessão `@array`/`@math` completos"). 0.6.2 = só ícones novos; 0.7.0 = `map<K,V>` (seção "Sessão `map`"); 0.8.0 = enum com valores + `array == array` + `[]` vazio (seção "Sessão `enum` com valores"). A linguagem voltou a crescer depois de "fechada":
 > veja "Sessão de expansão da linguagem (2026-10-04)" (`'...'`, `a..b`, métodos de struct) e "Sessão `enum` (2026-10-05)" (enum percorrível).
 > Suíte `examples/multi/run.sh`: **290 ok**; LSP 40 testes. `map<K,V>` (0.7.0), `enum` com valores (0.8.0), autocomplete de structs (0.8.1) `@array`/`@math` completos (0.9.0) e `@str` completo (0.10.0) FEITOS. Próximo: ver "Plano da PRÓXIMA sessão" (lacunas do pacote).
 
@@ -945,4 +945,31 @@ Nomes expostos ao .spg em camelCase, sem "_". Prefere eficiência e praticidade.
 - Aparece sozinho no autocomplete (`@map.` agora lista 7; `m.` também, via tabela de builtins).
 - Testes: `ok/map_keysof.spg` (inclui empate, chave bool/int, vazio, forma `m.keysOf(v)`), `err/map_keysof_tipo.spg`; LSP `at_map_dot` 6 -> 7 e lista de `m.` atualizada. Suíte 324 ok.
 - Empacotamento: `dist/spaghetti-0.17.0.vsix` (o 0.16.0 foi removido do dist). A extensão não mudou além da versão (a lógica de autocomplete vem do LSP do binário).
+
+## Métodos em todos os namespaces (2026-10-10) — CONCLUÍDA (v0.17.4 → v0.18.0)
+
+### O que existe agora
+- `x.fn(args)` vale para toda função de `@str`, `@array`, `@map`, `@math` e `@into` cujo PRIMEIRO parâmetro aceita o tipo de `x`. Ex.: `n.abs()` = `@math.abs(n)`, `f.sqrt()` = `@math.sqrt(f)`, `3.min(9)` = `@math.min(3, 9)`, `2.5.max(9.5)` (overload float), `y.atan2(x)`, `v.clamp(0, 10)`, `f.round()`, `n.sign()`.
+- Overload por tipo continua valendo: `min`/`max`/`abs`/`sign`/`clamp` escolhem o overload int ou float pelo receptor.
+- Sem coerção: `5.sqrt()` é erro (sqrt aceita só float); use `5.0.sqrt()` ou `n.float().sqrt()`.
+- Exclusões (`NOT_METHOD_BUILTINS` em `builtins.rs`): `@math.pi`, `@math.e`, `@math.tau`, `@math.random` (constantes/fonte, não têm receptor) e `@array.range`, `@array.fill` (o primeiro argumento é contagem/limite, não receptor). `5.pi()` e `5.range(10)` dão erro "no method".
+- `@file`, `@sys`, `@time` e `@json` NÃO entram (decisão dele: não são de valor).
+- Atalhos `x.string()`, `x.int()`, `x.float()` seguem como antes (checados antes do lookup geral; método de struct do mesmo nome ainda vence).
+- Pegadinha: `-3.sign()` é `-(3.sign())`, porque o `-` unário se aplica DEPOIS do método (igual ao Rust). Para negativo use `(-3).sign()`.
+
+### Como foi feito (para não refazer)
+- Uma única fonte da verdade: a tabela de builtins. `method_namespace(ty, nome)` (em `spg-typecheck/src/builtins.rs`) acha o namespace cuja função `nome` aceita `ty` primeiro (ordem `str, array, map, math, into`). `methods_of(ty)` lista os métodos de um tipo (usado pelo LSP).
+- `checker.rs::check_method_call`: o `match` fixo de String/Array/Map virou esse lookup. Os tipos sem namespace (bool, struct, enum, void) seguem pelos caminhos antigos. `ty_matches` virou `pub(crate)`.
+- O despacho reaproveita `check_native_method` (que já existia): o receptor é o argumento #0 e as checagens de overload/aridade são as mesmas da chamada normal.
+- Erro `NoSuchNativeMethod` ganhou mensagem para int/float (aponta `@math` e `@into`, com exemplo `x.abs() is @math.abs(x)`).
+- LSP: `members_of` para `int`/`float`/`bool` usa `methods_of`, então `n.` lista abs, min, max, sqrt..., e `f.` lista int, string.... String/array/map continuam pela lista antiga (a lista de map é comparada exatamente nos testes).
+
+### Testes
+- Suíte multi: 331 → 333 ok (1 expectativa atualizada: `err/method_on_int.spg`, que fixava a mensagem antiga "has no methods"; 1 teste novo: `ok/methods_numeric.spg`, cobre int/float/overloads/string/array/join).
+- LSP: 43 ok (2 testes atualizados: "um int não tem membros" virou "um int oferece @math"; eram o comportamento antigo).
+- Erros provados à mão: `5.pi()`, `5.range(10)`, `5.fill(0)`, `5.nope()`, `true.abs()`, `2.5.repeat(2)`, `5.sqrt(1)`, `5.string(1)`.
+- Não rodada: a suíte completa do `cargo test --workspace` (o pedido foi não gastar esforço nos ~400 testes já verdes). Rodados: suíte multi inteira (331 → 333) e `cargo test -p spg-lsp`.
+
+### Ideias NÃO feitas (não assumir)
+- Mensagem para `5.sqrt()`: hoje diz "no method 'sqrt'", mas sqrt existe para float; dá para dizer "sqrt takes a float, use 5.0.sqrt()" se ele quiser.
 
