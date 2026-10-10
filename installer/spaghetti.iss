@@ -1,10 +1,11 @@
-; Instalador do Spaghetti (Inno Setup 6). Não exige administrador.
-; O workflow copia spg.exe e spaghetti.vsix para installer\payload\ antes de compilar.
+; Spaghetti installer (Inno Setup 6). Does not require administrator rights.
+; The workflow copies spg.exe and spaghetti.vsix into installer\payload\ before compiling.
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0"
 #endif
 
 [Setup]
+AppId={{4A6E6493-9857-4957-956D-A7B70D8FF315}
 AppName=Spaghetti
 AppVersion={#MyAppVersion}
 AppPublisher=lazyCat397
@@ -20,14 +21,14 @@ WizardStyle=modern
 UninstallDisplayName=Spaghetti {#MyAppVersion}
 
 [Languages]
-Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
 
 [Tasks]
-Name: "addtopath"; Description: "Adicionar o spg ao PATH (recomendado)"; GroupDescription: "Opções:"
-Name: "assoc"; Description: "Associar arquivos .spg ao Spaghetti"; GroupDescription: "Opções:"
-Name: "vscode"; Description: "Instalar a extensão do VSCode (se ele estiver instalado)"; GroupDescription: "Opções:"
-Name: "desktopicon"; Description: "Criar atalho na área de trabalho"; GroupDescription: "Opções:"; Flags: unchecked
+Name: "addtopath"; Description: "Add spg to PATH (recommended)"; GroupDescription: "Options:"
+Name: "assoc"; Description: "Associate .spg files with Spaghetti"; GroupDescription: "Options:"
+Name: "vscode"; Description: "Install the VSCode extension (if VSCode is installed)"; GroupDescription: "Options:"
+Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Options:"; Flags: unchecked
 
 [Files]
 Source: "payload\spg.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -40,7 +41,7 @@ Name: "{autodesktop}\Spaghetti"; Filename: "{cmd}"; Parameters: "/k spg --help";
 [Registry]
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; Tasks: addtopath; Check: NeedsAddPath(ExpandConstant('{app}'))
 Root: HKCU; Subkey: "Software\Classes\.spg"; ValueType: string; ValueName: ""; ValueData: "SpaghettiFile"; Tasks: assoc; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\SpaghettiFile"; ValueType: string; ValueName: ""; ValueData: "Arquivo Spaghetti"; Tasks: assoc; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SpaghettiFile"; ValueType: string; ValueName: ""; ValueData: "Spaghetti file"; Tasks: assoc; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\SpaghettiFile\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\spg.exe,0"; Tasks: assoc
 Root: HKCU; Subkey: "Software\Classes\SpaghettiFile\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\spg.exe"" ""%1"""; Tasks: assoc
 
