@@ -8,7 +8,44 @@ permissions:
   contents: read
 
 jobs:
+  # gate: nothing is built or published unless the Rust tests and the multi-file suite pass
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust tests
+        run: cargo test --workspace
+
+      - name: Multi-file suite
+        run: bash examples/multi/run.sh
+
+  # the .vsix is generated here, not committed to the repository
+  vsix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check the extension version matches the tag
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          grep -q "\"version\": \"$TAG\"" editors/vscode/package.json
+
+      - name: Package the extension
+        working-directory: editors/vscode
+        run: npx --yes @vscode/vsce package --allow-missing-repository --skip-license -o "$RUNNER_TEMP/spaghetti.vsix"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: ${{ runner.temp }}/spaghetti.vsix
+
   build:
+    needs: [test, vsix]
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest]
@@ -21,6 +58,11 @@ jobs:
         shell: bash
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: vsix
+          path: vsix
+
       - name: Build spg
         run: cargo build --release
 
@@ -32,7 +74,7 @@ jobs:
           New-Item -ItemType Directory -Force installer/payload | Out-Null
           New-Item -ItemType Directory -Force release-out | Out-Null
           Copy-Item target/release/spg.exe installer/payload/spg.exe
-          Copy-Item "dist/spaghetti-${{ steps.ver.outputs.version }}.vsix" installer/payload/spaghetti.vsix
+          Copy-Item vsix/spaghetti.vsix installer/payload/spaghetti.vsix
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=${{ steps.ver.outputs.version }}" "installer/spaghetti.iss"
           Move-Item "installer/spaghetti-${{ steps.ver.outputs.version }}.exe" "release-out/spaghetti-${{ steps.ver.outputs.version }}-windows-setup.exe"
 
@@ -42,7 +84,7 @@ jobs:
         run: |
           mkdir -p pkg/spaghetti release-out
           cp target/release/spg pkg/spaghetti/
-          cp "dist/spaghetti-${{ steps.ver.outputs.version }}.vsix" pkg/spaghetti/spaghetti.vsix
+          cp vsix/spaghetti.vsix pkg/spaghetti/spaghetti.vsix
           cp installer/install-linux.sh pkg/spaghetti/install.sh
           tar -czf "release-out/spaghetti-${{ steps.ver.outputs.version }}-linux.tar.gz" -C pkg spaghetti
 

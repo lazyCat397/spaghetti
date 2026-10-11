@@ -70,6 +70,8 @@ exact1 print_before_error.spg 'a\nE1\nb\nruntime error: division by zero\n  at <
 
 # fused array-index ops (hand-verified values; the OOB errors must keep the exact message)
 ok index_fused.spg       '[3, 2, 15, 7]\n[1.75, 3.25]\n[false, true, true]\n[[1, 12], [3, 3]]\n5\n9'
+err default_before_required.spg 'parameters after one with a default need one too'
+err default_not_literal.spg 'a literal default value'
 err index_fused_oob_addconst.spg 'index out of bounds: 9 (array has 3 element(s))'
 err index_fused_oob_addlocal.spg 'index out of bounds: 9 (array has 3 element(s))'
 err index_fused_oob_setlocal.spg 'index out of bounds: -1 (array has 3 element(s))'
@@ -426,6 +428,7 @@ exact1 trace_lambda.spg 'runtime error: division by zero\n  at t (err/trace_lamb
 
 ok opcional.spg          '1 none\n8 -1\n99 10\ntrue true true false\n6 0\noi Ana\nnone e 10\n[1, none, 3]\n1\n5 0 5 0\n10 0\n7 1'
 ok opt_global_catch.spg  'pegou'
+ok defaults.spg '10 oi -1.5 true\n3 oi -1.5 true\n3 x -1.5 true\n3 x 2 true\n3 x 2 false\n8\n3'
 err opt_aritmetica.spg   'operator Add not supported for int? and int' 'may be none'
 err opt_none_sem_tipo.spg "cannot tell which type 'none' belongs to"
 err opt_para_int.spg     "argument #1 expects int, got int?"

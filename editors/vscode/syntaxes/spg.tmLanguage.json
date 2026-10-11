@@ -31,8 +31,17 @@
       }
     },
     "comments": {
-      "match": "//.*$",
-      "name": "comment.line.double-slash.spg"
+      "patterns": [
+        {
+          "begin": "//\\[\\[",
+          "end": "//\\]\\]",
+          "name": "comment.block.spg"
+        },
+        {
+          "match": "//.*$",
+          "name": "comment.line.double-slash.spg"
+        }
+      ]
     },
     "strings": {
       "begin": "\"",

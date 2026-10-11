@@ -1,0 +1,17 @@
+function this(n: int = 10, s: string = "oi", f: float = -1.5, b: bool = true) {
+    print(n, s, f, b)
+}
+this()
+this(3)
+this(3, "x")
+this(3, "x", 2.0)
+this(3, "x", 2.0, false)
+struct P {
+    v: int
+    function show(k: int = 7) {
+        print(me.v + k)
+    }
+}
+let p = P { v: 1 }
+p.show()
+p.show(2)

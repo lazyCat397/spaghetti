@@ -7,6 +7,7 @@ use std::fmt;
 pub enum LexError {
     UnexpectedChar { ch: char, line: usize, col: usize },
     UnterminatedString { line: usize, col: usize },
+    UnterminatedBlockComment { line: usize, col: usize },
     /// `"${}"`: an interpolation with nothing inside the braces
     EmptyInterpolation { line: usize, col: usize },
     /// `@foo` where `foo` is not a builtin namespace (or a lone `@`)
@@ -48,6 +49,9 @@ impl fmt::Display for LexError {
             }
             LexError::UnterminatedString { line, col } => {
                 write!(f, "unterminated string, started at line {}, column {}", line, col)
+            }
+            LexError::UnterminatedBlockComment { line, col } => {
+                write!(f, "unterminated block comment, started at line {}, column {} (close it with //]])", line, col)
             }
             LexError::UnknownNamespace { name, line, col } => {
                 let list: Vec<String> = crate::NAMESPACES.iter().map(|n| format!("@{}", n)).collect();
@@ -101,6 +105,10 @@ impl LexError {
             LexError::EmptyInterpolation { line, col } => format!(
                 "Oops! Empty `${{}}` in string in `{}` at line {}, column {}. Put an expression between the braces, or write `\\${{` for a literal dollar sign.",
                 file, line, col
+            ),
+            LexError::UnterminatedBlockComment { line, col } => format!(
+                "Oops! The block comment that starts at line {}, column {} in `{}` is never closed. Add `//]]` where it should end.",
+                line, col, file
             ),
             LexError::UnterminatedString { line, col } => format!(
                 "Oops! Unterminated string in `{}` at line {}, column {}. Check for a missing closing quote.",
@@ -225,7 +233,7 @@ impl<'a> Lexer<'a> {
         let mut tokens = Vec::new();
 
         loop {
-            self.skip_whitespace_and_comments();
+            self.skip_whitespace_and_comments()?;
 
             let (line, col) = (self.line, self.col);
 
@@ -266,7 +274,7 @@ impl<'a> Lexer<'a> {
     /// blank lines may sit between them)
     fn read_header(&mut self) -> Result<(), LexError> {
         loop {
-            self.skip_whitespace_and_comments();
+            self.skip_whitespace_and_comments()?;
             if self.peek() == Some('#') && self.peek_next() == Some('>') {
                 self.read_directive()?;
             } else {
@@ -373,11 +381,37 @@ impl<'a> Lexer<'a> {
         Some(ch)
     }
 
-    fn skip_whitespace_and_comments(&mut self) {
+    /// true when the source at `pos + offset` continues with exactly `text`
+    fn at(&self, offset: usize, text: &str) -> bool {
+        text.chars()
+            .enumerate()
+            .all(|(i, c)| self.source.get(self.pos + offset + i) == Some(&c))
+    }
+
+    fn skip_whitespace_and_comments(&mut self) -> Result<(), LexError> {
         loop {
             match self.peek() {
                 Some(c) if c.is_whitespace() => {
                     self.advance();
+                }
+                // block comment: //[[ ... //]]  (no nesting; the first //]] closes it)
+                Some('/') if self.at(0, "//[[") => {
+                    let (line, col) = (self.line, self.col);
+                    for _ in 0..4 {
+                        self.advance();
+                    }
+                    loop {
+                        if self.peek().is_none() {
+                            return Err(LexError::UnterminatedBlockComment { line, col });
+                        }
+                        if self.at(0, "//]]") {
+                            for _ in 0..4 {
+                                self.advance();
+                            }
+                            break;
+                        }
+                        self.advance();
+                    }
                 }
                 Some('/') if self.peek_next() == Some('/') => {
                     // line comment: // ...
@@ -391,6 +425,7 @@ impl<'a> Lexer<'a> {
                 _ => break,
             }
         }
+        Ok(())
     }
 
     fn read_number(&mut self) -> TokenKind {
@@ -975,5 +1010,29 @@ mod directive_args_tests {
                 other => panic!("{:?}: expected UnknownDirective, got {:?}", typo, other),
             }
         }
+    }
+
+    #[test]
+    fn block_comments_hide_code_across_lines() {
+        let src = "print(1)\n//[[ print(2)\n  // inner line comment, no nesting //[[\n//]]\nprint(3) //[[ tail //]] print(4)";
+        let toks: Vec<TokenKind> = Lexer::new(src).tokenize().unwrap().into_iter().map(|t| t.kind).collect();
+        let text = format!("{:?}", toks);
+        assert!(text.contains("Int(1)") && text.contains("Int(3)") && text.contains("Int(4)"));
+        assert!(!text.contains("Int(2)"), "{}", text);
+    }
+
+    #[test]
+    fn unterminated_block_comment_is_an_error_with_its_start() {
+        match Lexer::new("print(1)\n  //[[ never closed\nprint(2)").tokenize() {
+            Err(LexError::UnterminatedBlockComment { line, col }) => assert_eq!((line, col), (2, 3)),
+            other => panic!("expected UnterminatedBlockComment, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn a_closing_marker_alone_is_just_a_line_comment() {
+        let toks: Vec<TokenKind> = Lexer::new("print(1) //]] nothing to close\nprint(2)").tokenize().unwrap().into_iter().map(|t| t.kind).collect();
+        let text = format!("{:?}", toks);
+        assert!(text.contains("Int(2)"), "{}", text);
     }
 }

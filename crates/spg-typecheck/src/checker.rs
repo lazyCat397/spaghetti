@@ -17,6 +17,7 @@ use crate::builtins::{builtin_signatures, method_namespace, BuiltinId};
 use crate::error::TypeError;
 use crate::typed_ast::{RangeStep, SrcLoc, Ty, TypedBlock, TypedExpr, TypedProgram, TypedStmt};
 
+#[derive(Clone)]
 struct FunctionSig {
     params: Vec<Param>,
     return_type: Ty,
@@ -667,10 +668,11 @@ impl Checker {
         }
 
         let full_name = format!("{}.{}", struct_name, method);
-        let (expected_params, expected_return) = match self.functions.get(&full_name) {
+        let (expected_params, expected_return, method_defaults) = match self.functions.get(&full_name).cloned() {
             Some(sig) => (
                 sig.params.iter().skip(1).map(|p| resolve_type_expr(&p.type_ann)).collect::<Vec<Ty>>(),
                 sig.return_type.clone(),
+                sig.params.iter().skip(1).map(|p| p.default.clone()).collect::<Vec<Option<p::Expr>>>(),
             ),
             None => {
                 let is_field = self
@@ -688,7 +690,8 @@ impl Checker {
         };
 
         let given = typed_args.len() - 1;
-        if expected_params.len() != given {
+        let required = method_defaults.iter().filter(|d| d.is_none()).count();
+        if given < required || given > expected_params.len() {
             self.errors.push(TypeError::ArityMismatch {
                 function_name: full_name,
                 expected: expected_params.len(),
@@ -707,6 +710,21 @@ impl Checker {
                     pos: pos.clone(),
                 });
             }
+        }
+        // left-out arguments take the method's default values (same rule as functions)
+        for i in given..expected_params.len() {
+            let Some(default) = method_defaults[i].as_ref() else { break };
+            let Some(typed_default) = self.check_expr(default) else { return None };
+            if !ty_matches(&expected_params[i], typed_default.ty()) {
+                self.errors.push(TypeError::ArgTypeMismatch {
+                    function_name: full_name.clone(),
+                    param_index: i,
+                    expected: expected_params[i].clone(),
+                    found: typed_default.ty().clone(),
+                    pos: pos.clone(),
+                });
+            }
+            typed_args.push(typed_default);
         }
 
         Some(TypedExpr::Call {
@@ -1698,7 +1716,7 @@ impl Checker {
                     return self.check_builtin_call(name, typed_args, pos);
                 }
 
-                let sig = match self.functions.get(&name) {
+                let sig = match self.functions.get(&name).cloned() {
                     Some(sig) => sig,
                     None => {
                         match crate::builtins::migrated_builtin(&name) {
@@ -1715,7 +1733,8 @@ impl Checker {
                 let expected_params: Vec<Ty> = sig.params.iter().map(|p| resolve_type_expr(&p.type_ann)).collect();
                 let expected_return = sig.return_type.clone();
 
-                if expected_params.len() != typed_args.len() {
+                let required = sig.params.iter().filter(|p| p.default.is_none()).count();
+                if typed_args.len() < required || typed_args.len() > expected_params.len() {
                     self.errors.push(TypeError::ArityMismatch {
                         function_name: name.clone(),
                         expected: expected_params.len(),
@@ -1735,6 +1754,24 @@ impl Checker {
                             pos: pos.clone(),
                         });
                     }
+                }
+
+                // arguments the caller left out take the parameter's default value,
+                // checked against the parameter's type like any written argument
+                let mut typed_args = typed_args;
+                for i in typed_args.len()..sig.params.len() {
+                    let Some(default) = sig.params[i].default.as_ref() else { break };
+                    let Some(typed_default) = self.check_expr(default) else { return None };
+                    if !ty_matches(&expected_params[i], typed_default.ty()) {
+                        self.errors.push(TypeError::ArgTypeMismatch {
+                            function_name: name.clone(),
+                            param_index: i,
+                            expected: expected_params[i].clone(),
+                            found: typed_default.ty().clone(),
+                            pos: pos.clone(),
+                        });
+                    }
+                    typed_args.push(typed_default);
                 }
 
                 Some(TypedExpr::Call {

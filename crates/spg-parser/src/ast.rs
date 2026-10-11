@@ -401,6 +401,10 @@ pub enum Stmt {
 pub struct Param {
     pub name: String,
     pub type_ann: TypeExpr, // always required in a signature/field
+    /// `n: int = 10`: a literal used when the caller leaves this argument out.
+    /// Only literals (`10`, `-1.5`, `"x"`, `true`), so the value needs no scope
+    /// of its own. Only named functions and methods may have one.
+    pub default: Option<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

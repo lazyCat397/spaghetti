@@ -561,12 +561,24 @@ impl Parser {
 
         let mut params = Vec::new();
         if !self.check(&TokenKind::RParen) {
-            params.push(self.parse_param()?);
+            params.push(self.parse_param(true)?);
             while self.match_kind(&TokenKind::Comma) {
-                params.push(self.parse_param()?);
+                params.push(self.parse_param(true)?);
             }
         }
         self.expect(TokenKind::RParen, "')'")?;
+        // a parameter with a default may only be followed by others that have one,
+        // otherwise a call could not tell which argument was left out
+        if let Some(gap) = params.iter().position(|p| p.default.is_some()) {
+            if let Some(bad) = params[gap..].iter().find(|p| p.default.is_none()) {
+                return Err(ParseError::Unexpected {
+                    expected: format!("a default value for parameter '{}' (parameters after one with a default need one too)", bad.name),
+                    found: self.peek().kind.clone(),
+                    line: self.peek_pos().line,
+                    col: self.peek_pos().col,
+                });
+            }
+        }
 
         // trailing return type is optional: `-> Type` present keeps the
         // old explicit behavior; absent, the typechecker infers it from
@@ -599,7 +611,7 @@ impl Parser {
                 methods.push(self.parse_method(&name, exported)?);
                 self.match_kind(&TokenKind::Comma);
             } else {
-                fields.push(self.parse_param()?);
+                fields.push(self.parse_param(false)?);
                 if !self.match_kind(&TokenKind::Comma)
                     && !self.check(&TokenKind::RBrace)
                     && !self.check(&TokenKind::Function)
@@ -733,7 +745,7 @@ impl Parser {
     fn parse_method(&mut self, struct_name: &str, exported: bool) -> Result<Stmt, ParseError> {
         match self.parse_function_decl(exported)? {
             Stmt::FunctionDecl { name, mut params, return_type, body, exported, pos } => {
-                params.insert(0, Param { name: "me".to_string(), type_ann: TypeExpr::Named(struct_name.to_string()) });
+                params.insert(0, Param { name: "me".to_string(), type_ann: TypeExpr::Named(struct_name.to_string()), default: None });
                 Ok(Stmt::FunctionDecl {
                     name: format!("{}.{}", struct_name, name),
                     params,
@@ -749,11 +761,45 @@ impl Parser {
 
     /// parameter or struct field: since namespaces now carry an `@`, both
     /// are plain identifiers (`math`, `time`, ... are ordinary names again).
-    fn parse_param(&mut self) -> Result<Param, ParseError> {
+    fn parse_param(&mut self, allow_default: bool) -> Result<Param, ParseError> {
         let name = self.parse_binding_name()?;
         self.expect(TokenKind::Colon, "':' (type required in parameter/field)")?;
         let type_ann = self.parse_type_expr()?;
-        Ok(Param { name, type_ann })
+        let default = if self.check(&TokenKind::Eq) {
+            let eq_pos = self.peek_pos();
+            self.advance();
+            if !allow_default {
+                return Err(ParseError::Unexpected {
+                    expected: "no default value here (defaults are only for named function parameters)".to_string(),
+                    found: TokenKind::Eq,
+                    line: eq_pos.line,
+                    col: eq_pos.col,
+                });
+            }
+            Some(self.parse_default_literal()?)
+        } else {
+            None
+        };
+        Ok(Param { name, type_ann, default })
+    }
+
+    /// the value of `n: int = <value>`: an int, float, string or bool literal,
+    /// optionally with a leading `-` on a number
+    fn parse_default_literal(&mut self) -> Result<Expr, ParseError> {
+        let negative = self.match_kind(&TokenKind::Minus);
+        let pos = self.peek_pos();
+        let lit = self.parse_primary()?;
+        match (negative, lit) {
+            (false, lit @ (Expr::IntLit(..) | Expr::FloatLit(..) | Expr::StringLit(..) | Expr::BoolLit(..))) => Ok(lit),
+            (true, Expr::IntLit(n, p)) => Ok(Expr::IntLit(-n, p)),
+            (true, Expr::FloatLit(f, p)) => Ok(Expr::FloatLit(-f, p)),
+            _ => Err(ParseError::Unexpected {
+                expected: "a literal default value (a number, string or bool, like `= 10`)".to_string(),
+                found: self.peek().kind.clone(),
+                line: pos.line,
+                col: pos.col,
+            }),
+        }
     }
 
     fn parse_block(&mut self) -> Result<Block, ParseError> {
@@ -1226,9 +1272,9 @@ impl Parser {
                 self.expect(TokenKind::LParen, "'(' (anonymous function)")?;
                 let mut params = Vec::new();
                 if !self.check(&TokenKind::RParen) {
-                    params.push(self.parse_param()?);
+                    params.push(self.parse_param(false)?);
                     while self.match_kind(&TokenKind::Comma) {
-                        params.push(self.parse_param()?);
+                        params.push(self.parse_param(false)?);
                     }
                 }
                 self.expect(TokenKind::RParen, "')'")?;
