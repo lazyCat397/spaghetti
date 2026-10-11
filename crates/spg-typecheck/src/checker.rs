@@ -15,16 +15,23 @@ use spg_parser::ast::{self as p, BinaryOp, Expr, Param, Stmt, TypeExpr, UnaryOp}
 
 use crate::builtins::{builtin_signatures, method_namespace, BuiltinId};
 use crate::error::TypeError;
-use crate::typed_ast::{RangeStep, Ty, TypedBlock, TypedExpr, TypedProgram, TypedStmt};
+use crate::typed_ast::{RangeStep, SrcLoc, Ty, TypedBlock, TypedExpr, TypedProgram, TypedStmt};
 
 struct FunctionSig {
     params: Vec<Param>,
     return_type: Ty,
 }
 
+/// a lambda being checked: where its own scopes start, and the outer locals it uses
+struct LambdaFrame {
+    base: usize,
+    captures: Vec<(String, Ty)>,
+}
+
 /// what the scope stack tracks per declared name — type plus whether
 /// reassignment is allowed, so `const` can be enforced at the point of
 /// `x = ...` instead of only at declaration
+#[derive(Clone)]
 struct VarInfo {
     ty: Ty,
     mutable: bool,
@@ -33,6 +40,11 @@ struct VarInfo {
     /// a..b` reads it for its own variable so the compiler can skip a copy
     /// when nobody reassigns `i`.
     assigned: bool,
+    /// set on a type-narrowed entry (`x != none` proved an `int?` is an `int`): the
+    /// scope index of the real binding, so captures and assignments still see it
+    origin: Option<usize>,
+    /// the type the variable has outside the narrowing (an assignment ends it)
+    narrowed_from: Option<Ty>,
 }
 
 pub struct Checker {
@@ -73,6 +85,8 @@ pub struct Checker {
     /// the returned expression — a second walk just to compare types
     /// would re-run `check_expr` and re-emit every error inside it.
     current_return: Option<Ty>,
+    /// lambdas whose bodies are being checked, outermost first
+    lambdas: Vec<LambdaFrame>,
 }
 
 pub fn type_check(program: p::Program) -> Result<TypedProgram, Vec<TypeError>> {
@@ -92,6 +106,7 @@ pub fn type_check_with(program: p::Program, strict: bool) -> Result<TypedProgram
         loop_depth: 0,
         uninferrable_functions: std::collections::HashSet::new(),
         current_return: None,
+        lambdas: Vec::new(),
         strict,
     };
 
@@ -99,14 +114,19 @@ pub fn type_check_with(program: p::Program, strict: bool) -> Result<TypedProgram
     checker.collect_function_signatures(&program.stmts);
 
     let mut typed_stmts = Vec::new();
+    let mut locs = Vec::new();
+    let mut last_loc = SrcLoc::default();
     for stmt in &program.stmts {
+        let loc = stmt_loc(stmt, &last_loc);
+        last_loc = loc.clone();
         if let Some(typed) = checker.check_stmt(stmt) {
             typed_stmts.push(typed);
+            locs.push(loc);
         }
     }
 
     if checker.errors.is_empty() {
-        Ok(TypedProgram { stmts: typed_stmts })
+        Ok(TypedProgram { stmts: typed_stmts, locs })
     } else {
         Err(checker.errors)
     }
@@ -300,7 +320,7 @@ impl Checker {
             });
             return;
         }
-        current.insert(name.to_string(), VarInfo { ty, mutable, assigned: false });
+        current.insert(name.to_string(), VarInfo { ty, mutable, assigned: false, origin: None, narrowed_from: None });
     }
 
     fn lookup(&self, name: &str) -> Option<&Ty> {
@@ -310,6 +330,36 @@ impl Checker {
             }
         }
         None
+    }
+
+    /// a read of `name` as an expression. A local of an enclosing function, seen
+    /// from inside a lambda, becomes a capture of every lambda it crosses (so the
+    /// nested ones pass it along). Globals (the root scope) are never captured.
+    fn resolve_name(&mut self, name: &str) -> Option<Ty> {
+        let (scope, ty) = self
+            .scopes
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(i, scope)| scope.get(name).map(|info| (info.origin.unwrap_or(i), info.ty.clone())))?;
+        if scope >= 1 {
+            for frame in self.lambdas.iter_mut() {
+                if scope < frame.base && !frame.captures.iter().any(|(n, _)| n == name) {
+                    frame.captures.push((name.to_string(), ty.clone()));
+                }
+            }
+        }
+        Some(ty)
+    }
+
+    /// true when `name` is a local of an enclosing function that the innermost
+    /// lambda reaches across its boundary (assigning it would change only a copy)
+    fn assigns_capture(&self, name: &str) -> bool {
+        let scope = self.scopes.iter().enumerate().rev().find_map(|(i, s)| s.get(name).map(|info| info.origin.unwrap_or(i)));
+        match (scope, self.lambdas.last()) {
+            (Some(scope), Some(frame)) => scope >= 1 && scope < frame.base,
+            _ => false,
+        }
     }
 
     /// same lookup, but returns the full VarInfo — used by Assign, which
@@ -331,6 +381,65 @@ impl Checker {
                 return;
             }
         }
+    }
+
+    /// inside the current scope, `names` (optionals a condition proved are not
+    /// `none`) have their inner type. The entry is a shadow of the real binding
+    /// (or replaces it when both live in this scope); either way a later
+    /// assignment ends it again (`unnarrow`)
+    fn narrow(&mut self, names: &[String]) {
+        for name in names {
+            let found = self.scopes.iter().enumerate().rev().find_map(|(i, s)| s.get(name).map(|info| (i, info.clone())));
+            let Some((scope, info)) = found else { continue };
+            let Ty::Optional(inner) = &info.ty else { continue };
+            let narrowed = VarInfo {
+                ty: inner.as_ref().clone(),
+                mutable: info.mutable,
+                assigned: info.assigned,
+                origin: Some(info.origin.unwrap_or(scope)),
+                narrowed_from: Some(info.ty.clone()),
+            };
+            self.scopes.last_mut().expect("at least one scope always active").insert(name.clone(), narrowed);
+        }
+    }
+
+    /// undoes `narrow` for `name`: the shadow disappears, or the real binding gets
+    /// its optional type back
+    fn unnarrow(&mut self, name: &str) {
+        let Some(idx) = self.scopes.iter().rposition(|s| s.contains_key(name)) else { return };
+        let info = self.scopes[idx].get(name).cloned().expect("found just above");
+        let Some(original) = info.narrowed_from else { return };
+        if info.origin == Some(idx) {
+            let entry = self.scopes[idx].get_mut(name).expect("found just above");
+            entry.ty = original;
+            entry.narrowed_from = None;
+            entry.origin = None;
+        } else {
+            self.scopes[idx].remove(name);
+        }
+    }
+
+    /// `left ?? right`
+    fn coalesce(&mut self, left: TypedExpr, right: TypedExpr, pos: &p::Pos) -> Option<TypedExpr> {
+        let Ty::Optional(inner) = left.ty().clone() else {
+            self.errors.push(TypeError::CoalesceNeedsOptional { found: left.ty().clone(), pos: pos.clone() });
+            return None;
+        };
+        let inner = *inner;
+        let ty = if inner == *right.ty() {
+            inner
+        } else if Ty::Optional(Box::new(inner.clone())).accepts(right.ty()) {
+            Ty::Optional(Box::new(inner))
+        } else {
+            self.errors.push(TypeError::InvalidOperandTypes {
+                op: "Coalesce".to_string(),
+                left: left.ty().clone(),
+                right: right.ty().clone(),
+                pos: pos.clone(),
+            });
+            return None;
+        };
+        Some(TypedExpr::Coalesce { left: Box::new(left), right: Box::new(right), ty })
     }
 
     /// A call to a builtin (`@str.len(s)`, `print(...)`, ...) whose arguments
@@ -621,7 +730,7 @@ impl Checker {
 
                 let final_ty = if let Some(ann) = type_ann {
                     let declared = resolve_type_expr(ann);
-                    if declared != inferred {
+                    if !declared.accepts(&inferred) {
                         self.errors.push(TypeError::AnnotationMismatch {
                             expected: declared.clone(),
                             found: inferred,
@@ -632,6 +741,9 @@ impl Checker {
                 } else {
                     if inferred.is_empty_map() {
                         self.errors.push(TypeError::EmptyMapNeedsType { pos: pos.clone() });
+                    }
+                    if inferred == Ty::NoneLit {
+                        self.errors.push(TypeError::NoneNeedsType { pos: pos.clone() });
                     }
                     inferred
                 };
@@ -649,7 +761,7 @@ impl Checker {
 
                 let final_ty = if let Some(ann) = type_ann {
                     let declared = resolve_type_expr(ann);
-                    if declared != inferred {
+                    if !declared.accepts(&inferred) {
                         self.errors.push(TypeError::AnnotationMismatch {
                             expected: declared.clone(),
                             found: inferred,
@@ -660,6 +772,9 @@ impl Checker {
                 } else {
                     if inferred.is_empty_map() {
                         self.errors.push(TypeError::EmptyMapNeedsType { pos: pos.clone() });
+                    }
+                    if inferred == Ty::NoneLit {
+                        self.errors.push(TypeError::NoneNeedsType { pos: pos.clone() });
                     }
                     inferred
                 };
@@ -674,16 +789,30 @@ impl Checker {
                     self.errors.push(TypeError::NonBoolCondition { found: typed_cond.ty().clone(), pos: pos.clone() });
                 }
 
+                let (when_true, when_false) = narrowing(cond);
+
                 self.push_scope();
+                self.narrow(&when_true);
                 let typed_then = self.check_block(then_branch);
                 self.pop_scope();
 
                 let typed_else = else_branch.as_ref().map(|b| {
                     self.push_scope();
+                    self.narrow(&when_false);
                     let t = self.check_block(b);
                     self.pop_scope();
                     t
                 });
+
+                // a branch that always leaves (return, throw, break, continue) means the
+                // OTHER side of the condition holds for everything after the `if`
+                let then_exits = block_exits(then_branch);
+                let else_exits = else_branch.as_ref().is_some_and(|b| block_exits(b));
+                if then_exits && !else_exits {
+                    self.narrow(&when_false);
+                } else if else_exits && !then_exits {
+                    self.narrow(&when_true);
+                }
 
                 Some(TypedStmt::IfStmt { cond: typed_cond, then_branch: typed_then, else_branch: typed_else })
             }
@@ -693,7 +822,9 @@ impl Checker {
                 if typed_cond.ty() != &Ty::Bool {
                     self.errors.push(TypeError::NonBoolCondition { found: typed_cond.ty().clone(), pos: pos.clone() });
                 }
+                let (when_true, _) = narrowing(cond);
                 self.push_scope();
+                self.narrow(&when_true);
                 self.loop_depth += 1;
                 let typed_body = self.check_block(body);
                 self.loop_depth -= 1;
@@ -828,7 +959,7 @@ impl Checker {
                 // Void placeholder would only add redundant noise.
                 if let Some(expected) = self.current_return.clone() {
                     let found = typed_value.as_ref().map(|v| v.ty().clone()).unwrap_or(Ty::Void);
-                    if found != expected {
+                    if !expected.accepts(&found) {
                         self.errors.push(TypeError::ReturnTypeMismatch {
                             expected,
                             found,
@@ -951,13 +1082,19 @@ impl Checker {
                         self.errors.push(TypeError::UndefinedVariable { name: name.clone(), pos: pos.clone() });
                         None
                     }
+                    Some(_) if self.assigns_capture(name) => {
+                        self.errors.push(TypeError::CaptureAssign { name: name.clone(), pos: pos.clone() });
+                        None
+                    }
                     Some(info) if !info.mutable => {
                         self.errors.push(TypeError::AssignToConst { name: name.clone(), pos: pos.clone() });
                         None
                     }
                     Some(info) => {
-                        let expected = info.ty.clone();
-                        if expected != found_ty {
+                        // while narrowed, the variable still may be given anything its real type allows
+                        let expected = info.narrowed_from.clone().unwrap_or_else(|| info.ty.clone());
+                        let narrowed = info.narrowed_from.is_some();
+                        if !expected.accepts(&found_ty) {
                             self.errors.push(TypeError::AssignTypeMismatch {
                                 name: name.clone(),
                                 expected,
@@ -965,6 +1102,9 @@ impl Checker {
                                 pos: pos.clone(),
                             });
                             return None;
+                        }
+                        if narrowed {
+                            self.unnarrow(name);
                         }
                         self.mark_assigned(name);
                         Some(TypedStmt::Assign { name: name.clone(), value: typed_value })
@@ -979,7 +1119,7 @@ impl Checker {
 
                 let elem_ty = self.index_target(typed_array.ty(), typed_index.ty(), pos)?;
 
-                if elem_ty != *typed_value.ty() {
+                if !elem_ty.accepts(typed_value.ty()) {
                     if matches!(typed_array.ty(), Ty::Map(..)) {
                         self.errors.push(TypeError::MapValueMismatch {
                             expected: elem_ty,
@@ -1012,7 +1152,7 @@ impl Checker {
                 // enforces for a local, just checked against elem_ty
                 // instead of a variable's declared type
                 let result_ty = self.binary_result_type(op, &elem_ty, typed_value.ty(), pos)?;
-                if result_ty != elem_ty {
+                if !elem_ty.accepts(&result_ty) {
                     self.errors.push(TypeError::IndexAssignTypeMismatch {
                         expected: elem_ty,
                         found: result_ty,
@@ -1035,7 +1175,7 @@ impl Checker {
 
                 let (struct_name, field_ty) = self.resolve_field(typed_object.ty(), field, pos)?;
 
-                if typed_value.ty() != &field_ty {
+                if !field_ty.accepts(typed_value.ty()) {
                     self.errors.push(TypeError::StructFieldTypeMismatch {
                         struct_name,
                         field: field.clone(),
@@ -1056,7 +1196,7 @@ impl Checker {
                 let (struct_name, field_ty) = self.resolve_field(typed_object.ty(), field, pos)?;
 
                 let result_ty = self.binary_result_type(op, &field_ty, typed_value.ty(), pos)?;
-                if result_ty != field_ty {
+                if !field_ty.accepts(&result_ty) {
                     self.errors.push(TypeError::StructFieldTypeMismatch {
                         struct_name,
                         field: field.clone(),
@@ -1106,6 +1246,8 @@ impl Checker {
 
     fn check_block(&mut self, block: &p::Block) -> TypedBlock {
         let mut typed_stmts = Vec::new();
+        let mut locs = Vec::new();
+        let mut last_loc = SrcLoc::default();
         let mut last_ty = Ty::Void;
 
         // `#> strict`: what follows a `return`/`break`/`continue`/`throw` in the
@@ -1119,11 +1261,14 @@ impl Checker {
                     self.errors.push(TypeError::UnreachableCode { keyword, pos });
                 }
             }
+            let loc = stmt_loc(stmt, &last_loc);
+            last_loc = loc.clone();
             if let Some(typed) = self.check_stmt(stmt) {
                 if let TypedStmt::ExprStmt(e) = &typed {
                     last_ty = e.ty().clone();
                 }
                 typed_stmts.push(typed);
+                locs.push(loc);
             }
             match stmt {
                 Stmt::Return { pos, .. } => dead = Some(("return", pos.clone())),
@@ -1134,7 +1279,7 @@ impl Checker {
             }
         }
 
-        TypedBlock { stmts: typed_stmts, ty: last_ty }
+        TypedBlock { stmts: typed_stmts, locs, ty: last_ty }
     }
 
     /// A non-void function must return on EVERY possible control
@@ -1309,12 +1454,50 @@ impl Checker {
 
     // Expressions
 
+    /// `callee(args)` where `callee` is a function value: its arity and argument
+    /// types are checked against the function type it has
+    fn check_value_call(&mut self, callee: TypedExpr, args: &[Expr], pos: &p::Pos) -> Option<TypedExpr> {
+        let (params, ret) = match callee.ty() {
+            Ty::Function { params, ret } => (params.clone(), (**ret).clone()),
+            _ => {
+                self.errors.push(TypeError::NotCallable { pos: pos.clone() });
+                return None;
+            }
+        };
+        let mut typed_args = Vec::new();
+        for arg in args {
+            typed_args.push(self.check_expr(arg)?);
+        }
+        if params.len() != typed_args.len() {
+            self.errors.push(TypeError::ArityMismatch {
+                function_name: "this function value".to_string(),
+                expected: params.len(),
+                found: typed_args.len(),
+                pos: pos.clone(),
+            });
+            return None;
+        }
+        for (i, (expected, arg)) in params.iter().zip(typed_args.iter()).enumerate() {
+            if !ty_matches(expected, arg.ty()) {
+                self.errors.push(TypeError::ArgTypeMismatch {
+                    function_name: "this function value".to_string(),
+                    param_index: i,
+                    expected: expected.clone(),
+                    found: arg.ty().clone(),
+                    pos: pos.clone(),
+                });
+            }
+        }
+        Some(TypedExpr::CallValue { callee: Box::new(callee), args: typed_args, ty: ret })
+    }
+
     fn check_expr(&mut self, expr: &Expr) -> Option<TypedExpr> {
         match expr {
             Expr::IntLit(n, _) => Some(TypedExpr::IntLit(*n)),
             Expr::FloatLit(f, _) => Some(TypedExpr::FloatLit(*f)),
             Expr::StringLit(s, _) => Some(TypedExpr::StringLit(s.clone())),
             Expr::BoolLit(b, _) => Some(TypedExpr::BoolLit(*b)),
+            Expr::NoneLit(_) => Some(TypedExpr::NoneLit { ty: Ty::NoneLit }),
 
             Expr::ArrayLit(items, lit_pos) => {
                 let mut typed_items = Vec::new();
@@ -1323,6 +1506,8 @@ impl Checker {
                     let t = self.check_expr(item)?;
                     if i == 0 {
                         elem_ty = t.ty().clone();
+                    } else if let Some(unified) = unify_optional(&elem_ty, t.ty()) {
+                        elem_ty = unified;
                     } else if *t.ty() != elem_ty {
                         self.errors.push(TypeError::ArrayItemMismatch {
                             expected: elem_ty.clone(),
@@ -1365,7 +1550,7 @@ impl Checker {
                                 });
                                 return None;
                             }
-                            if tv.ty() != vt {
+                            if !vt.accepts(tv.ty()) {
                                 self.errors.push(TypeError::MapValueMismatch {
                                     expected: vt.clone(),
                                     found: tv.ty().clone(),
@@ -1382,8 +1567,13 @@ impl Checker {
             }
 
             Expr::Ident(name, pos) => {
-                if let Some(ty) = self.lookup(name) {
-                    Some(TypedExpr::Ident { name: name.clone(), ty: ty.clone() })
+                if let Some(ty) = self.resolve_name(name) {
+                    Some(TypedExpr::Ident { name: name.clone(), ty })
+                } else if let Some(sig) = self.functions.get(name) {
+                    // a named function used as a value (`let f = dobro`)
+                    let params: Vec<Ty> = sig.params.iter().map(|p| resolve_type_expr(&p.type_ann)).collect();
+                    let ty = Ty::Function { params, ret: Box::new(sig.return_type.clone()) };
+                    Some(TypedExpr::Ident { name: name.clone(), ty })
                 } else if self.enum_defs.contains_key(name) {
                     self.errors.push(TypeError::EnumAsValue { name: name.clone(), pos: pos.clone() });
                     None
@@ -1395,7 +1585,25 @@ impl Checker {
 
             Expr::Binary { left, op, right, pos } => {
                 let mut typed_left = self.check_expr(left)?;
-                let mut typed_right = self.check_expr(right)?;
+                // `a != none && a.x > 0`: the right side sees what the left side proved
+                let proven = match op {
+                    BinaryOp::And => narrowing(left).0,
+                    BinaryOp::Or => narrowing(left).1,
+                    _ => Vec::new(),
+                };
+                let checked_right = if proven.is_empty() {
+                    self.check_expr(right)
+                } else {
+                    self.push_scope();
+                    self.narrow(&proven);
+                    let r = self.check_expr(right);
+                    self.pop_scope();
+                    r
+                };
+                let mut typed_right = checked_right?;
+                if matches!(op, BinaryOp::Coalesce) {
+                    return self.coalesce(typed_left, typed_right, pos);
+                }
                 let result_ty = self.binary_result_type(op, typed_left.ty(), typed_right.ty(), pos)?;
                 // `==` / `!=` on two values of the same enum: the VM compares them
                 // with the plain int opcodes, so both operands are read as ints
@@ -1431,6 +1639,12 @@ impl Checker {
             }
 
             Expr::Call { callee, args, pos } => {
+                // a callee that is neither a name nor a method (`makeAdder(2)(3)`,
+                // a lambda called in place, `(f)(x)`) is an expression to evaluate
+                if !matches!(callee.as_ref(), Expr::Ident(..) | Expr::Field { .. }) {
+                    let typed_callee = self.check_expr(callee)?;
+                    return self.check_value_call(typed_callee, args, pos);
+                }
                 let name = match callee.as_ref() {
                     Expr::Ident(n, _) => n.clone(),
                     // `math.sqrt(x)`: the pre-`@` namespace spelling. Only when
@@ -1462,6 +1676,14 @@ impl Checker {
                         return None;
                     }
                 };
+
+                // a variable holding a function value (a local, a parameter, a
+                // global): called through its value. A local shadows a builtin or
+                // a function of the same name, like any other binding would
+                if let Some(ty) = self.resolve_name(&name) {
+                    let callee = TypedExpr::Ident { name: name.clone(), ty };
+                    return self.check_value_call(callee, args, pos);
+                }
 
                 // typecheck args once, up front — overload resolution
                 // below matches this same typed_args against every
@@ -1577,7 +1799,7 @@ impl Checker {
                     // name at this point (the `missing` check above
                     // already returned early otherwise)
                     let typed_value = given.remove(&field.name).expect("checked above: field present");
-                    if typed_value.ty() != &expected_ty {
+                    if !expected_ty.accepts(typed_value.ty()) {
                         self.errors.push(TypeError::StructFieldTypeMismatch {
                             struct_name: name.clone(),
                             field: field.name.clone(),
@@ -1625,17 +1847,54 @@ impl Checker {
                 Some(TypedExpr::Field { object: Box::new(typed_object), field: field.clone(), ty: field_ty })
             }
 
+            Expr::Lambda { params, return_type, body, pos } => {
+                let ret = return_type.as_ref().map(resolve_type_expr).unwrap_or(Ty::Void);
+                let base = self.scopes.len();
+                self.lambdas.push(LambdaFrame { base, captures: Vec::new() });
+                self.push_scope();
+                for p in params {
+                    self.declare(&p.name, resolve_type_expr(&p.type_ann), true, pos);
+                }
+
+                let saved_loop_depth = self.loop_depth;
+                self.loop_depth = 0;
+                let saved_return = self.current_return.replace(ret.clone());
+                let typed_body = self.check_block(body);
+                self.current_return = saved_return;
+                self.check_all_paths_return(&body.stmts, &ret, "<lambda>", pos);
+                self.loop_depth = saved_loop_depth;
+
+                self.pop_scope();
+                let frame = self.lambdas.pop().expect("the lambda frame pushed above");
+
+                let ty = Ty::Function {
+                    params: params.iter().map(|p| resolve_type_expr(&p.type_ann)).collect(),
+                    ret: Box::new(ret.clone()),
+                };
+                Some(TypedExpr::Lambda {
+                    params: params.clone(),
+                    return_type: ret,
+                    body: typed_body,
+                    captures: frame.captures,
+                    ty,
+                })
+            }
+
             Expr::IfExpr { cond, then_branch, else_branch, pos } => {
                 let typed_cond = self.check_expr(cond)?;
                 if typed_cond.ty() != &Ty::Bool {
                     self.errors.push(TypeError::NonBoolCondition { found: typed_cond.ty().clone(), pos: pos.clone() });
                 }
 
+                let (when_true, when_false) = narrowing(cond);
+
                 self.push_scope();
+                self.narrow(&when_true);
                 let typed_then = self.check_block(then_branch);
                 self.pop_scope();
 
                 self.push_scope();
+                self.narrow(&when_false);
                 let typed_else = self.check_block(else_branch);
                 self.pop_scope();
 
@@ -1726,6 +1985,13 @@ impl Checker {
             (Add | Sub | Mul | Div | Mod | Pow, Ty::Float, Ty::Float) => Ty::Float,
             (Add, Ty::String, Ty::String) => Ty::String, // string concatenation
 
+            // `x == none`, `x != none`, and an optional against a plain value (`x == 3`)
+            (Eq | NotEq, Ty::Optional(i), other) | (Eq | NotEq, other, Ty::Optional(i))
+                if matches!(other, Ty::NoneLit) || **i == *other || matches!(other, Ty::Optional(j) if j == i) =>
+            {
+                Ty::Bool
+            }
+            (Eq | NotEq, Ty::NoneLit, Ty::NoneLit) => Ty::Bool,
             (Eq | NotEq, a, b) if a == b => Ty::Bool,
             (Lt | Gt | LtEq | GtEq, Ty::Int, Ty::Int) => Ty::Bool,
             (Lt | Gt | LtEq | GtEq, Ty::Float, Ty::Float) => Ty::Bool,
@@ -1794,7 +2060,7 @@ pub(crate) fn ty_matches(expected: &Ty, found: &Ty) -> bool {
         Ty::Any => true,
         Ty::AnyArray => matches!(found, Ty::Array(_)),
         Ty::AnyMap => matches!(found, Ty::Map(..)),
-        _ => expected == found,
+        _ => expected.accepts(found),
     }
 }
 
@@ -1856,5 +2122,79 @@ pub fn resolve_type_expr(t: &TypeExpr) -> Ty {
         TypeExpr::Array(inner) => Ty::Array(Box::new(resolve_type_expr(inner))),
         TypeExpr::Map(k, v) => Ty::Map(Box::new(resolve_type_expr(k)), Box::new(resolve_type_expr(v))),
         TypeExpr::Named(name) => Ty::Named(name.clone()),
+        TypeExpr::Function { params, ret } => Ty::Function {
+            params: params.iter().map(resolve_type_expr).collect(),
+            ret: Box::new(resolve_type_expr(ret)),
+        },
+        TypeExpr::Optional(inner) => Ty::Optional(Box::new(resolve_type_expr(inner))),
+    }
+}
+
+/// the source location of a statement; one without a position of its own
+/// (none today, but cheap insurance) keeps the previous statement's location
+fn stmt_loc(stmt: &p::Stmt, previous: &SrcLoc) -> SrcLoc {
+    match stmt.pos() {
+        Some(pos) => SrcLoc { file: pos.file.clone(), line: pos.line },
+        None => previous.clone(),
+    }
+}
+
+/// the names a condition proves are not `none`: (when it is true, when it is false).
+/// Only `name == none`, `name != none`, `!`, `&&` and `||` of those say anything
+fn narrowing(cond: &Expr) -> (Vec<String>, Vec<String>) {
+    match cond {
+        Expr::Binary { left, op, right, .. } => match op {
+            BinaryOp::Eq | BinaryOp::NotEq => {
+                let name = match (&**left, &**right) {
+                    (Expr::Ident(n, _), Expr::NoneLit(_)) | (Expr::NoneLit(_), Expr::Ident(n, _)) => n.clone(),
+                    _ => return (Vec::new(), Vec::new()),
+                };
+                if matches!(op, BinaryOp::NotEq) {
+                    (vec![name], Vec::new())
+                } else {
+                    (Vec::new(), vec![name])
+                }
+            }
+            // both halves held
+            BinaryOp::And => ([narrowing(left).0, narrowing(right).0].concat(), Vec::new()),
+            // neither half held
+            BinaryOp::Or => (Vec::new(), [narrowing(left).1, narrowing(right).1].concat()),
+            _ => (Vec::new(), Vec::new()),
+        },
+        Expr::Unary { op: UnaryOp::Not, expr, .. } => {
+            let (t, f) = narrowing(expr);
+            (f, t)
+        }
+        _ => (Vec::new(), Vec::new()),
+    }
+}
+
+/// whether control never reaches the end of this block (it ends in a return, throw,
+/// break or continue)
+fn block_exits(block: &p::Block) -> bool {
+    block.stmts.last().is_some_and(stmt_exits)
+}
+
+fn stmt_exits(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Return { .. } | Stmt::Break { .. } | Stmt::Continue { .. } | Stmt::Throw { .. } => true,
+        Stmt::IfStmt { then_branch, else_branch: Some(other), .. } => block_exits(then_branch) && block_exits(other),
+        _ => false,
+    }
+}
+
+/// the element type of an array literal when two items differ only by `none`
+/// (`[1, none]` is an `array<int?>`); `None` when they do not, or are equal
+fn unify_optional(a: &Ty, b: &Ty) -> Option<Ty> {
+    if a == b {
+        return None;
+    }
+    match (a, b) {
+        (Ty::Optional(_), Ty::NoneLit) => Some(a.clone()),
+        (Ty::NoneLit, Ty::Optional(_)) => Some(b.clone()),
+        (Ty::Optional(x), other) if x.as_ref() == other => Some(a.clone()),
+        (other, Ty::Optional(x)) if x.as_ref() == other => Some(b.clone()),
+        (Ty::NoneLit, other) | (other, Ty::NoneLit) if !matches!(other, Ty::Void) => Some(Ty::Optional(Box::new(other.clone()))),
+        _ => None,
     }
 }

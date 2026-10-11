@@ -1,8 +1,8 @@
 {
   "name": "spaghetti",
   "displayName": "Spaghetti",
-  "description": "Spaghetti (.spg) language support: syntax highlighting, live errors, completion, snippets and a Run button.",
-  "version": "0.19.0",
+  "description": "Spaghetti (.spg) language support: syntax highlighting, live errors, completion, formatting, snippets and a Run button.",
+  "version": "1.20.0",
   "publisher": "spaghetti",
   "license": "UNLICENSED",
   "private": true,
@@ -27,6 +27,12 @@
     "onCommand:spg.check"
   ],
   "contributes": {
+    "configurationDefaults": {
+      "[spg]": {
+        "editor.defaultFormatter": "spaghetti.spaghetti",
+        "editor.formatOnSave": true
+      }
+    },
     "taskDefinitions": [
       {
         "type": "spg",

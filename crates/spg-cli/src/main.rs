@@ -3,13 +3,14 @@
 //!   spg file.spg            run a program (shorthand for `spg run`)
 //!   spg run file.spg        run a program
 //!   spg check file.spg      type-check only, don't run
+//!   spg build file.spg      make a standalone executable (-o NAME for its name)
 //!   spg lsp                 start the language server on stdin/stdout
 //!   spg --version | --help
 //!
 //! Exit codes: 0 ok · 1 the program/source has an error · 2 bad usage.
 
-use spg_compiler::compile_with;
-use spg_typecheck::type_check_with;
+mod bundle;
+
 use spg_vm::chunk::Program;
 use spg_vm::Vm;
 
@@ -22,6 +23,10 @@ USAGE:
     spg <file.spg> [OPTIONS] [-- ARGS...]   run a program; ARGS reach it as @sys.args()
     spg run <file.spg> [OPTIONS] [-- ARGS...]   same as above
     spg check <file.spg>            type-check without running
+    spg build <file.spg> [-o NAME]  make a standalone executable that runs the program
+    spg fmt <file|folder>... [--check | --stdout]
+                                    format .spg files (rewrites them; --check lists the
+                                    ones that would change; --stdout prints the result)
     spg lsp                         start the language server (used by editors)
 
 OPTIONS:
@@ -50,12 +55,18 @@ fn main() {
     }));
 
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // an executable made by `spg build` carries its program: it runs that, and
+    // every argument goes to the program itself
+    let bundle = bundle::read_own();
     // The VM recurses natively on every spg call, so the whole CLI runs on a
     // thread with a big stack instead of the OS default (8 MB on Linux, only
     // 1 MB on Windows). The memory is reserved lazily, not committed.
     let worker = std::thread::Builder::new()
         .stack_size(VM_STACK_BYTES)
-        .spawn(move || real_main(&args))
+        .spawn(move || match bundle {
+            Some(bundle) => run_bundle(bundle, &args),
+            None => real_main(&args),
+        })
         .expect("failed to spawn the main worker thread");
     // a panic was already reported by the hook above
     std::process::exit(worker.join().unwrap_or(101));
@@ -85,6 +96,8 @@ fn real_main(args: &[String]) -> i32 {
         "lsp" => spg_lsp::run_stdio(),
         "run" => run_cmd(&args[1..], true),
         "check" => run_cmd(&args[1..], false),
+        "build" => build_cmd(&args[1..]),
+        "fmt" => fmt_cmd(&args[1..]),
         _ => run_cmd(args, true),
     }
 }
@@ -140,6 +153,14 @@ fn run_cmd(args: &[String], execute: bool) -> i32 {
         println!("ok: {} ({} function(s))", file, bytecode.functions.len());
         return 0;
     }
+    execute_program(&bytecode, &spec, program_args, show_time, dump_bytecode)
+}
+
+/// runs a compiled program: the `--dump-bytecode` listing, the program's
+/// arguments, the `#>` timeout, and the error report with its stack trace
+fn execute_program(bytecode: &Program, spec: &spg_lexer::FileSpec, program_args: Vec<String>, show_time: bool, dump_bytecode: bool) -> i32 {
+    let friendly = spec.friendly_terminal;
+    let strict = spec.strict;
 
     if dump_bytecode {
         println!("compile OK — {} function(s), main has {} instruction(s)", bytecode.functions.len(), bytecode.main.code.len());
@@ -160,7 +181,7 @@ fn run_cmd(args: &[String], execute: bool) -> i32 {
     if let Some(ms) = spec.timeout_ms {
         start_watchdog(ms, friendly);
     }
-    let mut vm = Vm::new(&bytecode);
+    let mut vm = Vm::new(bytecode);
     let start = std::time::Instant::now();
     let result = vm.run();
     let elapsed = start.elapsed();
@@ -174,6 +195,7 @@ fn run_cmd(args: &[String], execute: bool) -> i32 {
         } else {
             eprintln!("runtime error: {}", e);
         }
+        print_trace(vm.take_trace());
         return 1;
     }
     if show_time {
@@ -185,6 +207,101 @@ fn run_cmd(args: &[String], execute: bool) -> i32 {
         );
     }
     0
+}
+
+
+/// `spg build file.spg [-o NAME]`: validates the program like `check`, then
+/// writes a standalone executable that runs it
+fn build_cmd(args: &[String]) -> i32 {
+    let mut file: Option<&str> = None;
+    let mut out: Option<&str> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-o" | "--out" => {
+                let Some(name) = args.get(i + 1) else {
+                    return usage_error("'-o' needs a name for the executable");
+                };
+                out = Some(name);
+                i += 1;
+            }
+            s if s.starts_with('-') && s.len() > 1 => {
+                return usage_error(&format!("unknown option '{}'", s));
+            }
+            s => {
+                if file.is_some() {
+                    return usage_error(&format!("unexpected extra argument '{}'", s));
+                }
+                file = Some(s);
+            }
+        }
+        i += 1;
+    }
+    let Some(file) = file else {
+        return usage_error("missing input file");
+    };
+    let path = std::path::Path::new(file);
+
+    // the same checks as `spg check`: a program that does not compile is not built
+    let spec = std::fs::read_to_string(file)
+        .ok()
+        .and_then(|src| spg_lexer::read_file_spec(&src).ok())
+        .unwrap_or_default();
+    if let Err(code) = build(path, true, spec.friendly_terminal, spec.strict) {
+        return code;
+    }
+
+    // every source file the program was built from, entry first
+    let (_, sources) = match spg_modules::resolve_collect(path, &std::collections::HashMap::new()) {
+        Ok(found) => found,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            return 1;
+        }
+    };
+
+    let out_path = match out {
+        Some(name) => std::path::PathBuf::from(name),
+        None => {
+            let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "program".into());
+            std::path::PathBuf::from(if cfg!(windows) { format!("{}.exe", stem) } else { stem })
+        }
+    };
+    let exe = match std::env::current_exe().and_then(std::fs::read) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            eprintln!("error: could not read the spg executable to copy it: {}", e);
+            return 1;
+        }
+    };
+    if let Err(e) = bundle::write(&out_path, &exe, &sources) {
+        eprintln!("error: could not write '{}': {}", out_path.display(), e);
+        return 1;
+    }
+    let size = std::fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0);
+    println!("built {} ({} source file(s), {} bytes)", out_path.display(), sources.len(), size);
+    0
+}
+
+/// an executable made by `spg build`: compile the embedded sources and run them
+fn run_bundle(bundle: bundle::Bundle, args: &[String]) -> i32 {
+    let spec = spg_lexer::read_file_spec(&bundle.files[0].1).unwrap_or_default();
+    let program = match spg_modules::resolve_with(&bundle.entry(), &bundle.overlay()) {
+        Ok(program) => program,
+        Err(e) => {
+            if spec.friendly_terminal {
+                eprintln!("error: {}", e.friendly());
+            } else {
+                eprintln!("error: {}", e);
+            }
+            return 1;
+        }
+    };
+    let bytecode = match compile_resolved(program, true, spec.friendly_terminal, spec.strict) {
+        Ok(bytecode) => bytecode,
+        Err(code) => return code,
+    };
+    execute_program(&bytecode, &spec, args.to_vec(), false, false)
 }
 
 /// native stack reserved for the worker thread that runs the whole CLI
@@ -222,8 +339,48 @@ fn build(path: &std::path::Path, optimize: bool, friendly: bool, strict: bool) -
         }
         1
     })?;
+    compile_resolved(program, optimize, friendly, strict)
+}
 
-    let typed = type_check_with(program, strict).map_err(|errors| {
+fn print_chunk(chunk: &spg_vm::Chunk) {
+    println!("locals: {}, arity: {}", chunk.num_locals, chunk.arity);
+    for (i, op) in chunk.code.iter().enumerate() {
+        println!("  {:>4}  {:?}", i, op);
+    }
+    if !chunk.constants.is_empty() {
+        println!("  constants: {:?}", chunk.constants);
+    }
+}
+
+/// the stack trace of a runtime error, innermost call first: one line per
+/// frame, `at <function> (<file>:<line>)`. A run of identical frames (a
+/// recursion stuck on one line) prints once, then a count; frames the VM
+/// dropped at its limit are counted at the end.
+fn print_trace((frames, omitted): (Vec<spg_vm::TraceFrame>, usize)) {
+    let mut i = 0;
+    while i < frames.len() {
+        let frame = &frames[i];
+        let mut j = i + 1;
+        while j < frames.len() && frames[j] == *frame {
+            j += 1;
+        }
+        match &frame.file {
+            Some(file) => eprintln!("  at {} ({}:{})", frame.function, file, frame.line),
+            None => eprintln!("  at {} (line {})", frame.function, frame.line),
+        }
+        if j - i > 1 {
+            eprintln!("  ... same line repeated {} more times", j - i - 1);
+        }
+        i = j;
+    }
+    if omitted > 0 {
+        eprintln!("  ... {} more frames", omitted);
+    }
+}
+
+/// type-check and compile a program whose files are already resolved
+fn compile_resolved(program: spg_parser::ast::Program, optimize: bool, friendly: bool, strict: bool) -> Result<Program, i32> {
+    let typed = spg_typecheck::type_check_with(program, strict).map_err(|errors| {
         if friendly {
             eprintln!("Oops! I found {} problem(s) with the types:", errors.len());
             for e in &errors {
@@ -238,7 +395,7 @@ fn build(path: &std::path::Path, optimize: bool, friendly: bool, strict: bool) -
         1
     })?;
 
-    compile_with(typed, optimize).map_err(|e| {
+    spg_compiler::compile_with(typed, optimize).map_err(|e| {
         if friendly {
             eprintln!("error: {}", e.friendly());
         } else {
@@ -248,12 +405,95 @@ fn build(path: &std::path::Path, optimize: bool, friendly: bool, strict: bool) -
     })
 }
 
-fn print_chunk(chunk: &spg_vm::Chunk) {
-    println!("locals: {}, arity: {}", chunk.num_locals, chunk.arity);
-    for (i, op) in chunk.code.iter().enumerate() {
-        println!("  {:>4}  {:?}", i, op);
+/// `spg fmt`: the canonical layout of one or more files, or of every `.spg`
+/// file under a folder. A file is written only when `spg_fmt::check` proves the
+/// result has the same tokens, comments and directives, and is a fixed point
+fn fmt_cmd(args: &[String]) -> i32 {
+    let mut check = false;
+    let mut to_stdout = false;
+    let mut paths: Vec<&str> = Vec::new();
+    for a in args {
+        match a.as_str() {
+            "--check" => check = true,
+            "--stdout" => to_stdout = true,
+            s if s.starts_with('-') && s.len() > 1 => return usage_error(&format!("unknown option '{}'", s)),
+            s => paths.push(s),
+        }
     }
-    if !chunk.constants.is_empty() {
-        println!("  constants: {:?}", chunk.constants);
+    if check && to_stdout {
+        return usage_error("'--check' and '--stdout' cannot be used together");
     }
+    if paths.is_empty() {
+        return usage_error("missing file or folder to format");
+    }
+
+    let mut files = Vec::new();
+    for p in paths {
+        if let Err(e) = collect_spg_files(std::path::Path::new(p), &mut files) {
+            eprintln!("error: could not read '{}': {}", p, e);
+            return 1;
+        }
+    }
+    if files.is_empty() {
+        eprintln!("error: no .spg files found");
+        return 1;
+    }
+
+    let (mut changed, mut unchanged, mut failed) = (0usize, 0usize, 0usize);
+    for file in &files {
+        let src = match std::fs::read_to_string(file) {
+            Ok(src) => src,
+            Err(e) => {
+                eprintln!("error: could not read '{}': {}", file.display(), e);
+                failed += 1;
+                continue;
+            }
+        };
+        match spg_fmt::check(&src) {
+            Err(e) => {
+                eprintln!("error: {}: {}", file.display(), e);
+                failed += 1;
+            }
+            Ok(out) if out == src => unchanged += 1,
+            Ok(out) => {
+                changed += 1;
+                if to_stdout {
+                    print!("{}", out);
+                } else if check {
+                    println!("would format: {}", file.display());
+                } else if let Err(e) = std::fs::write(file, &out) {
+                    eprintln!("error: could not write '{}': {}", file.display(), e);
+                    failed += 1;
+                } else {
+                    println!("formatted: {}", file.display());
+                }
+            }
+        }
+    }
+    if !to_stdout {
+        eprintln!("{} file(s) checked: {} changed, {} already formatted, {} failed", files.len(), changed, unchanged, failed);
+    }
+    if failed > 0 || (check && changed > 0) {
+        1
+    } else {
+        0
+    }
+}
+
+/// a file as given, or every `.spg` under a folder (sorted, so output is stable)
+fn collect_spg_files(path: &std::path::Path, out: &mut Vec<std::path::PathBuf>) -> std::io::Result<()> {
+    if path.is_dir() {
+        let mut entries: Vec<std::path::PathBuf> = std::fs::read_dir(path)?.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        entries.sort();
+        for entry in entries {
+            if entry.is_dir() {
+                collect_spg_files(&entry, out)?;
+            } else if entry.extension().is_some_and(|x| x == "spg") {
+                out.push(entry);
+            }
+        }
+    } else {
+        out.push(path.to_path_buf());
+    }
+    Ok(())
 }

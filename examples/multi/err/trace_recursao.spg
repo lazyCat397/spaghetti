@@ -1,0 +1,4 @@
+function down(n: int) -> int {
+    return down(n + 1)
+}
+print(down(0))

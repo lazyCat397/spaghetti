@@ -67,6 +67,8 @@ pub enum RuntimeError {
     RangeTooLarge { len: u128, max: usize },
     /// `#> strict`: an int operation whose result does not fit in 64 bits
     IntegerOverflow { op: &'static str },
+    /// more nested calls than `vm::MAX_CALL_DEPTH` (usually an infinite recursion)
+    StackOverflow { limit: usize },
     /// `@json.*`: invalid JSON text, a path that leads nowhere, a value with no JSON form
     Json { function: &'static str, message: String },
 }
@@ -79,6 +81,8 @@ impl RuntimeError {
     pub fn catchable_message(&self) -> Option<String> {
         match self {
             RuntimeError::UnhandledException(message) => Some(message.clone()),
+            // a `none` where a value was needed is a program error a `catch` can handle
+            RuntimeError::TypeMismatch { found: "none", .. } => Some(self.to_string()),
             RuntimeError::TypeMismatch { .. }
             | RuntimeError::StackUnderflow
             | RuntimeError::InvalidFunctionIndex(_)
@@ -92,6 +96,11 @@ impl RuntimeError {
 impl fmt::Display for RuntimeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            RuntimeError::TypeMismatch { expected, found: "none" } => write!(
+                f,
+                "unexpected none: a {} was needed but the value is none (an optional was used without checking it; a global can become none inside a function called in between)",
+                expected
+            ),
             RuntimeError::TypeMismatch { expected, found } => {
                 write!(f, "VM bug: expected {} on the stack, found {}", expected, found)
             }
@@ -115,6 +124,11 @@ impl fmt::Display for RuntimeError {
                 write!(f, "integer overflow in {}: the result does not fit in an int (64 bits, #> strict)", op)
             }
             RuntimeError::Json { function, message } => write!(f, "{}: {}", function, message),
+            RuntimeError::StackOverflow { limit } => write!(
+                f,
+                "stack overflow: more than {} nested calls (is a function calling itself forever?)",
+                limit
+            ),
             RuntimeError::EmptyArray { function } => write!(f, "{} on an empty array", function),
             RuntimeError::NegativeCount { function, count } => {
                 write!(f, "{} needs a count of 0 or more, got {}", function, count)

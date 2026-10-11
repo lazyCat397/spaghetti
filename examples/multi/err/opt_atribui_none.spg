@@ -1,0 +1,5 @@
+let x: int? = 1
+if (x != none) {
+    x = none
+    print(x + 1)
+}

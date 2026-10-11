@@ -6,7 +6,9 @@
 pub mod diag;
 pub mod json;
 pub mod members;
+pub mod navigate;
 pub mod server;
+pub mod signature;
 pub mod uri;
 
 pub use server::run_stdio;

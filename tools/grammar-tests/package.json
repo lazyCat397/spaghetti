@@ -1,0 +1,9 @@
+{
+  "name": "spg-grammar-tests",
+  "private": true,
+  "description": "Tokenizes sample Spaghetti lines with the real TextMate engine and checks the scopes",
+  "dependencies": {
+    "vscode-oniguruma": "2.0.1",
+    "vscode-textmate": "9.3.2"
+  }
+}

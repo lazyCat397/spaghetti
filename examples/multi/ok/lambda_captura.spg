@@ -1,0 +1,18 @@
+function outer(a: int) -> function() -> function() -> int {
+    return function() -> function() -> int {
+        let b = a + 1
+        return function() -> int {
+            return a * 100 + b
+        }
+    }
+}
+print(outer(2)()())
+function f() -> int {
+    let total = 10
+    let g = function() -> int {
+        return total
+    }
+    total = 99
+    return g()
+}
+print(f())

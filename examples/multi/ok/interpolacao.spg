@@ -1,0 +1,10 @@
+let nome = "Ana"
+let idade = 30
+let xs = [1, 2, 3]
+print("oi ${nome}, tenho ${idade} anos")
+print("soma ${idade + 1} e ${xs.len()} itens")
+print("aninhado: ${"x${nome}y"} / ${@str.len("}")}")
+print("cru \${nome} e $5 e ${ 2 * 3 }")
+print("${1.5}|${true}|${xs}")
+let s = "${nome}".len()
+print(s)

@@ -8,11 +8,12 @@ members = [
     "crates/spg-compiler",
     "crates/spg-vm",
     "crates/spg-lsp",
+    "crates/spg-fmt",
     "crates/spg-cli",
 ]
 
 [workspace.package]
-version = "0.19.0"
+version = "1.20.0"
 edition = "2021"
 
 [profile.release]

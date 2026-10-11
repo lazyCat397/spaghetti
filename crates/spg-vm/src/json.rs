@@ -355,6 +355,8 @@ fn from_value(v: &Value, depth: usize) -> Result<Json, String> {
         return Err("the value is nested too deeply (does it contain itself?)".to_string());
     }
     Ok(match v {
+        Value::Func(_) => return Err("a function has no JSON form".to_string()),
+        Value::Nil => Json::Null,
         Value::Int(n) => Json::Number(n.to_string()),
         Value::Float(x) => {
             if !x.is_finite() {

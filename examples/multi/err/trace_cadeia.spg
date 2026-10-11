@@ -1,0 +1,11 @@
+function divide(a: int, b: int) -> int {
+    return a / b
+}
+
+function compute(x: int) -> int {
+    let r = divide(10, x)
+    return r + 1
+}
+
+print(compute(2))
+print(compute(0))

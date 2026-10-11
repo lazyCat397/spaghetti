@@ -7,5 +7,6 @@ edition.workspace = true
 spg-lexer = { path = "../spg-lexer" }
 spg-parser = { path = "../spg-parser" }
 spg-modules = { path = "../spg-modules" }
+spg-fmt = { path = "../spg-fmt" }
 spg-typecheck = { path = "../spg-typecheck" }
 spg-compiler = { path = "../spg-compiler" }

@@ -1,0 +1,26 @@
+function dobro(x: int) -> int {
+    return x * 2
+}
+
+function aplica(f: function(int) -> int, x: int) -> int {
+    return f(x)
+}
+
+function fazSomador(n: int) -> function(int) -> int {
+    return function(x: int) -> int {
+        return x + n
+    }
+}
+
+let soma3 = fazSomador(3)
+print(soma3(10))
+print(aplica(dobro, 21))
+print(aplica(function(v: int) -> int { return v * v }, 7))
+let g = dobro
+print(g(5))
+print(fazSomador(100)(1))
+let k = 4
+let mult = function(a: int) -> int { return a * k }
+print(mult(5))
+function() { print("iife") }()
+print(dobro)

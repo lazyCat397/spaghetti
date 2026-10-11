@@ -437,7 +437,25 @@ fn resolve_head(tokens: &[Token], depth: &[i32], at: usize, head: &str, decls: &
     None
 }
 
+/// the members after `value.`: the type's own list, plus the conversion
+/// shortcuts every value has (`x.string()`), and `x.int()` / `x.float()` on
+/// numbers (`@into.int` / `@into.float` take them)
 fn members_of(ty: &str, decls: &Decls) -> Vec<Member> {
+    let mut out = members_of_own(ty, decls);
+    let mut shortcut = |name: &str, detail: &str| {
+        if !out.iter().any(|m| m.name == name) {
+            out.push(Member { name: name.to_string(), detail: detail.to_string(), kind: KIND_METHOD, insert: None });
+        }
+    };
+    shortcut("string", "text of this value (@into.string)");
+    if matches!(ty, "int" | "float") {
+        shortcut("int", "convert to int (@into.int)");
+        shortcut("float", "convert to float (@into.float)");
+    }
+    out
+}
+
+fn members_of_own(ty: &str, decls: &Decls) -> Vec<Member> {
     let mut out = Vec::new();
     if let Some(ns) = native_namespace(ty) {
         return native_methods(ns);
@@ -621,32 +639,32 @@ mod tests {
     fn dot_after_a_local_a_param_a_global_and_me() {
         let local = format!("{}function f() {{\n    let p = Point {{ x: 1, y: 2 }}\n    p.\n}}\n", SRC);
         let (t, at, d) = setup(&local, 11, 6);
-        assert_eq!(names(&after_dot(&t, at, &["p".into()], &d)), ["x", "y", "len2", "shift"]);
+        assert_eq!(names(&after_dot(&t, at, &["p".into()], &d)), ["x", "y", "len2", "shift", "string"]);
 
         let param = format!("{}function f(q: Point, n: int) {{\n    q.\n}}\n", SRC);
         let (t, at, d) = setup(&param, 10, 6);
-        assert_eq!(names(&after_dot(&t, at, &["q".into()], &d)), ["x", "y", "len2", "shift"]);
+        assert_eq!(names(&after_dot(&t, at, &["q".into()], &d)), ["x", "y", "len2", "shift", "string"]);
         assert!(names(&after_dot(&t, at, &["n".into()], &d)).iter().any(|n| n == "abs"), "an int offers its @math methods");
 
         let global = format!("{}let g = origin()\nfunction f() {{\n    g.\n}}\n", SRC);
         let (t, at, d) = setup(&global, 11, 6);
-        assert_eq!(names(&after_dot(&t, at, &["g".into()], &d)).len(), 4);
+        assert_eq!(names(&after_dot(&t, at, &["g".into()], &d)).len(), 5);
 
         let me = "struct S {\n    n: int\n    function f() -> int {\n        return me.\n    }\n}\n";
         let (t, at, d) = setup(me, 3, 18);
-        assert_eq!(names(&after_dot(&t, at, &["me".into()], &d)), ["n", "f"]);
+        assert_eq!(names(&after_dot(&t, at, &["me".into()], &d)), ["n", "f", "string"]);
     }
 
     #[test]
     fn chains_follow_field_types_and_enums_offer_value() {
         let src = format!("{}let l = Line {{ a: origin(), b: origin(), tag: [] }}\nlet c = Color.Red\nl.a.\n", SRC);
         let (t, at, d) = setup(&src, 11, 4);
-        assert_eq!(names(&after_dot(&t, at, &["l".into(), "a".into()], &d)).len(), 4);
+        assert_eq!(names(&after_dot(&t, at, &["l".into(), "a".into()], &d)).len(), 5);
         let tag = names(&after_dot(&t, at, &["l".into(), "tag".into()], &d));
         assert!(tag.iter().any(|n| n == "push"), "array<string> offers the array methods: {:?}", tag);
         assert!(names(&after_dot(&t, at, &["l".into(), "a".into(), "x".into()], &d)).iter().any(|n| n == "abs"), "an int field offers its @math methods");
-        assert_eq!(names(&after_dot(&t, at, &["c".into()], &d)), ["value"]);
-        assert_eq!(names(&after_dot(&t, at, &["Color".into(), "Red".into()], &d)), ["value"]);
+        assert_eq!(names(&after_dot(&t, at, &["c".into()], &d)), ["value", "string"]);
+        assert_eq!(names(&after_dot(&t, at, &["Color".into(), "Red".into()], &d)), ["value", "string"]);
     }
 
     #[test]
@@ -665,7 +683,7 @@ mod tests {
         let st = names(&after_dot(&t, at, &["s".into()], &d));
         assert!(st.iter().any(|n| n == "trim") && st.iter().any(|n| n == "padStart") && !st.iter().any(|n| n == "push"));
         let mp = names(&after_dot(&t, at, &["m".into()], &d));
-        assert_eq!(mp, ["get", "has", "keys", "keysOf", "len", "remove", "values"]);
+        assert_eq!(mp, ["get", "has", "keys", "keysOf", "len", "remove", "values", "string"]);
         assert_eq!(names(&after_dot(&t, at, &["e".into()], &d)), mp, "`[:]` is a map");
         // a struct field of type array<string>
         assert_eq!(names(&after_dot(&t, at, &["l".into(), "tag".into()], &d)), arr);
@@ -694,7 +712,7 @@ mod tests {
     fn shadowing_picks_the_nearest_declaration() {
         let src = format!("{}let p = Line {{ a: origin(), b: origin(), tag: [] }}\nfunction f() {{\n    let p = origin()\n    p.\n}}\n", SRC);
         let (t, at, d) = setup(&src, 12, 6);
-        assert_eq!(names(&after_dot(&t, at, &["p".into()], &d)), ["x", "y", "len2", "shift"]);
+        assert_eq!(names(&after_dot(&t, at, &["p".into()], &d)), ["x", "y", "len2", "shift", "string"]);
     }
 
     #[test]

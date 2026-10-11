@@ -1,0 +1,9 @@
+function boom(n: int) -> int {
+    return boom(n + 1)
+}
+try {
+    print(boom(0))
+} catch (e: string) {
+    print("pegou")
+}
+print("fim")

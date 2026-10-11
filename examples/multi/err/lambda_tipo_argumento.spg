@@ -1,0 +1,2 @@
+function ap(f: function(int) -> int) -> int { return f(1) }
+print(ap(function(s: string) -> int { return 1 }))

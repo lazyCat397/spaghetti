@@ -62,6 +62,12 @@ pub enum TokenKind {
     GtEq,
     AndAnd,
     OrOr,
+    /// `?`: marks an optional type (`int?`)
+    Question,
+    /// `??`: the default-value operator (`x ?? 0`)
+    QuestionQuestion,
+    /// `none`: the absent value of an optional type
+    NoneLit,
     Not,
     Arrow,     // ->
     Colon,     // :
@@ -124,6 +130,7 @@ pub fn lookup_keyword(word: &str) -> Option<TokenKind> {
         "enum" => Some(TokenKind::Enum),
         "true" => Some(TokenKind::Bool(true)),
         "false" => Some(TokenKind::Bool(false)),
+        "none" => Some(TokenKind::NoneLit),
         "int" => Some(TokenKind::TypeInt),
         "float" => Some(TokenKind::TypeFloat),
         "bool" => Some(TokenKind::TypeBool),

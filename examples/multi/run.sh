@@ -4,18 +4,26 @@
 # Uso (a partir de spaghetti-skeleton/): bash examples/multi/run.sh
 cd "$(dirname "$0")"
 SPG=../../target/release/spg
+# norm: makes a program's output independent of the platform's path style. Windows
+# prints `err\x.spg` and may add a `\\?\C:\...` prefix; the expectations use `err/x.spg`.
+# Only the directories before `err` or `ok` are touched, so `"a\nb"` printed by a program stays as it is.
+norm() { sed -E 's#[^ ()]*(err|ok)[\\/]#\1/#g'; }
+# the normalizer itself: Windows-style paths (with and without the \\?\ prefix) must match the expectations
+if [ "$(printf '%s' 'at f (C:\a\b\err\x.spg:2) and \\?\C:\a\err\y.spg, keep a\nb' | norm)" != 'at f (err/x.spg:2) and err/y.spg, keep a\nb' ]; then
+    echo "FAIL norm: the path normalizer changed the wrong text"; exit 1
+fi
 spgrun() { timeout 30 "$SPG" "$@"; }   # a hung program (infinite loop) becomes a clean FAIL (exit 124), not a stuck suite
 pass=0; fail=0
 
 ok() {   # ok <arquivo> <saída esperada, com \n>
-    got=$(spgrun "ok/$1" 2>&1); code=$?
+    raw=$(spgrun "ok/$1" 2>&1); code=$?; got=$(printf '%s' "$raw" | norm)
     want=$(printf "$2")
     if [ "$code" = 0 ] && [ "$got" = "$want" ]; then pass=$((pass+1)); else
         fail=$((fail+1)); echo "FAIL ok/$1 (exit=$code)"; echo "  want: $(echo "$want" | tr '\n' '|')"; echo "  got:  $(echo "$got" | tr '\n' '|')"; fi
 }
 err() {  # err <arquivo> <trecho> [<trecho>...]  — TODOS devem aparecer
     f="$1"; shift
-    got=$(spgrun "err/$f" 2>&1); code=$?
+    raw=$(spgrun "err/$f" 2>&1); code=$?; got=$(printf '%s' "$raw" | norm)
     miss=""
     for want in "$@"; do echo "$got" | grep -qF -- "$want" || miss="$want"; done
     if [ "$code" = 1 ] && [ -z "$miss" ]; then pass=$((pass+1)); else
@@ -45,20 +53,20 @@ ok str_chars.spg         '3\n3\n3\ná\nçã\nOLÁ\n3\ná|é|í\nééé\n3\ntrue\
 # buffered stdout (print goes through a 64 KB buffer when stdout is not a terminal).
 # These prove ORDER and COMPLETENESS, which is what buffering could break.
 exact1() {  # exact1 <arquivo> <saída esperada> — exit code 1 e saída (stdout+stderr) EXATA, em ordem
-    got=$(spgrun "err/$1" 2>&1); code=$?
+    raw=$(spgrun "err/$1" 2>&1); code=$?; got=$(printf '%s' "$raw" | norm)
     want=$(printf "$2")
     if [ "$code" = 1 ] && [ "$got" = "$want" ]; then pass=$((pass+1)); else
         fail=$((fail+1)); echo "FAIL err/$1 (exit=$code)"; echo "  want: $(echo "$want" | tr '\n' '|')"; echo "  got:  $(echo "$got" | tr '\n' '|')"; fi
 }
 lines() {  # lines <arquivo> <nº de linhas> <última linha> — nada pode se perder além do buffer
-    got=$(spgrun "ok/$1" 2>&1); code=$?
+    raw=$(spgrun "ok/$1" 2>&1); code=$?; got=$(printf '%s' "$raw" | norm)
     n=$(echo "$got" | wc -l); last=$(echo "$got" | tail -1)
     if [ "$code" = 0 ] && [ "$n" = "$2" ] && [ "$last" = "$3" ]; then pass=$((pass+1)); else
         fail=$((fail+1)); echo "FAIL ok/$1 (exit=$code, linhas=$n, última=$last)"; fi
 }
 ok print_order.spg       'a\nE1\nb\nE2\nc'
 lines print_big.spg 30000 29999
-exact1 print_before_error.spg 'a\nE1\nb\nruntime error: division by zero'
+exact1 print_before_error.spg 'a\nE1\nb\nruntime error: division by zero\n  at <main> (err/print_before_error.spg:5)'
 
 # fused array-index ops (hand-verified values; the OOB errors must keep the exact message)
 ok index_fused.spg       '[3, 2, 15, 7]\n[1.75, 3.25]\n[false, true, true]\n[[1, 12], [3, 3]]\n5\n9'
@@ -116,7 +124,7 @@ err range_step_zero.spg          'a range step cannot be zero' 'range_step_zero.
 err range_start_float.spg        'the start of a range must be int, found float'
 err range_end_string.spg         'the end of a range must be int, found string'
 err range_step_float.spg         'the step of a range must be int, found float'
-exact1 range_step_zero_dynamic.spg 'before\nruntime error: range step cannot be zero'
+exact1 range_step_zero_dynamic.spg 'before\nruntime error: range step cannot be zero\n  at f (err/range_step_zero_dynamic.spg:2)\n  at <main> (err/range_step_zero_dynamic.spg:7)'
 err range_array_step_zero.spg    'runtime error: range step cannot be zero'
 err range_array_too_large.spg    '@array.range would create 100000000 elements (the maximum is 20000000)' "use 'for i in a..b'"
 err range_outside_for.spg        "'..' only works in a for loop header" "'@array.range(1, 4)'" '(line 1, column 10)'
@@ -182,7 +190,7 @@ err ns_transform_antigo.spg "'transform.parseInt' uses the old namespace spellin
 err ns_time_run_antigo.spg  "'time.run' uses the old namespace spelling" "use '@time.elapsed'"
 err ns_time_run_removido.spg "namespace '@time' has no member 'run'"
 err chamada_campo.spg       "'x' is a field of struct 'P', not a method" 'line 3'
-err not_callable_expr.spg   "only named functions can be called" 'line 2'
+err not_callable_expr.spg   "only functions can be called, and this value is not a function" 'line 2'
 err ns_sleep_negativo.spg   '@time.sleep expects a non-negative number of milliseconds, got -5'
 err into_int_invalido.spg   'cannot parse "abc" as int'
 err into_float_invalido.spg 'cannot parse "abc" as float'
@@ -369,7 +377,7 @@ done
 # ---- file directives (#> strict / #> timeout N / #> friendly-terminal) ----
 exit124() {  # exit124 <arquivo> <saída esperada antes do corte> — o PRÓPRIO engine corta com exit 124 e a mensagem
     # (o `timeout 30` da suíte também dá 124 numa trava: sem a mensagem do engine isso é FAIL)
-    got=$(spgrun "err/$1" 2>&1); code=$?
+    raw=$(spgrun "err/$1" 2>&1); code=$?; got=$(printf '%s' "$raw" | norm)
     if [ "$code" = 124 ] && echo "$got" | grep -qF "timeout: the program ran for more than 300 ms" && echo "$got" | head -1 | grep -qF -- "$2"; then pass=$((pass+1)); else
         fail=$((fail+1)); echo "FAIL err/$1 (exit=$code)"; echo "  got: $(echo "$got" | tr '\n' '|')"; fi
 }
@@ -400,6 +408,55 @@ ok methods_numeric.spg '7\n2.5\n3\n9\n2.5\n9.5\nNaN\n4\n3\n1\n0.7853981633974483
 err json_missing.spg  "@json.get: path not found: 'b'" "has no key 'b'"
 err json_invalid.spg  'invalid JSON: expected a string key' 'line 1, column'
 err json_friendly.spg 'Oops! @json.get: path not found'
+
+ok interpolacao.spg         'oi Ana, tenho 30 anos\nsoma 31 e 3 itens\naninhado: xAnay / 1\ncru ${nome} e $5 e 6\n1.5|true|[1, 2, 3]\n3'
+err interp_vazia.spg     'empty interpolation' 'line 1, column 7'
+err interp_tipo.spg     'Add not supported for int and string'
+
+exact1 trace_cadeia.spg '6\nruntime error: division by zero\n  at divide (err/trace_cadeia.spg:2)\n  at compute (err/trace_cadeia.spg:6)\n  at <main> (err/trace_cadeia.spg:11)'
+exact1 trace_recursao.spg 'runtime error: stack overflow: more than 100000 nested calls (is a function calling itself forever?)\n  at down (err/trace_recursao.spg:2)\n  ... same line repeated 49 more times\n  ... 99950 more frames'
+exact1 trace_modulo.spg 'error: Oops! index out of bounds: 9 (array has 3 element(s)). The program stopped while running. Check the values involved at that point; a try/catch can handle this kind of error.\n  at risky (err/trace_modulo_lib.spg:3)\n  at outer (err/trace_modulo.spg:5)\n  at <main> (err/trace_modulo.spg:8)'
+ok trace_catch.spg 'pegou\nfim'
+ok lambdas.spg           '13\n42\n49\n10\n101\n20\niife\n<function>'
+ok lambda_captura.spg    '203\n10'
+err lambda_captura_atribui.spg "a lambda cannot assign 'x'"
+err lambda_tipo_argumento.spg "'ap' argument #1 expects function(int) -> int, got function(string) -> int"
+err lambda_sem_retorno.spg "function '<lambda>' must return int on every path"
+exact1 trace_lambda.spg 'runtime error: division by zero\n  at t (err/trace_lambda.spg:1)\n  at <lambda> (err/trace_lambda.spg:2)\n  at <main> (err/trace_lambda.spg:3)'
+
+ok opcional.spg          '1 none\n8 -1\n99 10\ntrue true true false\n6 0\noi Ana\nnone e 10\n[1, none, 3]\n1\n5 0 5 0\n10 0\n7 1'
+ok opt_global_catch.spg  'pegou'
+err opt_aritmetica.spg   'operator Add not supported for int? and int' 'may be none'
+err opt_none_sem_tipo.spg "cannot tell which type 'none' belongs to"
+err opt_para_int.spg     "argument #1 expects int, got int?"
+err opt_coalesce.spg     "'??' needs an optional value on its left"
+err opt_sem_saida.spg    'operator Add not supported for int? and int'
+err opt_atribui_none.spg 'operator Add not supported for int? and int'
+err opt_campo.spg        'type N? has no fields'
+err opt_void.spg         'void? makes no sense'
+
+# spg build: the executable runs its program from the embedded sources alone,
+# so it must work after the source files are gone
+bdir=$(mktemp -d)
+cp ok/interpolacao.spg ok/subpastas.spg "$bdir"/ 2>/dev/null
+if timeout 60 "$SPG" build ok/interpolacao.spg -o "$bdir/app" >/dev/null 2>&1; then
+    got=$(cd / && "$bdir/app" 2>&1); code=$?
+    want=$(printf 'oi Ana, tenho 30 anos\nsoma 31 e 3 itens\naninhado: xAnay / 1\ncru ${nome} e $5 e 6\n1.5|true|[1, 2, 3]\n3')
+    if [ "$code" = 0 ] && [ "$got" = "$want" ]; then pass=$((pass+1)); else
+        fail=$((fail+1)); echo "FAIL build/interpolacao (exit=$code)"; echo "  got: $got"; fi
+else
+    fail=$((fail+1)); echo "FAIL build: spg build did not produce an executable"
+fi
+rm -rf "$bdir"
+
+# spg fmt: rewrites the layout, keeps the comment, and a formatted file passes --check
+fdir=$(mktemp -d)
+printf 'let a=1+2\nprint(a)   // soma\n' > "$fdir/x.spg"
+spgrun fmt "$fdir/x.spg" >/dev/null 2>&1
+got=$(cat "$fdir/x.spg"); want=$(printf 'let a = 1 + 2\nprint(a)  // soma')
+if [ "$got" = "$want" ] && spgrun fmt --check "$fdir/x.spg" >/dev/null 2>&1; then pass=$((pass+1)); else
+    fail=$((fail+1)); echo "FAIL fmt/x.spg"; echo "  got: $got"; fi
+rm -rf "$fdir"
 
 echo "multi-arquivo: $pass ok, $fail falhas"
 [ "$fail" = 0 ]

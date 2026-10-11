@@ -424,6 +424,7 @@ pub fn fuse_superinstructions(chunk: &mut Chunk) {
 
 fn fuse_pass(chunk: &mut Chunk, late: bool) -> bool {
     let old = std::mem::take(&mut chunk.code);
+    let old_locs = std::mem::take(&mut chunk.locs);
     let n = old.len();
 
     let mut is_target = vec![false; n + 1];
@@ -434,6 +435,8 @@ fn fuse_pass(chunk: &mut Chunk, late: bool) -> bool {
     }
 
     let mut new_code = Vec::with_capacity(n);
+    // a fused op reports the location of its first instruction
+    let mut new_locs = Vec::with_capacity(n);
     // old index -> index in `new_code`; jumps are rewritten through this
     let mut map = vec![0usize; n + 1];
     let mut changed = false;
@@ -458,6 +461,7 @@ fn fuse_pass(chunk: &mut Chunk, late: bool) -> bool {
             map[i + k] = ni;
         }
         new_code.push(op);
+        new_locs.push(old_locs[i].clone());
         i += len;
     }
     // a jump may target one-past-the-end (exit point after a loop or if)
@@ -469,5 +473,6 @@ fn fuse_pass(chunk: &mut Chunk, late: bool) -> bool {
         }
     }
     chunk.code = new_code;
+    chunk.locs = new_locs;
     changed
 }

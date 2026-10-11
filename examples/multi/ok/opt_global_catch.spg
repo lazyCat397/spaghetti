@@ -1,0 +1,12 @@
+let g: int? = 5
+function limpa() -> void { g = none }
+function usa() -> int {
+    if (g == none) { return 0 }
+    limpa()
+    return g + 1
+}
+try {
+    print(usa())
+} catch (e: string) {
+    print("pegou")
+}

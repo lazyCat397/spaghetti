@@ -32,9 +32,33 @@ pub enum Ty {
     /// accepts `map<K, V>` for any K and V when used as a builtin parameter
     /// type (`@map.*`). Not declarable by user code, same spirit as `AnyArray`.
     AnyMap,
+    /// `function(P1, P2) -> R`: the type of a function value (a named function,
+    /// a lambda, or a variable holding either)
+    Function { params: Vec<Ty>, ret: Box<Ty> },
+    /// `T?`: a value of type T, or `none`
+    Optional(Box<Ty>),
+    /// the type of the literal `none` on its own; it fits every optional type
+    NoneLit,
 }
 
 impl Ty {
+    /// whether a value of type `found` may be stored where `self` is expected:
+    /// the same type, or (for `T?`) a `T`, a `T?`, or `none`. Never the other
+    /// way round: a `T?` does not fit a `T`
+    pub fn accepts(&self, found: &Ty) -> bool {
+        if self == found {
+            return true;
+        }
+        match self {
+            Ty::Optional(inner) => {
+                matches!(found, Ty::NoneLit)
+                    || inner.as_ref() == found
+                    || matches!(found, Ty::Optional(other) if other == inner)
+            }
+            _ => false,
+        }
+    }
+
     /// the type of the literal `[:]`: a map with no known key/value type. It is
     /// written as `Map(Void, Void)` (a user cannot write `map<void, void>`).
     pub fn is_empty_array(&self) -> bool {
@@ -67,6 +91,9 @@ impl PartialEq for Ty {
             | (Ty::AnyMap, Ty::AnyMap) => true,
             (Ty::Array(a), Ty::Array(b)) => self.is_empty_array() || other.is_empty_array() || a == b,
             (Ty::Named(a), Ty::Named(b)) => a == b,
+            (Ty::Function { params: p1, ret: r1 }, Ty::Function { params: p2, ret: r2 }) => p1 == p2 && r1 == r2,
+            (Ty::Optional(a), Ty::Optional(b)) => a == b,
+            (Ty::NoneLit, Ty::NoneLit) => true,
             (Ty::Map(k1, v1), Ty::Map(k2, v2)) => {
                 self.is_empty_map() || other.is_empty_map() || (k1 == k2 && v1 == v2)
             }
@@ -96,13 +123,29 @@ impl std::fmt::Display for Ty {
             Ty::Any => write!(f, "any"),
             Ty::AnyArray => write!(f, "array<any>"),
             Ty::AnyMap => write!(f, "map<any, any>"),
+            Ty::Optional(inner) => write!(f, "{}?", inner),
+            Ty::NoneLit => write!(f, "none"),
+            Ty::Function { params, ret } => {
+                let list: Vec<String> = params.iter().map(|p| p.to_string()).collect();
+                write!(f, "function({}) -> {}", list.join(", "), ret)
+            }
         }
     }
+}
+
+/// where a typed statement starts in its source file: the line a runtime
+/// error (and its stack trace) points at
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SrcLoc {
+    pub file: Option<String>,
+    pub line: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedBlock {
     pub stmts: Vec<TypedStmt>,
+    /// one location per entry of `stmts`, same order
+    pub locs: Vec<SrcLoc>,
     /// type of the block as a whole — only meaningful when the block is
     /// used as the then/else branch of an if-expression; Void otherwise
     pub ty: Ty,
@@ -119,6 +162,23 @@ pub enum TypedExpr {
     MapLit { entries: Vec<(TypedExpr, TypedExpr)>, ty: Ty },
 
     Ident { name: String, ty: Ty },
+
+    /// the literal `none` (its type is `Ty::NoneLit`)
+    NoneLit { ty: Ty },
+
+    /// `left ?? right`: `left` (an optional) unless it is `none`, else `right`.
+    /// `right` is only evaluated when `left` is `none`
+    Coalesce { left: Box<TypedExpr>, right: Box<TypedExpr>, ty: Ty },
+
+    /// `function(x: int) -> int { ... }`. `captures` are the enclosing function's
+    /// local variables the body uses, by name; their values are copied when the
+    /// lambda is created (see `Checker::resolve_name`). The body sees them as
+    /// ordinary locals, ahead of the parameters.
+    Lambda { params: Vec<Param>, return_type: Ty, body: TypedBlock, captures: Vec<(String, Ty)>, ty: Ty },
+
+    /// a call through a function VALUE (a variable, a parameter, a call result).
+    /// Named-function calls stay `Call`
+    CallValue { callee: Box<TypedExpr>, args: Vec<TypedExpr>, ty: Ty },
 
     Binary {
         left: Box<TypedExpr>,
@@ -205,6 +265,10 @@ impl TypedExpr {
             TypedExpr::Binary { ty, .. } => ty,
             TypedExpr::Unary { ty, .. } => ty,
             TypedExpr::Call { ty, .. } => ty,
+            TypedExpr::Lambda { ty, .. } => ty,
+            TypedExpr::NoneLit { ty } => ty,
+            TypedExpr::Coalesce { ty, .. } => ty,
+            TypedExpr::CallValue { ty, .. } => ty,
             TypedExpr::Index { ty, .. } => ty,
             TypedExpr::StructLit { ty, .. } => ty,
             TypedExpr::Field { ty, .. } => ty,
@@ -319,4 +383,6 @@ pub enum RangeStep {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedProgram {
     pub stmts: Vec<TypedStmt>,
+    /// one location per entry of `stmts`, same order
+    pub locs: Vec<SrcLoc>,
 }

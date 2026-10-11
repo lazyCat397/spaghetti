@@ -150,6 +150,11 @@ impl Parser {
         &self.tokens[self.pos]
     }
 
+    /// whether the token after the current one is `kind` (one token of lookahead)
+    fn next_is(&self, kind: &TokenKind) -> bool {
+        self.tokens.get(self.pos + 1).is_some_and(|t| std::mem::discriminant(&t.kind) == std::mem::discriminant(kind))
+    }
+
     fn peek_pos(&self) -> Pos {
         let t = self.peek();
         Pos { line: t.line, col: t.col, file: None }
@@ -217,7 +222,9 @@ impl Parser {
                 let value = self.parse_expr()?;
                 Ok(Stmt::Throw { value, pos })
             }
-            TokenKind::Function => self.parse_function_decl(false),
+            // `function (` at statement start is an anonymous function used as an
+            // expression statement (`function() { ... }()`), not a declaration
+            TokenKind::Function if !self.next_is(&TokenKind::LParen) => self.parse_function_decl(false),
             TokenKind::Struct => self.parse_struct_decl(false),
             TokenKind::Enum => self.parse_enum_decl(false),
             TokenKind::Export => self.parse_export(),
@@ -818,7 +825,27 @@ impl Parser {
 
     // Types
 
+    /// a type, with an optional `?` after it: `int?`, `array<int>?`, `Point?`
     fn parse_type_expr(&mut self) -> Result<TypeExpr, ParseError> {
+        let base = self.parse_type_base()?;
+        if self.check(&TokenKind::Question) {
+            let t = self.peek();
+            let (line, col) = (t.line, t.col);
+            if matches!(base, TypeExpr::Void) {
+                return Err(ParseError::Unexpected {
+                    expected: "a type that can hold a value (void? makes no sense)".to_string(),
+                    found: TokenKind::Question,
+                    line,
+                    col,
+                });
+            }
+            self.advance();
+            return Ok(TypeExpr::Optional(Box::new(base)));
+        }
+        Ok(base)
+    }
+
+    fn parse_type_base(&mut self) -> Result<TypeExpr, ParseError> {
         let (tline, tcol) = {
             let t = self.peek();
             (t.line, t.col)
@@ -830,6 +857,20 @@ impl Parser {
             TokenKind::TypeBool => Ok(TypeExpr::Bool),
             TokenKind::TypeString => Ok(TypeExpr::String),
             TokenKind::TypeVoid => Ok(TypeExpr::Void),
+            TokenKind::Function => {
+                self.expect(TokenKind::LParen, "'(' (function(T, ...) -> R)")?;
+                let mut params = Vec::new();
+                if !self.check(&TokenKind::RParen) {
+                    params.push(self.parse_type_expr()?);
+                    while self.match_kind(&TokenKind::Comma) {
+                        params.push(self.parse_type_expr()?);
+                    }
+                }
+                self.expect(TokenKind::RParen, "')' (function(T, ...) -> R)")?;
+                self.expect(TokenKind::Arrow, "'->' (function(T, ...) -> R)")?;
+                let ret = self.parse_type_expr()?;
+                Ok(TypeExpr::Function { params, ret: Box::new(ret) })
+            }
             TokenKind::TypeArray => {
                 self.expect(TokenKind::Lt, "'<' (array<T>)")?;
                 let inner = self.parse_type_expr()?;
@@ -866,7 +907,19 @@ impl Parser {
         if self.check(&TokenKind::If) {
             return self.parse_if_expr();
         }
-        self.parse_or()
+        self.parse_coalesce()
+    }
+
+    /// `a ?? b ?? c`: the loosest binary operator, right-associative
+    fn parse_coalesce(&mut self) -> Result<Expr, ParseError> {
+        let left = self.parse_or()?;
+        if self.check(&TokenKind::QuestionQuestion) {
+            let pos = self.peek_pos();
+            self.advance();
+            let right = self.parse_coalesce()?;
+            return Ok(Expr::Binary { left: Box::new(left), op: BinaryOp::Coalesce, right: Box::new(right), pos });
+        }
+        Ok(left)
     }
 
     /// parses one expression with struct literals disabled — used for
@@ -1167,7 +1220,22 @@ impl Parser {
             TokenKind::Float(f) => Ok(Expr::FloatLit(f, pos)),
             TokenKind::Str(s) => Ok(Expr::StringLit(s, pos)),
             TokenKind::Bool(b) => Ok(Expr::BoolLit(b, pos)),
+            TokenKind::NoneLit => Ok(Expr::NoneLit(pos)),
             TokenKind::Namespace(name) => self.parse_namespace_access(name, pos),
+            TokenKind::Function => {
+                self.expect(TokenKind::LParen, "'(' (anonymous function)")?;
+                let mut params = Vec::new();
+                if !self.check(&TokenKind::RParen) {
+                    params.push(self.parse_param()?);
+                    while self.match_kind(&TokenKind::Comma) {
+                        params.push(self.parse_param()?);
+                    }
+                }
+                self.expect(TokenKind::RParen, "')'")?;
+                let return_type = if self.match_kind(&TokenKind::Arrow) { Some(self.parse_type_expr()?) } else { None };
+                let body = self.parse_block()?;
+                Ok(Expr::Lambda { params, return_type, body, pos })
+            }
             TokenKind::TypeString if self.check(&TokenKind::Dot) => {
                 self.advance(); // .
                 let member = match &self.peek().kind {

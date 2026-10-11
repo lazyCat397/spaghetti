@@ -7,6 +7,8 @@ use std::fmt;
 pub enum LexError {
     UnexpectedChar { ch: char, line: usize, col: usize },
     UnterminatedString { line: usize, col: usize },
+    /// `"${}"`: an interpolation with nothing inside the braces
+    EmptyInterpolation { line: usize, col: usize },
     /// `@foo` where `foo` is not a builtin namespace (or a lone `@`)
     UnknownNamespace { name: String, line: usize, col: usize },
     /// `#> name` where `name` is not a known directive; `suggestion` is the
@@ -40,6 +42,9 @@ impl fmt::Display for LexError {
         match self {
             LexError::UnexpectedChar { ch, line, col } => {
                 write!(f, "unexpected character '{}' at line {}, column {}", ch, line, col)
+            }
+            LexError::EmptyInterpolation { line, col } => {
+                write!(f, "empty interpolation in string, started at line {}, column {}", line, col)
             }
             LexError::UnterminatedString { line, col } => {
                 write!(f, "unterminated string, started at line {}, column {}", line, col)
@@ -92,6 +97,10 @@ impl LexError {
             LexError::UnexpectedChar { ch, line, col } => format!(
                 "Oops! I found a character I don't expect: '{}' in `{}` at line {}, column {}. Check for a typo or a stray symbol.",
                 ch, file, line, col
+            ),
+            LexError::EmptyInterpolation { line, col } => format!(
+                "Oops! Empty `${{}}` in string in `{}` at line {}, column {}. Put an expression between the braces, or write `\\${{` for a literal dollar sign.",
+                file, line, col
             ),
             LexError::UnterminatedString { line, col } => format!(
                 "Oops! Unterminated string in `{}` at line {}, column {}. Check for a missing closing quote.",
@@ -159,6 +168,21 @@ fn edit_distance(a: &str, b: &str) -> usize {
 
 impl std::error::Error for LexError {}
 
+/// one piece of an interpolated string while it is being read
+enum Part {
+    Text(String),
+    Expr(Vec<Token>),
+}
+
+/// tokenizes a piece of source that sits at a known position (an interpolated
+/// expression, or a synthetic wrapper), so its tokens report real positions
+fn fragment_tokens(src: &str, line: usize, col: usize) -> Result<Vec<Token>, LexError> {
+    let mut lx = Lexer::new(src);
+    lx.line = line;
+    lx.col = col;
+    lx.lex_tokens()
+}
+
 pub struct Lexer<'a> {
     /// decoded characters, NOT bytes: a multi-byte UTF-8 char (`á`, `ç`, `—`)
     /// is one element, one column, and survives into string literals intact
@@ -190,6 +214,14 @@ impl<'a> Lexer<'a> {
     /// not tokens: the parser never sees them
     pub fn tokenize_with_spec(mut self) -> Result<(Vec<Token>, FileSpec), LexError> {
         self.read_header()?;
+        let mut tokens = self.lex_tokens()?;
+        let (line, col) = (self.line, self.col);
+        tokens.push(Token::new(TokenKind::Eof, line, col));
+        Ok((tokens, self.spec))
+    }
+
+    /// every token up to the end of the input, WITHOUT the Eof marker
+    fn lex_tokens(&mut self) -> Result<Vec<Token>, LexError> {
         let mut tokens = Vec::new();
 
         loop {
@@ -198,7 +230,6 @@ impl<'a> Lexer<'a> {
             let (line, col) = (self.line, self.col);
 
             let Some(ch) = self.peek() else {
-                tokens.push(Token::new(TokenKind::Eof, line, col));
                 break;
             };
 
@@ -207,10 +238,14 @@ impl<'a> Lexer<'a> {
                 return Err(LexError::MisplacedDirective { line, col });
             }
 
+            if ch == '"' {
+                let parts = self.read_string_tokens()?;
+                tokens.extend(parts);
+                continue;
+            }
+
             let kind = if ch.is_ascii_digit() {
                 self.read_number()
-            } else if ch == '"' {
-                self.read_string()?
             } else if ch == '\'' {
                 self.read_raw_string()?
             } else if ch.is_alphabetic() || ch == '_' {
@@ -224,7 +259,7 @@ impl<'a> Lexer<'a> {
             tokens.push(Token::new(kind, line, col));
         }
 
-        Ok((tokens, self.spec))
+        Ok(tokens)
     }
 
     /// reads the `#>` header: directive lines before any code (comments and
@@ -381,11 +416,17 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_string(&mut self) -> Result<TokenKind, LexError> {
+    /// `"..."`: a normal string. Escapes work as before, and `${expr}`
+    /// interpolates. The literal becomes a parenthesized `+` chain of string
+    /// pieces and `@into.string(expr)` calls, so the parser and typechecker
+    /// see ordinary tokens. `\${` is just text (`\$` is an escape like any other).
+    fn read_string_tokens(&mut self) -> Result<Vec<Token>, LexError> {
         let (start_line, start_col) = (self.line, self.col);
         self.advance(); // consume the opening "
 
-        let mut s = String::new();
+        let mut parts: Vec<Part> = Vec::new();
+        let mut text = String::new();
+        let mut has_expr = false;
         loop {
             match self.peek() {
                 None => {
@@ -401,12 +442,12 @@ impl<'a> Lexer<'a> {
                 Some('\\') => {
                     self.advance();
                     match self.advance() {
-                        Some('n') => s.push('\n'),
-                        Some('t') => s.push('\t'),
-                        Some('r') => s.push('\r'),
-                        Some('"') => s.push('"'),
-                        Some('\\') => s.push('\\'),
-                        Some(other) => s.push(other),
+                        Some('n') => text.push('\n'),
+                        Some('t') => text.push('\t'),
+                        Some('r') => text.push('\r'),
+                        Some('"') => text.push('"'),
+                        Some('\\') => text.push('\\'),
+                        Some(other) => text.push(other),
                         None => {
                             return Err(LexError::UnterminatedString {
                                 line: start_line,
@@ -415,14 +456,132 @@ impl<'a> Lexer<'a> {
                         }
                     }
                 }
+                Some('$') if self.peek_next() == Some('{') => {
+                    self.advance();
+                    self.advance();
+                    let (expr_line, expr_col) = (self.line, self.col);
+                    let src = self.read_interpolation(start_line, start_col)?;
+                    if src.trim().is_empty() {
+                        return Err(LexError::EmptyInterpolation {
+                            line: start_line,
+                            col: start_col,
+                        });
+                    }
+                    if !text.is_empty() {
+                        parts.push(Part::Text(std::mem::take(&mut text)));
+                    }
+                    parts.push(Part::Expr(fragment_tokens(&src, expr_line, expr_col)?));
+                    has_expr = true;
+                }
                 Some(c) => {
-                    s.push(c);
+                    text.push(c);
                     self.advance();
                 }
             }
         }
 
-        Ok(TokenKind::Str(s))
+        if !has_expr {
+            return Ok(vec![Token::new(TokenKind::Str(text), start_line, start_col)]);
+        }
+        if !text.is_empty() {
+            parts.push(Part::Text(text));
+        }
+
+        let (l, c) = (start_line, start_col);
+        let mut out = fragment_tokens("(", l, c)?;
+        for (i, part) in parts.into_iter().enumerate() {
+            if i > 0 {
+                out.extend(fragment_tokens("+", l, c)?);
+            }
+            match part {
+                Part::Text(t) => out.push(Token::new(TokenKind::Str(t), l, c)),
+                Part::Expr(toks) => {
+                    out.extend(fragment_tokens("@into.string(", l, c)?);
+                    out.extend(toks);
+                    out.extend(fragment_tokens(")", l, c)?);
+                }
+            }
+        }
+        out.extend(fragment_tokens(")", l, c)?);
+        Ok(out)
+    }
+
+    /// raw source of `${...}`, up to its closing brace (the `${` is already
+    /// consumed). Nested braces, strings and raw strings are copied whole, so
+    /// `"${@str.len("}")}"` closes at the right brace.
+    fn read_interpolation(&mut self, start_line: usize, start_col: usize) -> Result<String, LexError> {
+        let unterminated = LexError::UnterminatedString {
+            line: start_line,
+            col: start_col,
+        };
+        let mut raw = String::new();
+        let mut depth = 0usize;
+        loop {
+            let Some(c) = self.advance() else {
+                return Err(unterminated);
+            };
+            match c {
+                '}' if depth == 0 => return Ok(raw),
+                '}' => {
+                    depth -= 1;
+                    raw.push(c);
+                }
+                '{' => {
+                    depth += 1;
+                    raw.push(c);
+                }
+                '"' => {
+                    raw.push(c);
+                    self.copy_nested_string(&mut raw, start_line, start_col)?;
+                }
+                '\'' => {
+                    raw.push(c);
+                    loop {
+                        match self.advance() {
+                            None => return Err(unterminated),
+                            Some('\'') => {
+                                raw.push('\'');
+                                break;
+                            }
+                            Some(x) => raw.push(x),
+                        }
+                    }
+                }
+                _ => raw.push(c),
+            }
+        }
+    }
+
+    /// the rest of a `"..."` that sits inside `${...}`, copied raw through its
+    /// closing quote (nested `${...}` included)
+    fn copy_nested_string(&mut self, raw: &mut String, start_line: usize, start_col: usize) -> Result<(), LexError> {
+        let unterminated = LexError::UnterminatedString {
+            line: start_line,
+            col: start_col,
+        };
+        loop {
+            let Some(c) = self.advance() else {
+                return Err(unterminated);
+            };
+            raw.push(c);
+            match c {
+                '"' => return Ok(()),
+                '\\' => {
+                    let Some(n) = self.advance() else {
+                        return Err(unterminated);
+                    };
+                    raw.push(n);
+                }
+                '$' if self.peek() == Some('{') => {
+                    self.advance();
+                    raw.push('{');
+                    let inner = self.read_interpolation(start_line, start_col)?;
+                    raw.push_str(&inner);
+                    raw.push('}');
+                }
+                _ => {}
+            }
+        }
     }
 
     /// `'...'`: a RAW string. Everything up to the next `'` is the content,
@@ -560,6 +719,14 @@ impl<'a> Lexer<'a> {
                     TokenKind::GtEq
                 } else {
                     TokenKind::Gt
+                }
+            }
+            '?' => {
+                if self.peek() == Some('?') {
+                    self.advance();
+                    TokenKind::QuestionQuestion
+                } else {
+                    TokenKind::Question
                 }
             }
             '&' if self.peek() == Some('&') => {

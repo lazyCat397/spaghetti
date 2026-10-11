@@ -8,6 +8,7 @@
     { "include": "#strings" },
     { "include": "#raw-strings" },
     { "include": "#definitions" },
+    { "include": "#function-value" },
     { "include": "#keywords" },
     { "include": "#namespaces" },
     { "include": "#types" },
@@ -39,7 +40,10 @@
       "name": "string.quoted.double.spg",
       "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.spg" } },
       "endCaptures": { "0": { "name": "punctuation.definition.string.end.spg" } },
-      "patterns": [{ "match": "\\\\.", "name": "constant.character.escape.spg" }]
+      "patterns": [
+        { "match": "\\\\.", "name": "constant.character.escape.spg" },
+        { "include": "#interpolation" }
+      ]
     },
     "raw-strings": {
       "begin": "'",
@@ -47,6 +51,24 @@
       "name": "string.quoted.single.spg",
       "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.spg" } },
       "endCaptures": { "0": { "name": "punctuation.definition.string.end.spg" } }
+    },
+    "interpolation": {
+      "begin": "\\$\\{",
+      "end": "\\}",
+      "name": "meta.interpolation.spg",
+      "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.spg" } },
+      "endCaptures": { "0": { "name": "punctuation.section.interpolation.end.spg" } },
+      "contentName": "meta.embedded.line.spg",
+      "patterns": [{ "include": "#interp-braces" }, { "include": "$self" }]
+    },
+    "interp-braces": {
+      "begin": "\\{",
+      "end": "\\}",
+      "patterns": [{ "include": "#interp-braces" }, { "include": "$self" }]
+    },
+    "function-value": {
+      "match": "\\bfunction\\b(?=\\s*\\()",
+      "name": "storage.type.function.spg"
     },
     "definitions": {
       "patterns": [
@@ -96,8 +118,10 @@
       "name": "support.type.primitive.spg"
     },
     "constants": {
-      "match": "\\b(true|false)\\b",
-      "name": "constant.language.boolean.spg"
+      "patterns": [
+        { "match": "\\b(true|false)\\b", "name": "constant.language.boolean.spg" },
+        { "match": "\\bnone\\b", "name": "constant.language.none.spg" }
+      ]
     },
     "numbers": {
       "patterns": [
@@ -139,6 +163,8 @@
     },
     "operators": {
       "patterns": [
+        { "match": "\\?\\?", "name": "keyword.operator.coalesce.spg" },
+        { "match": "\\?", "name": "keyword.operator.optional.spg" },
         { "match": "\\.\\.", "name": "keyword.operator.range.spg" },
         { "match": "->", "name": "keyword.operator.arrow.spg" },
         { "match": "==|!=|<=|>=|&&|\\|\\|", "name": "keyword.operator.logical.spg" },

@@ -51,6 +51,10 @@ pub enum TypeExpr {
     /// so a variable called `map` keeps working)
     Map(Box<TypeExpr>, Box<TypeExpr>),
     Named(String), // a user-defined struct
+    /// `function(int, string) -> bool`: the type of a function value
+    Function { params: Vec<TypeExpr>, ret: Box<TypeExpr> },
+    /// `T?`: a value of type T, or `none`
+    Optional(Box<TypeExpr>),
 }
 
 // expressions — always produce a value
@@ -61,6 +65,8 @@ pub enum Expr {
     FloatLit(f64, Pos),
     StringLit(String, Pos),
     BoolLit(bool, Pos),
+    /// `none`: the absent value of an optional type
+    NoneLit(Pos),
     ArrayLit(Vec<Expr>, Pos),
     /// `["a": 1, "b": 2]`, and `[:]` for the empty map (no entries)
     MapLit(Vec<(Expr, Expr)>, Pos),
@@ -120,6 +126,14 @@ pub enum Expr {
         else_branch: Box<Block>, // required, not Option
         pos: Pos,
     },
+    /// `function(x: int) -> int { ... }` in expression position: an anonymous
+    /// function value. Without `-> T` the return type is void
+    Lambda {
+        params: Vec<Param>,
+        return_type: Option<TypeExpr>,
+        body: Block,
+        pos: Pos,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -138,6 +152,8 @@ pub enum BinaryOp {
     GtEq,
     And,
     Or,
+    /// `a ?? b`: `a` unless it is `none`, else `b` (the checker turns it into its own node)
+    Coalesce,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -390,4 +406,59 @@ pub struct Param {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
     pub stmts: Vec<Stmt>,
+}
+
+impl Expr {
+    /// where the expression starts, when the variant carries a position
+    pub fn pos(&self) -> Option<&Pos> {
+        match self {
+            Expr::IntLit(_, p)
+            | Expr::FloatLit(_, p)
+            | Expr::StringLit(_, p)
+            | Expr::BoolLit(_, p)
+            | Expr::NoneLit(p)
+            | Expr::ArrayLit(_, p)
+            | Expr::MapLit(_, p)
+            | Expr::Ident(_, p) => Some(p),
+            Expr::Binary { pos, .. }
+            | Expr::Unary { pos, .. }
+            | Expr::Call { pos, .. }
+            | Expr::Index { pos, .. }
+            | Expr::StructLit { pos, .. }
+            | Expr::Field { pos, .. }
+            | Expr::IfExpr { pos, .. }
+            | Expr::Lambda { pos, .. } => Some(pos),
+        }
+    }
+}
+
+impl Stmt {
+    /// where the statement starts (an expression statement takes its expression's position)
+    pub fn pos(&self) -> Option<&Pos> {
+        match self {
+            Stmt::Let { pos, .. }
+            | Stmt::Const { pos, .. }
+            | Stmt::IfStmt { pos, .. }
+            | Stmt::While { pos, .. }
+            | Stmt::ForIn { pos, .. }
+            | Stmt::ForRange { pos, .. }
+            | Stmt::Return { pos, .. }
+            | Stmt::Break { pos }
+            | Stmt::Continue { pos }
+            | Stmt::Throw { pos, .. }
+            | Stmt::Try { pos, .. }
+            | Stmt::FunctionDecl { pos, .. }
+            | Stmt::StructDecl { pos, .. }
+            | Stmt::EnumDecl { pos, .. }
+            | Stmt::Import { pos, .. }
+            | Stmt::Install { pos, .. }
+            | Stmt::ReExport { pos, .. }
+            | Stmt::Assign { pos, .. }
+            | Stmt::IndexAssign { pos, .. }
+            | Stmt::IndexCompoundAssign { pos, .. }
+            | Stmt::FieldAssign { pos, .. }
+            | Stmt::FieldCompoundAssign { pos, .. } => Some(pos),
+            Stmt::ExprStmt(e) => e.pos(),
+        }
+    }
 }

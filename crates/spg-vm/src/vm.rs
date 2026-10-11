@@ -10,7 +10,7 @@ use crate::index_ops;
 use crate::chunk::{Chunk, OpCode, Program};
 use crate::arith;
 use crate::error::RuntimeError;
-use crate::value::Value;
+use crate::value::{Closure, Value};
 
 /// One active function call. Locals live in their own `Vec` per frame,
 /// but the operand stack is a single `Vec<Value>` shared across the
@@ -58,6 +58,31 @@ pub struct Vm<'p> {
     /// slot the compiler assigned. One array for the entire run, shared
     /// by every call frame — see OpCode::GetGlobal.
     globals: Vec<Value>,
+    /// the call chain of the error being propagated, innermost frame first.
+    /// Filled while the error unwinds, cleared again when a `try` catches it.
+    trace: Vec<TraceFrame>,
+    /// frames that did not fit in `trace` (a very deep recursion keeps only
+    /// its innermost frames; the count says how many were left out)
+    trace_omitted: usize,
+    /// how many frames are running right now (every spg call is one native recursion)
+    depth: usize,
+}
+
+/// deepest spg call chain allowed. The CLI runs the VM on a 1 GiB thread stack,
+/// which holds well over this many frames; the limit turns an endless recursion
+/// into a catchable error with a trace instead of a process abort
+pub const MAX_CALL_DEPTH: usize = 100_000;
+
+/// how many frames a stack trace keeps before it starts counting instead
+const TRACE_LIMIT: usize = 50;
+
+/// one line of a stack trace: the function, and where in the source it stopped
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraceFrame {
+    /// `<main>` for the top-level code, otherwise the function's name
+    pub function: String,
+    pub file: Option<String>,
+    pub line: u32,
 }
 
 /// what one step of execution produced — right now that's only "the
@@ -70,7 +95,14 @@ impl<'p> Vm<'p> {
     pub fn new(program: &'p Program) -> Self {
         crate::builtins::mark_program_start();
         crate::value::install_enum_defs(&program.enum_defs);
-        Vm { program, pool: Vec::with_capacity(64), globals: vec![Value::Void; program.num_globals] }
+        Vm {
+            program,
+            pool: Vec::with_capacity(64),
+            globals: vec![Value::Void; program.num_globals],
+            trace: Vec::new(),
+            trace_omitted: 0,
+            depth: 0,
+        }
     }
 
     /// Runs the program's `main` chunk to completion and returns
@@ -85,6 +117,8 @@ impl<'p> Vm<'p> {
     /// recursion, shrinking `Value`) in SpgLab, a throwaway copy of the
     /// VM used for testing performance ideas before they land here.
     pub fn run(&mut self) -> Result<Value, RuntimeError> {
+        self.trace.clear();
+        self.trace_omitted = 0;
         let mut value_stack: Vec<Value> = Vec::with_capacity(256);
         let result = self.run_chunk(&self.program.main, Vec::new(), &mut value_stack);
         // buffered `print` output must land before the caller reports anything
@@ -101,6 +135,10 @@ impl<'p> Vm<'p> {
     /// on `Vm` itself, which avoids a borrow conflict on the recursive
     /// call.
     fn run_chunk(&mut self, chunk: &'p Chunk, args: Vec<Value>, value_stack: &mut Vec<Value>) -> Result<Value, RuntimeError> {
+        if self.depth >= MAX_CALL_DEPTH {
+            return Err(RuntimeError::StackOverflow { limit: MAX_CALL_DEPTH });
+        }
+        self.depth += 1;
         let mut frame = CallFrame::new(chunk, args, value_stack);
 
         loop {
@@ -109,12 +147,51 @@ impl<'p> Vm<'p> {
                     let mut locals = std::mem::take(&mut frame.locals);
                     locals.clear();
                     self.pool.push(locals);
+                    self.depth -= 1;
                     return Ok(v);
                 }
                 Ok(None) => {} // keep looping
-                Err(e) => Self::catch_or_propagate(&mut frame, e)?,
+                Err(e) => {
+                    if let Err(e) = Self::catch_or_propagate(&mut frame, e) {
+                        self.record_frame(&frame);
+                        self.depth -= 1;
+                        return Err(e);
+                    }
+                    // caught here: whatever the deeper frames recorded belonged to
+                    // an error that is now handled, so it is not a trace anymore
+                    self.trace.clear();
+                    self.trace_omitted = 0;
+                }
             }
         }
+    }
+
+    /// adds this frame to the trace of the error that is leaving it
+    #[cold]
+    #[inline(never)]
+    fn record_frame(&mut self, frame: &CallFrame<'p, '_>) {
+        if self.trace.len() >= TRACE_LIMIT {
+            self.trace_omitted += 1;
+            return;
+        }
+        let loc = frame.chunk.locs.get(frame.ip.saturating_sub(1)).cloned().unwrap_or_default();
+        let is_main = std::ptr::eq(frame.chunk, &self.program.main);
+        self.trace.push(TraceFrame {
+            function: if is_main {
+                "<main>".to_string()
+            } else {
+                frame.chunk.name.rsplit("::").next().unwrap_or_default().to_string()
+            },
+            file: loc.file.as_deref().map(str::to_string),
+            line: loc.line,
+        });
+    }
+
+    /// the trace of the last error `run` returned, innermost first, plus how
+    /// many frames were left out. Empty after a successful run.
+    pub fn take_trace(&mut self) -> (Vec<TraceFrame>, usize) {
+        let omitted = std::mem::take(&mut self.trace_omitted);
+        (std::mem::take(&mut self.trace), omitted)
     }
 
     /// An error surfaced in `frame`. If it is catchable (a `throw`, or a runtime
@@ -377,6 +454,13 @@ impl<'p> Vm<'p> {
                     frame.ip = target;
                 }
             }
+            OpCode::JumpIfNotNone(target) => {
+                if matches!(frame.value_stack.last(), Some(Value::Nil)) {
+                    frame.pop()?;
+                } else {
+                    frame.ip = target;
+                }
+            }
 
             OpCode::Call { func_index, argc } => {
                 let callee =
@@ -387,6 +471,30 @@ impl<'p> Vm<'p> {
                 let at = frame.value_stack.len() - argc;
                 locals.extend(frame.value_stack.drain(at..));
                 let result = self.run_chunk(callee, locals, frame.value_stack)?;
+                frame.push(result);
+            }
+            OpCode::MakeClosure { func_index, ncap } => {
+                // the captured values are the top `ncap` stack values, in order
+                let at = frame.value_stack.len() - ncap;
+                let captures: Vec<Value> = frame.value_stack.drain(at..).collect();
+                frame.push(Value::Func(Rc::new(Closure { index: func_index, captures })));
+            }
+            OpCode::CallValue { argc } => {
+                // stack: callee, arg1 .. argN (callee below the arguments)
+                let at = frame.value_stack.len() - argc;
+                let mut locals = self.pool.pop().unwrap_or_default();
+                locals.extend(frame.value_stack.drain(at..));
+                let callee_value = frame.pop()?;
+                let Value::Func(closure) = callee_value else {
+                    return Err(RuntimeError::TypeMismatch { expected: "function", found: callee_value.type_name() });
+                };
+                // the captured values go before the arguments
+                let mut all = Vec::with_capacity(closure.captures.len() + locals.len());
+                all.extend(closure.captures.iter().cloned());
+                all.append(&mut locals);
+                self.pool.push(locals);
+                let callee = self.program.functions.get(closure.index).ok_or(RuntimeError::InvalidFunctionIndex(closure.index))?;
+                let result = self.run_chunk(callee, all, frame.value_stack)?;
                 frame.push(result);
             }
             OpCode::CallLocals2 { func_index, a, b } => {

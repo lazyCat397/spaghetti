@@ -173,6 +173,7 @@ fn annotate_expr(expr: &mut Expr, file: &str) {
         | Expr::FloatLit(_, pos)
         | Expr::StringLit(_, pos)
         | Expr::BoolLit(_, pos)
+        | Expr::NoneLit(pos)
         | Expr::Ident(_, pos) => stamp(pos, file),
 
         Expr::ArrayLit(items, pos) => {
@@ -232,6 +233,15 @@ fn annotate_expr(expr: &mut Expr, file: &str) {
             annotate_expr(cond, file);
             annotate_block(then_branch, file);
             annotate_block(else_branch, file);
+        }
+
+        Expr::Lambda { params, return_type, body, pos } => {
+            stamp(pos, file);
+            annotate_params(params, file);
+            if let Some(rt) = return_type {
+                annotate_type(rt, file);
+            }
+            annotate_block(body, file);
         }
     }
 }

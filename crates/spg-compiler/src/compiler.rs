@@ -117,13 +117,19 @@ pub fn compile_with(program: TypedProgram, optimize: bool) -> Result<Program, Co
     // statement, so `let`/`const` locals declared by an earlier
     // top-level statement stay resolvable by a later one — mirrors the
     // checker's single top-level scope for `main`
+    let sink = std::rc::Rc::new(std::cell::RefCell::new(LambdaSink { base: function_names.len(), chunks: Vec::new() }));
     let mut main_fc = FunctionCompiler::new("main", &name_to_index, &struct_table, &global_slots, true);
+    main_fc.sink = sink.clone();
     main_fc.begin_scope();
 
-    for stmt in &program.stmts {
+    for (i, stmt) in program.stmts.iter().enumerate() {
+        let loc = to_loc(&program.locs[i]);
+        main_fc.chunk.cur_loc = loc.clone();
         match stmt {
             TypedStmt::FunctionDecl { name, params, return_type, body, .. } => {
                 let mut fc = FunctionCompiler::new(name.clone(), &name_to_index, &struct_table, &global_slots, false);
+                fc.sink = sink.clone();
+                fc.chunk.cur_loc = loc;
                 fc.chunk.arity = params.len();
                 fc.begin_scope();
                 for p in params {
@@ -153,6 +159,12 @@ pub fn compile_with(program: TypedProgram, optimize: bool) -> Result<Program, Co
     let mut main = main_fc.chunk;
     main.emit(OpCode::PushVoid);
     main.emit(OpCode::Return);
+
+    // the lambdas come after the named functions, in the order they were reserved
+    for chunk in sink.borrow_mut().chunks.drain(..) {
+        functions.push(chunk);
+        function_names.push("<lambda>".to_string());
+    }
 
     // fold common instruction pairs into single opcodes as a post-pass
     // over every already-compiled chunk (see spg-compiler::peephole)
@@ -192,8 +204,19 @@ struct StructTable {
     enum_values: Vec<Vec<Value>>,
 }
 
+/// the bodies of every lambda in the program, shared by all `FunctionCompiler`s.
+/// A lambda's function index is `base` (the number of named functions) plus its
+/// position here, so indices stay stable while compilation is still going
+#[derive(Default)]
+struct LambdaSink {
+    base: usize,
+    chunks: Vec<Chunk>,
+}
+
 struct FunctionCompiler<'a> {
     chunk: Chunk,
+    /// where the lambdas found in this body go (shared with every other compiler)
+    sink: std::rc::Rc<std::cell::RefCell<LambdaSink>>,
     /// stack of block scopes; each maps a local variable name to its
     /// slot index in the (flat, per-function) locals array
     scopes: Vec<HashMap<String, usize>>,
@@ -243,6 +266,7 @@ impl<'a> FunctionCompiler<'a> {
     ) -> Self {
         FunctionCompiler {
             chunk: Chunk::new(name),
+            sink: Default::default(),
             scopes: Vec::new(),
             next_slot: 0,
             function_index,
@@ -380,6 +404,7 @@ impl<'a> FunctionCompiler<'a> {
     fn compile_block(&mut self, block: &TypedBlock) -> Result<(), CompileError> {
         self.begin_scope();
         for (i, stmt) in block.stmts.iter().enumerate() {
+            self.chunk.cur_loc = to_loc(&block.locs[i]);
             let is_last = i == block.stmts.len() - 1;
             // the last statement of a block used as an if-expression
             // branch is an expression whose value must be LEFT on the
@@ -872,13 +897,44 @@ impl<'a> FunctionCompiler<'a> {
                 self.chunk.emit(OpCode::MakeArray(items.len()));
             }
 
-            TypedExpr::Ident { name, .. } => {
-                match self.resolve_var(name).expect(
-                    "compiler bug: identifier not found in any scope (should've been caught by typecheck)",
-                ) {
-                    VarSlot::Local(slot) => self.chunk.emit(OpCode::GetLocal(slot)),
-                    VarSlot::Global(slot) => self.chunk.emit(OpCode::GetGlobal(slot)),
-                };
+            TypedExpr::Ident { name, .. } => match self.resolve_var(name) {
+                Some(VarSlot::Local(slot)) => {
+                    self.chunk.emit(OpCode::GetLocal(slot));
+                }
+                Some(VarSlot::Global(slot)) => {
+                    self.chunk.emit(OpCode::GetGlobal(slot));
+                }
+                // not a variable: a named function used as a value (no captures)
+                None => {
+                    let func_index = *self.function_index.get(name).ok_or_else(|| CompileError::UnknownFunction(name.clone()))?;
+                    self.chunk.emit(OpCode::MakeClosure { func_index, ncap: 0 });
+                }
+            },
+
+            TypedExpr::NoneLit { .. } => {
+                let idx = self.chunk.add_constant(Value::Nil);
+                self.chunk.emit(OpCode::Const(idx));
+            }
+
+            // `left ?? right`: the default is only computed when `left` is none
+            TypedExpr::Coalesce { left, right, .. } => {
+                self.compile_expr(left)?;
+                let keep = self.chunk.emit(OpCode::JumpIfNotNone(0));
+                self.compile_expr(right)?;
+                let after = self.chunk.next_index();
+                self.chunk.patch_jump(keep, after);
+            }
+
+            TypedExpr::Lambda { params, body, captures, return_type, .. } => {
+                self.compile_lambda(params, body, captures, return_type)?;
+            }
+
+            TypedExpr::CallValue { callee, args, .. } => {
+                self.compile_expr(callee)?;
+                for arg in args {
+                    self.compile_expr(arg)?;
+                }
+                self.chunk.emit(OpCode::CallValue { argc: args.len() });
             }
 
             TypedExpr::Binary { left, op, right, .. } => {
@@ -1006,9 +1062,62 @@ impl<'a> FunctionCompiler<'a> {
 
         self.compile_expr(left)?;
         self.compile_expr(right)?;
+        // an optional on either side (`x == none`, `x == 3` with `x: int?`) compares
+        // whole values: the int/float/string opcodes would reject a `none`
+        let optional = |t: &Ty| matches!(t, Ty::Optional(_) | Ty::NoneLit);
+        if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) && (optional(left.ty()) || optional(right.ty())) {
+            self.chunk.emit(if matches!(op, BinaryOp::Eq) { OpCode::EqValue } else { OpCode::NotEqValue });
+            return Ok(());
+        }
         let left_ty = left.ty();
         let opcode = binary_opcode(op, left_ty);
         self.chunk.emit(opcode);
+        Ok(())
+    }
+
+    /// a lambda: its body becomes a chunk in the shared sink (reserved first, so
+    /// its index is known before its body is compiled); here, the captured values
+    /// are pushed in the order the body expects them, then the closure is made
+    fn compile_lambda(
+        &mut self,
+        params: &[spg_parser::ast::Param],
+        body: &TypedBlock,
+        captures: &[(String, Ty)],
+        return_type: &Ty,
+    ) -> Result<(), CompileError> {
+        let (base, index) = {
+            let mut sink = self.sink.borrow_mut();
+            let index = sink.base + sink.chunks.len();
+            sink.chunks.push(Chunk::new("<lambda>"));
+            (sink.base, index)
+        };
+
+        for (name, _) in captures {
+            match self.resolve_var(name) {
+                Some(VarSlot::Local(slot)) => self.chunk.emit(OpCode::GetLocal(slot)),
+                Some(VarSlot::Global(slot)) => self.chunk.emit(OpCode::GetGlobal(slot)),
+                None => return Err(CompileError::UnknownFunction(name.clone())),
+            };
+        }
+
+        let mut fc = FunctionCompiler::new("<lambda>", self.function_index, self.struct_table, self.globals, false);
+        fc.sink = self.sink.clone();
+        fc.chunk.cur_loc = self.chunk.cur_loc.clone();
+        fc.chunk.arity = params.len();
+        fc.begin_scope();
+        // captured values arrive first, then the arguments (see OpCode::CallValue)
+        for (name, _) in captures {
+            fc.declare_local(name);
+        }
+        for p in params {
+            fc.declare_local(&p.name);
+        }
+        fc.compile_block(body)?;
+        fc.emit_implicit_return(return_type);
+        fc.end_scope();
+
+        self.sink.borrow_mut().chunks[index - base] = fc.chunk;
+        self.chunk.emit(OpCode::MakeClosure { func_index: index, ncap: captures.len() });
         Ok(())
     }
 
@@ -1095,5 +1204,13 @@ fn catch_var_name(stmt: &TypedStmt) -> String {
     match stmt {
         TypedStmt::Try { catch_var, .. } => catch_var.clone(),
         _ => unreachable!("catch_var_name called on non-Try statement"),
+    }
+}
+
+/// typed-AST location -> bytecode location (the file name is shared, not copied per op)
+fn to_loc(loc: &spg_typecheck::SrcLoc) -> spg_vm::chunk::Loc {
+    spg_vm::chunk::Loc {
+        file: loc.file.as_deref().map(std::rc::Rc::from),
+        line: loc.line as u32,
     }
 }

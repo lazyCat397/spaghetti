@@ -5,7 +5,7 @@ Crates: spg-lexer → spg-parser → **spg-modules** → spg-typecheck → spg-c
 `spg-modules` resolve o grafo de imports e devolve UM `Program` fundido; do typecheck em diante
 nada sabe que existiam vários arquivos.
 
-> **Versão atual: 0.19.0** (spg e extensão alinhados; 0.19.0 = `readLine(prompt)` (sobrecarga: escreve o prompt sem quebra de linha) + fim de entrada vira erro capturável em `readLine()` (antes devolvia `""`), igual ao `@sys.readLine` (seção \"readLine\" no fim deste arquivo); 0.18.0 = todas as funções de `@str`, `@array`, `@map`, `@math` e `@into` chamáveis como método (`x.fn(...)`), inclusive em int e float (seção \"Métodos em todos os namespaces\" no fim deste arquivo); 0.17.4 = atalhos `x.string()`, `x.int()`, `x.float()` para `@into.*` (qualquer valor; sem argumentos); o parser aceita essas palavras de tipo depois de `.`; `function string()` em struct continua impossível (palavra reservada). 0.17.3 = `@into.string(x)` aceita QUALQUER tipo (array, map, struct, enum...), com o mesmo texto de `print` (builtin `AnyToString`); int/float/bool seguem com o overload próprio. 0.17.2 = `let`/`const` com valor void vira erro de tipo (VoidValue) em vez de "VM bug: operand stack underflow"; ex.: `let x = if (c) { print(..) } else { print(..) }`. 0.17.1 = release de teste do `update-spg.bat`; 0.17.0 = `@map.keysOf(m, valor)` (seção "`@map.keysOf`" no fim deste arquivo); 0.16.0 = namespace `@json` com 9 funções (seção "`@json`" no fim deste arquivo); 0.15.0 = diretivas de arquivo `#>` (`friendly-terminal`, `timeout N`, `strict`) com LSP e extensão cientes delas (seções "Diretivas de arquivo" no fim deste arquivo); 0.14.0 = `@file` completo: deleteAll, size, modified, bytes; 0.13.0 = `@file` e `@sys`; 0.12.0 = `throw` + `try`/`catch` de verdade; 0.11.0 = métodos nativos `s.len()` / `xs.push(1)` / `m.has(k)`; 0.10.0 = `@str` completo, `@array.pop` vazio vira erro, literal de array homogêneo). 0.8.1 = autocomplete de `p.`/`Struct { ` (só LSP); 0.9.0 = `@array` e `@math` completos (seção "Sessão `@array`/`@math` completos"). 0.6.2 = só ícones novos; 0.7.0 = `map<K,V>` (seção "Sessão `map`"); 0.8.0 = enum com valores + `array == array` + `[]` vazio (seção "Sessão `enum` com valores"). A linguagem voltou a crescer depois de "fechada":
+> **Versão atual: 1.20.0** (spg e extensão alinhados; **1.20.0 = o primeiro grande update**: stack trace nos erros de runtime, interpolação `"${expr}"`, `spg build`, tipo função/lambdas/callbacks, LSP completo (assinatura, hover, definição, parâmetros, formatação), `spg fmt` e tipo opcional `T?`/`none`/`??` (seção "Release 1.20.0" no fim deste arquivo); 0.19.0 = `readLine(prompt)` (sobrecarga: escreve o prompt sem quebra de linha) + fim de entrada vira erro capturável em `readLine()` (antes devolvia `""`), igual ao `@sys.readLine` (seção \"readLine\" no fim deste arquivo); 0.18.0 = todas as funções de `@str`, `@array`, `@map`, `@math` e `@into` chamáveis como método (`x.fn(...)`), inclusive em int e float (seção \"Métodos em todos os namespaces\" no fim deste arquivo); 0.17.4 = atalhos `x.string()`, `x.int()`, `x.float()` para `@into.*` (qualquer valor; sem argumentos); o parser aceita essas palavras de tipo depois de `.`; `function string()` em struct continua impossível (palavra reservada). 0.17.3 = `@into.string(x)` aceita QUALQUER tipo (array, map, struct, enum...), com o mesmo texto de `print` (builtin `AnyToString`); int/float/bool seguem com o overload próprio. 0.17.2 = `let`/`const` com valor void vira erro de tipo (VoidValue) em vez de "VM bug: operand stack underflow"; ex.: `let x = if (c) { print(..) } else { print(..) }`. 0.17.1 = release de teste do `update-spg.bat`; 0.17.0 = `@map.keysOf(m, valor)` (seção "`@map.keysOf`" no fim deste arquivo); 0.16.0 = namespace `@json` com 9 funções (seção "`@json`" no fim deste arquivo); 0.15.0 = diretivas de arquivo `#>` (`friendly-terminal`, `timeout N`, `strict`) com LSP e extensão cientes delas (seções "Diretivas de arquivo" no fim deste arquivo); 0.14.0 = `@file` completo: deleteAll, size, modified, bytes; 0.13.0 = `@file` e `@sys`; 0.12.0 = `throw` + `try`/`catch` de verdade; 0.11.0 = métodos nativos `s.len()` / `xs.push(1)` / `m.has(k)`; 0.10.0 = `@str` completo, `@array.pop` vazio vira erro, literal de array homogêneo). 0.8.1 = autocomplete de `p.`/`Struct { ` (só LSP); 0.9.0 = `@array` e `@math` completos (seção "Sessão `@array`/`@math` completos"). 0.6.2 = só ícones novos; 0.7.0 = `map<K,V>` (seção "Sessão `map`"); 0.8.0 = enum com valores + `array == array` + `[]` vazio (seção "Sessão `enum` com valores"). A linguagem voltou a crescer depois de "fechada":
 > veja "Sessão de expansão da linguagem (2026-10-04)" (`'...'`, `a..b`, métodos de struct) e "Sessão `enum` (2026-10-05)" (enum percorrível).
 > Suíte `examples/multi/run.sh`: **290 ok**; LSP 40 testes. `map<K,V>` (0.7.0), `enum` com valores (0.8.0), autocomplete de structs (0.8.1) `@array`/`@math` completos (0.9.0) e `@str` completo (0.10.0) FEITOS. Próximo: ver "Plano da PRÓXIMA sessão" (lacunas do pacote).
 
@@ -985,3 +985,319 @@ Nomes expostos ao .spg em camelCase, sem "_". Prefere eficiência e praticidade.
 - Suíte multi 333 -> **334**: novo `sys/readline_prompt.spg` (prompt, `.int()` depois do prompt e EOF capturado com `try`).
 - Provado à mão: `readLine("Nome: ")` com entrada; linha vazia; CRLF; fim de entrada sem `try` (`runtime error: readLine: end of input ...`, exit 1); `@sys.readLine` sem mudança.
 
+
+## Interpolação de string `"${expr}"` (2026-10-10) — CONCLUÍDA (sem bump de versão; a versão sai no release)
+
+### O que existe
+- `"oi ${nome}, tem ${idade + 1} anos"`: qualquer expressão dentro de `${...}`. Cada pedaço vira `@into.string(expr)` e a string inteira vira uma cadeia `+` entre parênteses. Sem tokens novos no parser, sem mudança na VM nem no typechecker: é açúcar feito no lexer.
+- `'...'` (crua) NUNCA interpola. `\${` vira `${` literal (o escape `\$` já existia como "qualquer caractere escapado"). `$` sem `{` seguinte é texto normal.
+- Aninhamento: `"${"x${y}"}"` e `"${@str.len("}")}"`: a leitura do `${...}` pula strings internas (normais e cruas) e `{}` aninhados, então o `}` certo é o que fecha.
+- Posições reais: as expressões são tokenizadas com linha/coluna do próprio fonte (`fragment_tokens`), então `undefined variable 'b'` aponta para a variável dentro da string. Os tokens sintéticos (`(`, `+`, `@into.string(`, `)`) herdam a posição do início da string.
+
+### Decisão (assumida)
+- Mudança de comportamento: strings que tinham `${` literal passam a interpolar. Para manter literal, escapar com `\${`. Não há mais "dollar sem escape" no caminho normal.
+
+### Erros
+- `LexError::EmptyInterpolation` (`"${}"` ou só espaços): "empty interpolation in string, started at line L, column C" / friendly "Oops! Empty `${}` ...".
+- String sem fechar dentro de `${` aponta para o início da string externa (`UnterminatedString`).
+
+### Testes
+- Suíte multi 334 -> 338: `ok/interpolacao.spg` (expressões, aninhamento, `${}` com `}` dentro de string, `\${`, `$5`, tipos int/float/bool/array, `"${nome}".len()`), `err/interp_vazia.spg`, `err/interp_tipo.spg`.
+- `cargo test --workspace` verde (78 unitários). LSP sem mudança de código.
+
+### Não feito / pendente
+- Gramática do VSCode (`syntaxes/`) ainda pinta `${...}` como texto puro de string. Ajuste cosmético, fica para o próximo pacote da extensão.
+- Autocomplete do LSP dentro de `${` ainda não oferece nomes (o LSP lê os tokens do texto da string).
+
+## Stack trace de erro de runtime (2026-10-10) — CONCLUÍDA (sem bump de versão; a versão sai no release)
+
+### O que o usuário vê
+```
+runtime error: division by zero
+  at divide (main.spg:2)
+  at compute (main.spg:6)
+  at <main> (main.spg:11)
+```
+Modo friendly: mesma linha "error: Oops! ..." e depois as mesmas linhas `at`. Módulo importado mostra o arquivo dele (`util.spg:3`). Frames iguais seguidos viram uma linha + `... same line repeated N more times`. Limite de 50 frames no trace; o resto vira `... N more frames`.
+
+### Como foi feito
+- **Localização por instrução**: `Chunk` ganhou `locs: Vec<Loc>` (paralelo a `code`) e `cur_loc`. `Loc { file: Option<Rc<str>>, line: u32 }`. `emit` grava `cur_loc`. Custa só memória e tempo de compilação: a VM não lê `locs` no caminho normal.
+- **Typed AST**: `SrcLoc { file, line }` (spg-typecheck). `TypedBlock.locs` e `TypedProgram.locs`, um por statement, preenchidos no checker (`stmt_loc`). Granularidade = statement (a linha onde o statement começa). Expressões multi-linha apontam para a linha do statement.
+- **AST**: `Stmt::pos()` e `Expr::pos()` (ast.rs). `ExprStmt` usa a posição da expressão.
+- **Compilador**: `compile_block` e o loop de `compile_with` setam `cur_loc` antes de cada statement. `to_loc` converte. O peephole (`fuse_pass`) mantém `locs` alinhado: uma instrução fundida usa a localização da primeira.
+- **VM**: `run_chunk` registra o frame (`record_frame`) quando o erro sai dele sem ser capturado. A linha vem de `locs[ip-1]` (o `ip` já avançou). Se um `try` captura, o trace acumulado é limpo. `Vm::take_trace()` devolve o trace. `TraceFrame` é exportado.
+- **CLI**: `print_trace` depois da mensagem de erro (técnico e friendly).
+
+### Limite de profundidade (mudança junto, para o trace de recursão existir)
+- Antes, recursão infinita abortava o processo (`thread has overflowed its stack`, exit 134) sem trace. Agora `MAX_CALL_DEPTH = 100_000` (vm.rs) gera `RuntimeError::StackOverflow { limit }`, **capturável** por `try`/`catch`. A mensagem: "stack overflow: more than 100000 nested calls (is a function calling itself forever?)".
+- O limite é conservador: o teste mostrou ~200k frames na thread de 1 GiB do CLI; 100k deixa margem. Se algum dia um frame ficar maior (mais código dentro de `step`), medir de novo com `d(n)` recursivo.
+- Contador `depth` incrementado/decrementado dentro do próprio `run_chunk`. Versão com wrapper separado custou ~17% no `fib_bench` (call-heavy); achatada, voltou ao ruído (279 vs 279 ms; call_1arg 1068 vs 1073; fact 2433 vs 2480, ruído).
+
+### Testes
+- Suíte multi 338 → 343 ok (sem falhas). Novos: `err/trace_cadeia.spg` (3 frames), `err/trace_recursao.spg` (colapso + contagem de frames omitidos), `err/trace_modulo.spg` + `err/trace_modulo_lib.spg` (arquivo de outro módulo, friendly), `ok/trace_catch.spg` (erro profundo capturado não deixa trace). Expectativas exatas de `print_before_error` e `range_step_zero_dynamic` ganharam as linhas `at` (mudança intencional).
+- `cargo test --workspace` verde (78 unitários). Sabotagem não feita, por pedido do usuário (testar o suficiente).
+
+### Limitações / não feito
+- Granularidade de statement, não de expressão: em `let x = a[1] + b[9]` numa linha só não há como distinguir, o que já é o padrão da maioria das linguagens.
+- Nome da função de método de struct aparece como o nome da função compilada (sem o nome do struct).
+- Sem coluna no trace (só linha); o `Pos` tem coluna, mas não foi levada para `Loc`.
+- Trace de erro vindo de builtin aparece com a linha do call site (o builtin não tem frame próprio).
+
+## `spg build` (2026-10-10) — CONCLUÍDA (sem bump de versão)
+
+### Decisão de desenho
+- O executável é **a própria `spg` + os fontes do programa anexados**, não bytecode serializado. No startup o CLI recompila os fontes embutidos (milissegundos). Vantagens: zero serialização de OpCode/Value/StructDef (o formato mudaria a cada opcode novo), comportamento idêntico ao `spg prog.spg`. Custo: o binário compila de novo a cada execução; se isso doer, o próximo passo é serializar o bytecode (ver nota abaixo).
+- Formato (`crates/spg-cli/src/bundle.rs`): payload = `u32` nº de arquivos, depois por arquivo `u32 len + caminho`, `u32 len + fonte` (entrada primeiro); trailer = `u64` tamanho do payload (LE) + `b"SPGBUNDL"`. `read_own` lê só o fim do próprio executável (seek), então um `spg` comum paga um open+seek.
+- Entrada: se o executável tem trailer, `main` ignora os subcomandos e roda o programa embutido; **todos** os argumentos vão para `@sys.args()` (sem `--`).
+
+### Resolver (spg-modules)
+- `resolve_collect(entry, overlay)` devolve o programa e a lista `(caminho, fonte)` de cada arquivo lido. `resolve_with` virou um wrapper.
+- `canonicalize_in`: caminho presente no overlay é aceito **lexicamente** (sem tocar o disco). Isso permite rodar a partir dos fontes embutidos mesmo com os caminhos originais inexistentes na máquina do usuário. Imports relativos passam pelo mesmo caminho (`load_dep`).
+- Efeito colateral aceito: o LSP também passa a aceitar overlay de arquivo novo não salvo.
+
+### CLI
+- `spg build <arquivo.spg> [-o NOME]`: valida exatamente como `check` (erro de tipo/compilação = não gera nada, exit 1), coleta os fontes, copia o próprio executável e anexa o payload. Default: `<stem>` no Linux, `<stem>.exe` no Windows. Permissão 755 no Unix.
+- Refatoração: `compile_resolved` (tipos + compilação de um `Program` já resolvido), `execute_program` (dump, args, timeout, erro+trace) compartilhados entre `run`/`check`/bundle. `run_bundle` é o caminho do executável gerado.
+- Mensagem de erro de uso: `'-o' needs a name for the executable`, `missing input file`.
+
+### Testes
+- Suíte multi 343 -> 344: `build/interpolacao` (build, roda de dentro de `/` e compara a saída). Verificado à mão: executável rodando depois de apagar os `.spg` (imports incluídos), erro de tipo bloqueando o build, trace e friendly dentro do executável, args.
+- `cargo test --workspace` verde (78).
+
+### Limitações / próximos passos
+- Caminhos de arquivo no trace/erro de um executável são os caminhos **do momento do build** (o que o usuário digitou). Não são sensíveis hoje, mas vazam diretório de quem compilou. Ajustar se virar problema.
+- Não há bytecode serializado (decidido de propósito); só vira prioridade se o tempo de startup incomodar em programas grandes.
+- Ainda não há bundle para Windows testado de fato (o container é Linux); o código usa só `std`, e o `.exe` é gerado por `cfg!(windows)`.
+
+## Tipo função, lambdas e callbacks (2026-10-11) — CONCLUÍDA (sem bump de versão)
+
+### Sintaxe
+- Tipo: `function(int, string) -> bool` (o `-> R` é obrigatório; `-> void` para nada). Aceita-se em qualquer lugar onde se escreve tipo (parâmetro, retorno, variável, campo, `array<function(int) -> int>`).
+- Lambda (expressão): `function(x: int, y: int) -> int { return x + y }`. Parâmetros com tipo obrigatório, como em qualquer assinatura. Sem `-> T`, o retorno é `void`.
+- Função nomeada como valor: `let f = dobro`, `aplica(dobro, 3)`. Sem chamada, o nome vira um fechamento sem capturas (`MakeClosure { ncap: 0 }`).
+- Chamada de valor: `f(3)` quando `f` é variável/parâmetro de tipo função; `makeAdder(2)(3)`; `function() { ... }()` (IIFE). Se o callee não é nome nem método, é avaliado como expressão.
+- No começo de statement, `function (` é expressão (IIFE), não declaração; `function nome(` continua declaração.
+
+### Semântica de captura (decisão de design, leia antes de usar)
+- **Captura por valor, no instante em que o lambda é criado.** Um lambda que lê uma variável local de fora recebe uma CÓPIA. `let total = 10; let g = function() -> int { return total }; total = 99; g()` devolve **10**. (Structs e arrays são ponteiros: a mudança interna aparece, a troca do nome não.)
+- **Atribuir a uma variável capturada é erro de tipo** (`CaptureAssign`): "a lambda cannot assign 'x': it is a copy of a variable from the function it was written in". Dentro do próprio lambda, variáveis novas e atribuições a elas são normais.
+- **Globais (`let` do topo) NÃO são capturadas**: são lidas e escritas direto na slot global, então o lambda vê e altera o valor atual.
+- Captura em vários níveis: se um lambda interno usa uma local do avô, o lambda do meio também captura (para poder passar adiante). Feito em `Checker::resolve_name` (um frame por lambda ativo; `base` = escopo onde ele começa).
+- Alternativa futura, NÃO feita: captura por referência (caixas compartilhadas). Só vale se houver uso real que exija mutação de variável de fora dentro de lambda.
+
+### Implementação
+- **Tipos**: `Ty::Function { params, ret }` (typed_ast), `TypeExpr::Function` (ast). Igualdade estrutural; `ty_matches` já cobre por `==`.
+- **Checker**: `resolve_name` (leitura com captura; usado em `Expr::Ident` e na chamada por nome), `assigns_capture` (guarda do Assign), `check_value_call` (aridade e tipos contra o tipo função), braço `Expr::Lambda` (novo frame, `current_return` próprio, `check_all_paths_return` com nome `<lambda>`). Chamada por nome: variável ganha de builtin/função do mesmo nome (sombreamento normal).
+- **Compilador**: lambdas viram chunks num `LambdaSink` compartilhado (`Rc<RefCell<..>>`). O índice da função é reservado ANTES de compilar o corpo: `base` (nº de funções nomeadas) + posição. Ao final de `compile_with`, os lambdas são anexados a `functions` (e `function_names` ganha `<lambda>`), antes do peephole. Os capturados viram os primeiros locais do chunk, depois os parâmetros.
+- **VM**: `Value::Func(Rc<Closure { index, captures }>)`. `MakeClosure { func_index, ncap }` consome os capturados da pilha. `CallValue { argc }`: pilha = [callee, args...]; os capturados vão antes dos argumentos em `locals`, e a chamada reusa `run_chunk` (trace, `try`/`catch`, limite de profundidade valem igual).
+- **Módulos**: `rename.rs` trata lambda como função (parâmetros sombreiam nomes de módulo; o corpo é renomeado com a mesma regra). `annotate.rs` carimba posições. Testado: função importada passada como valor e usada dentro de lambda.
+- Exibição: `print(f)` mostra `<function>`; JSON recusa função (`a function has no JSON form`). Tipo no erro: `function(int) -> int`.
+
+### Testes
+- Suíte multi 344 -> 352: `ok/lambdas.spg` (somador que retorna lambda, função de valor, IIFE, captura de global e de local), `ok/lambda_captura.spg` (captura em 3 níveis; captura por valor), `err/lambda_captura_atribui.spg`, `err/lambda_tipo_argumento.spg`, `err/lambda_sem_retorno.spg`, `err/trace_lambda.spg` (trace com `<lambda>`). Mensagem de não-chamável atualizada: `only functions can be called, and this value is not a function`.
+- Desempenho (alternando binários): fib 278/277 → 253/257 ms; call_1arg 1054 → 1013 ms. Sem regressão.
+- `cargo test --workspace` verde (78).
+
+### Não feito / pendente
+- LSP: autocompletar não sugere parâmetros de lambda dentro do corpo nem o tipo de variável função em `f.`. Não tem `f.` (função não tem método).
+- Documentação da linguagem (página/referência) ainda não existe; quando existir, entra lá o aviso sobre captura por valor.
+- `function` como tipo de struct field e método: funciona como campo comum; não há sintaxe especial.
+
+## LSP: funções de valor, parâmetros e assinatura (2026-10-11) — CONCLUÍDA (sem bump de versão)
+
+### O que mudou para o editor
+- **Parâmetros no autocomplete**: os parâmetros de toda função nomeada e de todo lambda do arquivo aparecem como completion (kind 6), com `parameter: <tipo>` no detalhe. Antes, parâmetro não aparecia em lugar nenhum. Vale no arquivo inteiro, como os outros nomes da lista (heurística de tokens, de propósito).
+- **Detalhe com assinatura**: funções nomeadas, variáveis de tipo função e lambdas ligados a `let` mostram a assinatura no detalhe, por exemplo `mult(a: int, b: int) -> int`.
+- **`textDocument/signatureHelp`** (novo, anunciado com gatilhos `(` e `,`): ao digitar `f(` ou depois de cada vírgula, mostra a assinatura e destaca o argumento atual. Funciona para funções nomeadas, valores de tipo função (variável, parâmetro, campo) e lambdas ligados a `let`.
+
+### Como foi feito
+- Novo módulo `crates/spg-lsp/src/signature.rs`, só com tokens (como o resto do LSP). Lê tipos (`function(..) -> R`, `array<T>`, `map<K, V>`), parâmetros e a chamada em volta do cursor.
+- `call_at` anda para trás contando parênteses e vírgulas. Um bloco `{ ... }` balanceado dentro da chamada (um lambda passado como argumento) é pulado inteiro; só um `{` não casado encerra a busca, para não vazar para o bloco vizinho.
+- `server.rs`: capacidade `signatureHelpProvider`, handler `textDocument/signatureHelp` (usa `member_context` para tokens e posição), e detalhes/parâmetros no `completion`.
+
+### Bugs achados no caminho (já corrigidos)
+- Busca de chamada parava no `}` do lambda passado como argumento: `aplica(function(..) {..}, 4)` não mostrava assinatura no argumento 1. Corrigido com o pulo de blocos.
+- Leitura de tipos: o `>` de `->` era contado como fechamento de `<...>`. Corrigido nos dois scanners (`from_function_type`, `split_top`).
+
+### Testes
+- Unitários do módulo (7): rótulo de função nomeada, parâmetro de tipo função, lambda ligado a `let`, índice do argumento com vírgulas aninhadas, parâmetros de lambda no completion, e chamada que não vaza para fora de bloco. Workspace: 84 ok (eram 78).
+- Ponta a ponta pelo protocolo (`spg lsp`, stdio): `mult(` arg 0 e 1; `aplica(` com lambda como argumento 0 e arg 1 depois do lambda; completion dentro do corpo do lambda com `valor`, `a`, `b`, `s` etc.
+- Suíte multi: 352 ok (sem mudança no compilador nesta etapa).
+
+### Ainda NÃO feito (LSP)
+- Hover (tipo/assinatura ao passar o mouse) e go-to-definition: itens da lista de ferramentas, não deste lote.
+- Signature help dentro de chamada de método (`p.f(`), que segue o caminho de `members.rs` e não foi estendido.
+- Sugestão de tipo ao escrever `function(` em posição de tipo.
+
+## LSP fechado: hover, go-to-definition, assinatura de método, `.string()` (2026-10-11) — CONCLUÍDA (sem bump de versão)
+
+### O que o editor faz agora
+- **Hover** (`textDocument/hover`, markdown com bloco `spg`): função e método mostram a assinatura (`dobro(x: int) -> int`); `let` mostra o tipo (anotado ou inferido de literal, struct literal, lambda ou função); parâmetro, campo (`field Ponto.x: int`), struct e enum.
+- **Go-to-definition** (`textDocument/definition`): variável ou parâmetro vai para a declaração mais próxima antes do cursor; função, struct e enum vão para a declaração do arquivo; nome importado (`import { x } from "f.spg"`) abre o arquivo de origem na declaração. Campo e método após ponto resolvem pelo tipo do receptor (`p.soma`, `me.x`).
+- **Assinatura de método** (`textDocument/signatureHelp` em `p.f(`): mostra a assinatura do método do struct do receptor e destaca o argumento. Tem prioridade sobre uma função livre de mesmo nome.
+- **Autocomplete**: `.string()` em todo valor (inclusive struct, enum, bool, e nos namespaces nativos); `.int()` e `.float()` em números. Era o item pendente desde a 0.17.4.
+
+### Como foi feito
+- Módulo novo `crates/spg-lsp/src/navigate.rs`: `declarations` (lista tudo que um nome pode ser, com tipo, posição, dono e assinatura), `word_at` (identificador sob o cursor), `target` (regra de resolução: `let`/parâmetro antes do cursor, depois global, depois import), `import_of`, `describe` (texto do hover), `method_signature`.
+- `signature.rs`: `read_params` e `return_after` públicos; `call_site` devolve o índice do callee (base de `call_at`, que continua igual para quem já usava).
+- `members.rs`: `members_of` virou um wrapper que acrescenta os atalhos de conversão sobre `members_of_own`.
+- `server.rs`: capacidades `hoverProvider` e `definitionProvider`; handlers `hover`, `definition`, `resolve_at`, `locate`; `signature_help` tenta método antes de função livre. Caminhos de import são normalizados (`./x.spg` sem o `.` no meio da URI).
+
+### Bugs achados no caminho (corrigidos)
+- `import_of` parava no `}` e nunca achava o `from` (o `from` vem depois da chave).
+- Tipo de lambda usava os nomes dos parâmetros em vez dos tipos (`function(x) -> int`).
+- URI de arquivo importado saía com `/./`.
+
+### Testes
+- Unitários: `navigate` (5: campos e métodos com dono, tipo de `let`, local ganha de global, import, chamada de método pelo tipo do receptor). Workspace: 89 ok.
+- Atualizados por mudança de comportamento (listas exatas de membros agora incluem `string`): `members` (5 asserções) e `server` (1 asserção).
+- Ponta a ponta pelo protocolo com `spg lsp`: hover de `soma`, `dobro` (importada), `let p: Ponto`; definition de `f`, `soma` (campo do struct), `dobro` (arquivo de origem); signatureHelp de `soma(` e de `f(` (lambda ligado a `let`).
+- Suíte multi: 352 ok.
+
+### Limitações conhecidas (LSP)
+- Tipo de variável sem anotação e sem valor óbvio (ex.: `let x = f(2)`) aparece sem tipo no hover. Resolver isso exige o tipo real do checker, com posições; fica como melhoria futura.
+- Colunas são as do lexer (caracteres). Para o hover e a definição, a conversão para UTF-16 é feita só na definição; em linhas com caractere fora do BMP antes do nome, a posição pode sair deslocada.
+- Escopo de parâmetros e de `let` é por ordem no texto, não por bloco. Um `let` dentro de um `if` aparece depois do bloco, assim como o autocomplete já fazia.
+
+## `spg fmt` (2026-10-11) — CONCLUÍDA (sem bump de versão)
+
+### Decisão (a): comentários preservados
+O formatador NÃO passa pelo AST nem pelo lexer comum (que descarta comentários). Ele tem um scanner de caracteres próprio (`crates/spg-fmt/src/lib.rs`) que gera átomos e comentários, e reemite o texto com a mesma sequência de tokens.
+
+### O que ele muda (e o que NUNCA muda)
+- Muda: espaços dentro da linha, indentação (4 espaços por nível de `{`, mais 1 nível por `(`/`[` em continuação), linhas em branco (runs viram 1; sem linha em branco no início/fim), espaços finais, normalização do `#>` (`#>   strict` -> `#> strict`), e o espaço antes de comentário de linha (dois espaços).
+- Nunca muda: quebras de linha (o formatador nunca junta nem separa linhas; por isso as linhas de erro e de trace continuam iguais), tokens, comentários, conteúdo de strings (incluindo `${...}`, `'cruas'` e strings multi-linha, que não são reindentadas).
+- Regras de espaço: operadores binários com espaço; `-`/`!` unário colado; `f(x)` sem espaço, `if (x)`/`while (x)` com espaço; `function(` (tipo e lambda) sem espaço; `array<int>`/`map<K, V>` colados; `a.b` e `1..4` colados; `x: int` e `{ x: 1 }`; `[:]`, `[]` e `{}` vazios.
+
+### Garantia verificada (`spg_fmt::check`)
+Todo arquivo escrito passa por quatro provas antes de tocar no disco:
+1. os tokens do lexer são idênticos (`TokenKind`, sem comentários);
+2. a lista de comentários é idêntica (texto, sem espaço final);
+3. as diretivas (`friendly_terminal`, `strict`, `timeout_ms`) são idênticas;
+4. formatar o resultado de novo não muda nada (ponto fixo).
+Se qualquer prova falha, o arquivo fica como está e o erro é impresso. Um arquivo que não lexa é recusado.
+
+Essa verificação já pegou um bug real durante o desenvolvimento: `&&` e `||` não estavam na lista de operadores de dois caracteres, e o formatador os separava. Corrigido, com teste (`logical_operators_stay_whole`).
+
+### CLI
+- `spg fmt <arquivo|pasta>...`: reescreve no lugar (pastas são percorridas recursivamente, em ordem).
+- `spg fmt --check ...`: não escreve; lista os que mudariam; saída 1 se algum mudaria.
+- `spg fmt --stdout arquivo`: imprime o resultado.
+- Saídas: 0 ok; 1 erro (inclui arquivo que não lexa) ou `--check` com mudanças; 2 uso incorreto.
+
+### Testes
+- `spg-fmt`: 13 unitários (espaços, indentação, linhas em branco, comentários, strings com interpolação, unário e genéricos, lambda e tipo função, diretivas, string multi-linha, check idempotente, recusa de arquivo que não lexa, diretiva preservada, operadores lógicos).
+- Suíte multi: 352 -> 353 (`fmt/x.spg`: escreve, mantém o comentário e passa no `--check`).
+- Prova de regressão: formatei os 326 `.spg` dos exemplos numa cópia do repositório e rodei a suíte inteira. Resultado: 351 ok; a única falha é `err/raw_glued.spg`, cujo erro de propósito tem a coluna deslocada pela formatação (o token é o mesmo; o teste fixa a coluna do original). Os traces e as linhas de erro dos demais testes ficam idênticos. O repositório em si NÃO foi reformatado.
+- Workspace: 102 unitários verdes (eram 89; +13 do spg-fmt).
+
+### Limitações conhecidas
+- Espaçamento dentro de `${ ... }` não é normalizado (a string é tratada como um bloco; sem reformatar a expressão interna).
+- Comentários de bloco não existem na linguagem, então não há o que tratar.
+- Alinhamento visual de comentários de linha em colunas (estilo tabela) não é preservado: cada comentário fica com dois espaços antes.
+- O LSP ainda não oferece `textDocument/formatting`; a API está em `spg_fmt::check`, pronta para isso.
+
+## Tipo opcional `T?`, `none` e `??` (2026-10-11) — CONCLUÍDA (sem bump de versão)
+
+### Sintaxe e regras
+- Tipo: `int?`, `string?`, `Ponto?`, `array<int>?`, `array<int?>`, `map<string, int?>`, campo `prox: No?`, parâmetro `x: int?`, retorno `-> int?`. `T?` aceita um `T`, um `T?` ou `none`. **Nunca o contrário**: `T?` não vai para `T` (erro de tipo, com dica de como sair).
+- Literal `none`. Sozinho não tem tipo: `let x = none` é erro (`NoneNeedsType`); escreva `let x: int? = none`.
+- `a ?? b`: `a` precisa ser opcional; devolve `T` se `b` é `T`, ou `T?` se `b` também é opcional/`none`. O lado direito é **preguiçoso** (só roda quando `a` é `none`; testado com contador). Associativo à direita, o operador binário mais fraco: `a ?? b ?? c`, e `x ?? y || z` lê como `x ?? (y || z)`.
+- `==` / `!=`: `x == none`, `x == 3` (com `x: int?`) e `x == y` (ambos `int?`) valem. `int?` contra `string?` é erro. `<`, `+`, etc. em opcional são erro.
+- `print`, `"${x}"` e `@into.string` mostram `none`. JSON: `none` vira `null` (a leitura de `null` não mudou).
+- **`none` agora é palavra reservada** (mudança que quebra programas que usavam `none` como nome). Dois exemplos antigos (`ok/array_eq_empty.spg`, `ok/map_basic.spg`) foram renomeados para `vazio`.
+- Não existe `T??`, nem `void?`, nem parênteses em tipo: `function(int) -> int?` é função que RETORNA `int?`.
+
+### Estreitamento de tipo (o que torna o opcional usável)
+Depois de checar `none`, o tipo da variável passa a ser `T`:
+- `if (x != none) { ... }`: no bloco, `x` é `T`. `else` de `x == none` também.
+- `while (x != none) { ... }`: no corpo.
+- `&&` e `||`: `x != none && x > 3` (o lado direito vê `x` como `T`); `x == none || x > 3`. Também `!` e combinações.
+- **Guarda**: se um ramo sempre sai (`return`, `throw`, `break`, `continue`), o OUTRO lado vale no resto do bloco: `if (x == none) { return 0 }` e daí em diante `x` é `T`. `if (a == none || b == none) { return }` estreita os dois.
+- Atribuir a uma variável estreitada **desfaz** o estreitamento (conservador): `cur = cur.prox` volta `cur` a `Node?`. O novo valor é checado contra o tipo ORIGINAL (por isso `x = none` é aceito).
+- Lambda captura a variável já estreitada como `T`.
+- Só vale para variável simples: **não há estreitamento de caminho** (`p.prox != none` não faz `p.prox.valor` valer). Copie para uma local: `let n = p.prox`.
+
+### Implementação
+- **Lexer/AST/parser**: tokens `?`, `??`, `none` (`NoneLit`); `TypeExpr::Optional`, `Expr::NoneLit`, `BinaryOp::Coalesce`. `parse_type_expr` virou base + `?` (`void?` recusado no parse); `parse_coalesce` acima de `parse_or`. `rename.rs`/`annotate.rs` ganharam os braços novos.
+- **Typecheck**: `Ty::Optional(Box<Ty>)` e `Ty::NoneLit`; `Ty::accepts(found)` é a regra única de compatibilidade (usada em `let`/`const`, atribuição, `return`, argumentos via `ty_matches`, campos, índices, struct literal). `VarInfo` ganhou `origin` e `narrowed_from`. `narrowing(cond)` (função livre) calcula (nomes não-`none` se verdadeiro, se falso); `narrow`/`unnarrow` mexem no escopo (um estreitamento é um *shadow* no escopo atual, ou substitui a ligação real se ela vive nesse escopo). `resolve_name`/`assigns_capture` usam `origin` para que estreitar uma global não a transforme em captura por valor. `coalesce`, `unify_optional` (`[1, none]` é `array<int?>`), `block_exits`/`stmt_exits`.
+- **Erros**: `NoneNeedsType`, `CoalesceNeedsOptional`; toda mensagem que envolve um `T?` onde se esperava valor termina com a dica "check it with `!= none` first, or give it a default with `??`" (`TypeError::fmt` = `fmt_base` + dica).
+- **Compilador/VM**: `Value::Nil`; `TypedExpr::NoneLit` vira `Const(Nil)`; `Coalesce` vira `left; JumpIfNotNone(fim); right` (opcode novo, incluído em `jump_target`, `jump_target_mut` e `patch_jump`, então o peephole remapeia sozinho). Igualdade com opcional em qualquer lado usa `EqValue`/`NotEqValue` (os opcodes de int/float/string rejeitariam `none`).
+- **Runtime**: `none` onde um valor era necessário (só acontece se uma global estreitada virou `none` numa função chamada no meio) dá `unexpected none: a int was needed but the value is none (...)`, **capturável por `try`/`catch`** (antes seria "VM bug"). Isso é uma fragilidade conhecida: o estreitamento de GLOBAL não é invalidado por chamadas de função. Escolha consciente: invalidar quebraria laços de script no topo do arquivo (`while (cur != none) { print(cur.valor); cur = cur.prox }`); a falha é um erro limpo, nunca memória corrompida.
+- **Ferramentas**: `spg-fmt` entende `?` colado ao tipo e `??` como operador (2 testes novos); LSP lê `int?` em assinaturas/hover (`read_type`) e oferece `none` no autocomplete (1 teste novo). A extensão do VSCode NÃO foi tocada (gramática não conhece `none`/`?`/`??`; pedido para deixar quieta).
+
+### Testes
+- Suíte multi 353 -> 365: `ok/opcional.spg` (busca devolvendo `int?`, guarda, lista ligada com `while (atual != none)`, `||` de guarda, lambda sobre variável estreitada, `??` encadeado e preguiçoso, `array<int?>`, interpolação de `none`), `ok/opt_global_catch.spg` (o caso da global anulada, pego por `catch`), e 8 erros: aritmética em `int?`, `none` sem tipo, `int?` para `int`, `??` sem opcional, `if` sem saída não estreita depois, estreitamento some após `x = none`, campo de opcional, `void?`.
+- Workspace: 105 unitários (eram 102; +3 de fmt/LSP). Desempenho: fib 371/373, 393/413, 366/397, 448/408 ms (base/novo, alternado): empate dentro do ruído.
+
+### Limitações / ideias
+- Nenhuma função da biblioteca devolve opcional ainda: candidatos naturais são `@map.find`, `@array.find`, `@array.first`. Hoje `none` nasce de literais, de campos e de funções do usuário.
+- `let xs: array<int?> = [none, none]` falha (o literal vira `array<none>`); com pelo menos um valor (`[1, none]`) funciona.
+- Sem estreitamento de campo/índice (`a[i]`, `p.f`).
+
+## Estado da lista do 1.20.0 (2026-10-11)
+Feitos: stack trace, interpolação `"${}"`, `spg build`, tipo função/lambdas/callbacks, LSP completo (assinatura, hover, definição, parâmetros, `.string()`), `spg fmt` (com comentários), `T?`/`none`/`??`.
+Pulado por escolha do usuário: página de documentação e download.
+Resta para datar **1.20.0**: bump de versão (`Cargo.toml`/instalador) e release pelo `update-spg.bat`. Opcional e pequeno: `textDocument/formatting` no LSP (`spg_fmt::check` já pronto).
+
+## Release 1.20.0 (2026-10-11) — primeiro grande update
+
+### O que entra (tudo descrito nas seções anteriores deste arquivo, de 2026-10-10 e 2026-10-11)
+1. **Stack trace** nos erros de runtime (`at f (arq.spg:linha)`), com frames repetidos agrupados e limite de profundidade de 100 mil chamadas (erro capturável em vez de abortar o processo).
+2. **Interpolação** `"oi ${nome}"` (açúcar do lexer; `'cruas'` nunca interpolam; `\${` é literal).
+3. **`spg build`**: executável único (o próprio `spg` + fontes embutidos).
+4. **Tipo função, lambdas e callbacks** (captura por valor).
+5. **LSP completo**: autocomplete (parâmetros, `.string()`), assinatura (função, método, lambda), hover, go-to-definition (inclusive arquivo importado) e **formatação** (esta sessão).
+6. **`spg fmt`** (comentários preservados, quatro provas de segurança antes de gravar).
+7. **`T?`, `none`, `??`** com estreitamento de tipo.
+Pulado por escolha: página de documentação/download.
+
+### O que mudou nesta sessão
+- **LSP `textDocument/formatting`** (`crates/spg-lsp/src/server.rs`, dependência nova `spg-fmt`): devolve UM edit que troca o documento inteiro pelo texto de `spg_fmt::check`, ou nenhum edit quando já está formatado ou o `fmt` recusa (arquivo que não lexa, ou resultado reprovado nas provas). O fim do intervalo é a posição final do texto, em unidades UTF-16 (testado com acento e sem quebra de linha final). Anunciado como `documentFormattingProvider`.
+- **Extensão VSCode** (`editors/vscode`): registra `registerDocumentFormattingEditProvider` (mesmo padrão do provedor de completion: `flush(doc)` e depois `client.request('textDocument/formatting', ...)`), e `package.json` ganhou `configurationDefaults` para `[spg]`: `editor.defaultFormatter = spaghetti.spaghetti` e **`editor.formatOnSave = true`**. Para desligar: `"[spg]": { "editor.formatOnSave": false }` (documentado no README da extensão). Descrição da extensão e do manifesto agora citam "formatting". Nada da gramática foi tocado.
+- **Versão 1.20.0** em: `Cargo.toml` (workspace; `Cargo.lock` atualizado pelo build), `editors/vscode/package.json`, `README.md` (2 menções) e nome do vsix. `spg --version` -> `spg 1.20.0`.
+- **`dist/spaghetti-1.20.0.vsix`** regenerado (zip com o manifesto em 1.20.0 e os arquivos atuais de `editors/vscode`; conferido byte a byte contra o fonte); o `spaghetti-0.19.0.vsix` saiu do repositório.
+
+### Verificação
+- Suíte multi: 365 ok. `cargo test --workspace`: 105 unitários ok. Servidor testado pelo protocolo em 4 cenários de formatação (bagunçado, já formatado, não lexa, acentos sem `\n` final).
+- `node --check editors/vscode/extension.js` ok.
+
+### Pendências conhecidas
+- **`tools/ext-tests` não roda neste pacote**: o módulo falso `vscode` (`tools/ext-tests/node_modules/vscode`) não veio no zip (falha antes e depois desta sessão com `Cannot find module 'vscode'`). Se existir na máquina do usuário, o falso precisa ganhar `languages.registerDocumentFormattingEditProvider`, `TextEdit` e `Range` com 4 números; senão o `activate()` falha. Não foi escrito teste novo da extensão por isso.
+- O provedor da extensão em si (`provideDocumentFormattingEdits`) NÃO foi exercitado dentro do VSCode real: o servidor foi testado pelo protocolo e o JS passou na checagem de sintaxe, mas o trecho que converte o edit em `vscode.TextEdit` é código novo sem execução.
+- A gramática do VSCode ainda não conhece `none`, `?`, `??`, `${...}` nem `function(` como tipo.
+- Itens de lista ainda abertos para depois do 1.20.0: página de docs/download; `@map.find`/`@array.find` devolvendo opcional; estreitamento de campo (`p.prox`); espaçamento dentro de `${...}` no `fmt`.
+
+## Gramática do VSCode e pacote da extensão 1.20.0 (2026-10-11)
+
+### Gramática (`editors/vscode/syntaxes/spg.tmLanguage.json`)
+- **Interpolação**: `"oi ${expr}"` abre `meta.interpolation.spg` (com `punctuation.section.interpolation.begin/end`); o conteúdo é `meta.embedded.line.spg` e volta a ser código de verdade, então operadores, números, nomes e até outra string aninhada são pintados. Chaves dentro da expressão são contadas (`${ P { x: 1 }.x }`) e uma string aninhada com `}` (`${@str.len("}")}`) não fecha a interpolação. `\${` é escape; `$` sozinho é texto; `'cru'` nunca interpola; comentário não interpola.
+- **Tipos opcionais e none**: `none` = `constant.language.none.spg` (só palavra inteira; `nonexistent` não casa); `?` = `keyword.operator.optional.spg`; `??` = `keyword.operator.coalesce.spg` (com prioridade sobre `?`).
+- **Funções como valor**: `function (` sem nome = `storage.type.function.spg` (lambda ou tipo); `function nome(` continua sendo declaração; `->` já era `keyword.operator.arrow.spg`.
+- **Configuração de linguagem**: `${` com `}` como par de auto-fechamento (fora de comentário).
+
+### Testes da gramática (`tools/grammar-tests/`)
+- `test.js` carrega a gramática pelo motor REAL que o VSCode usa (`vscode-textmate` + `vscode-oniguruma`, WebAssembly) e confere **42 casos de escopo** (interpolação, aninhamento, escapes, raw, comentário, opcionais, `??`, lambdas, declarações, chamadas, builtins, namespaces, floats vs. intervalo `1..4`, diretivas, `me`, `step`, booleanos, tipos e propriedades).
+- Segunda checagem: tokeniza os **92 exemplos** do repositório linha por linha e confirma que nenhuma regra fica aberta no fim do arquivo (vazamento de cor pro resto do arquivo).
+- `run.sh` (roda de qualquer pasta): instala as duas dependências na primeira vez e executa. Resultado: 42 ok, 0 falhas; 92 de 92 sem vazamento. Os casos falharam ANTES da mudança (16 de 42) e passaram depois: o teste pega regressão.
+- `node_modules` não vai no zip (o `run.sh` recria).
+
+### Snippets (`editors/vscode/snippets/spg.json`, 27 no total; 7 novos)
+`lambda`/`fnv` (função como valor), `fntype` (tipo função), `opt`/`opt?` (tipo opcional), `letopt` (`let x: T? = none`), `ifnone`/`ifn` (bloco só com valor presente), `coalesce`/`??` (valor padrão), `interp`/`${` (string com expressão).
+
+### Extensão (`editors/vscode/`)
+- README: nova linha de "Highlighting" cobrindo interpolação, opcionais e funções de valor.
+- `extension.js`, `package.json`, `language-configuration.json`, `snippets/`, `syntaxes/`: mesmos da 1.20.0 com as mudanças acima.
+
+### Pacote `dist/spaghetti-1.20.0.vsix` (regenerado)
+- Conteúdo conferido byte a byte contra `editors/vscode/` (todos os arquivos, inclusive `readme.md`, que no vsix tem nome em minúsculo).
+- Manifesto: a descrição cita "highlighting for interpolation, optional types and function values".
+
+### Verificação desta sessão
+- Suíte multi 365 ok; unitários 105 ok; gramática 42/42 e 92/92; `node --check` do `extension.js`; JSON de todos os arquivos de linguagem válido.
+
+### Pendências (continuam)
+- **O VSCode real não foi aberto aqui.** A gramática é testada pelo motor de tokenização que o VSCode usa, mas a aparência final (temas, cores de `meta.embedded`) depende do tema do usuário. Vale abrir um `.spg` com interpolação e conferir.
+- `tools/ext-tests/` (testes com o módulo falso `vscode`) continua sem o módulo no zip: falha com `Cannot find module 'vscode'`. Não foi corrigido nesta sessão.
+- Provedor de formatação da extensão (`provideDocumentFormattingEdits`) ainda sem execução no VSCode real.
+- Itens fora do release: página de docs/download; `@map.find`/`@array.find` com opcional; estreitamento de campo (`p.prox`); espaçamento dentro de `${...}` no `fmt`.

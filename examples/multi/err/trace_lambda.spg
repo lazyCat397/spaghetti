@@ -1,0 +1,3 @@
+function t(n: int) -> int { return n / 0 }
+let h = function(v: int) -> int { return t(v) }
+print(h(5))

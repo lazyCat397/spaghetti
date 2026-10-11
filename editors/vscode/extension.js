@@ -385,6 +385,28 @@ async function activate(ctx) {
         }
       },
     }, '.', '@'), // '.' opens the member list as soon as it is typed; '@' opens the namespace list
+
+    // `Format Document` and format on save: the server answers with one edit that replaces
+    // the whole file, or with none when the file is already formatted or cannot be formatted
+    // safely (for example it has a syntax error)
+    vscode.languages.registerDocumentFormattingEditProvider(LANG, {
+      async provideDocumentFormattingEdits(doc) {
+        if (!client || !client.alive) return undefined;
+        flush(doc);
+        try {
+          const res = await client.request('textDocument/formatting', {
+            textDocument: { uri: doc.uri.toString() },
+            options: { tabSize: 4, insertSpaces: true },
+          });
+          return (res || []).map((e) => new vscode.TextEdit(
+            new vscode.Range(e.range.start.line, e.range.start.character, e.range.end.line, e.range.end.character),
+            e.newText));
+        } catch (e) {
+          log(`formatting failed: ${e.message}`);
+          return undefined;
+        }
+      },
+    }),
   );
 
   await startServer();

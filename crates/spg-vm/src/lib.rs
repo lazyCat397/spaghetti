@@ -18,4 +18,4 @@ pub use chunk::{Chunk, OpCode, Program};
 pub use arith::set_strict;
 pub use error::RuntimeError;
 pub use value::{ArrayRef, EnumDef, Value};
-pub use vm::Vm;
+pub use vm::{TraceFrame, Vm};

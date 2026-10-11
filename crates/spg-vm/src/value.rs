@@ -144,7 +144,20 @@ pub enum Value {
     /// `(enum index, variant index)` — see `EnumDef`. 8 bytes, so `Value` does
     /// not grow, and cheap to copy like an `Int`
     Enum(u32, u32),
+    /// a function value: a function (named or lambda) plus the values its
+    /// lambda captured. Shared, like arrays, so copying a value copies a pointer
+    Func(Rc<Closure>),
+    /// `none`: the absent value of an optional type (`T?`)
+    Nil,
     Void,
+}
+
+/// the code of a function value: an index into `Program::functions`, and the
+/// captured values that come before the arguments when it is called
+#[derive(Debug)]
+pub struct Closure {
+    pub index: usize,
+    pub captures: Vec<Value>,
 }
 
 impl Value {
@@ -158,7 +171,9 @@ impl Value {
             Value::Map(_) => "map",
             Value::Struct(_) => "struct",
             Value::Enum(..) => "enum",
+            Value::Func(_) => "function",
             Value::Void => "void",
+            Value::Nil => "none",
         }
     }
 
@@ -183,6 +198,7 @@ impl Value {
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Void, Value::Void) => true,
+            (Value::Nil, Value::Nil) => true,
             (Value::Array(a), Value::Array(b)) => {
                 let a = a.borrow();
                 let b = b.borrow();
@@ -243,6 +259,8 @@ impl fmt::Display for Value {
                 write!(f, "]")
             }
             Value::Void => write!(f, "void"),
+            Value::Nil => write!(f, "none"),
+            Value::Func(_) => write!(f, "<function>"),
             Value::Enum(def, variant) => ENUM_DEFS.with(|d| {
                 match d.borrow().get(*def as usize).and_then(|e| e.variants.get(*variant as usize)) {
                     Some(name) => write!(f, "{}", name),

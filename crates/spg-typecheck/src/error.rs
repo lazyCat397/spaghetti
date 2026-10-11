@@ -40,6 +40,9 @@ pub enum TypeError {
     /// `(a + b)()`): only named functions and builtins can be called
     NotCallable { pos: Pos },
 
+    /// a lambda assigns a variable of the function it was written in: captured values are copies
+    CaptureAssign { name: String, pos: Pos },
+
     /// wrong number of arguments in a call
     ArityMismatch { function_name: String, expected: usize, found: usize, pos: Pos },
 
@@ -107,6 +110,12 @@ pub enum TypeError {
 
     /// `let m = [:]` with nothing to say what the map holds
     EmptyMapNeedsType { pos: Pos },
+
+    /// `let x = none`: nothing says which optional type this is
+    NoneNeedsType { pos: Pos },
+
+    /// `a ?? b` where `a` is not an optional
+    CoalesceNeedsOptional { found: Ty, pos: Pos },
 
     /// `let x = <expr>` / `const` where the value has type void (e.g. an `if`
     /// whose branches only call print): there is no value to store
@@ -176,6 +185,7 @@ impl TypeError {
             | TypeError::RemovedBuiltin { pos, .. }
             | TypeError::OldNamespace { pos, .. }
             | TypeError::NotCallable { pos, .. }
+            | TypeError::CaptureAssign { pos, .. }
             | TypeError::ArityMismatch { pos, .. }
             | TypeError::ArgTypeMismatch { pos, .. }
             | TypeError::InvalidOperandTypes { pos, .. }
@@ -196,6 +206,8 @@ impl TypeError {
             | TypeError::MapKeyMismatch { pos, .. }
             | TypeError::MapValueMismatch { pos, .. }
             | TypeError::EmptyMapNeedsType { pos, .. }
+            | TypeError::NoneNeedsType { pos, .. }
+            | TypeError::CoalesceNeedsOptional { pos, .. }
             | TypeError::VoidValue { pos, .. }
             | TypeError::ArrayFillType { pos, .. }
             | TypeError::ArrayItemMismatch { pos, .. }
@@ -247,6 +259,28 @@ impl TypeError {
 
 impl fmt::Display for TypeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.fmt_base(f)?;
+        // an optional where a plain value was needed: say how to get out of it
+        let optional = |t: &Ty| matches!(t, Ty::Optional(_));
+        let involved = match self {
+            TypeError::InvalidOperandTypes { left, right, .. } => optional(left) || optional(right),
+            TypeError::AnnotationMismatch { found, .. }
+            | TypeError::ReturnTypeMismatch { found, .. }
+            | TypeError::ArgTypeMismatch { found, .. }
+            | TypeError::AssignTypeMismatch { found, .. }
+            | TypeError::IndexAssignTypeMismatch { found, .. }
+            | TypeError::NotAStruct { found, .. } => optional(found),
+            _ => false,
+        };
+        if involved {
+            write!(f, " (a T? may be none: check it with `!= none` first, or give it a default with `??`)")?;
+        }
+        Ok(())
+    }
+}
+
+impl TypeError {
+    fn fmt_base(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TypeError::AnnotationMismatch { expected, found, .. } => write!(
                 f, "{}declared type is {} but value is {}",
@@ -279,8 +313,12 @@ impl fmt::Display for TypeError {
                 ),
             },
             TypeError::NotCallable { .. } => write!(
-                f, "{}only named functions can be called (struct fields and other expressions are not callable)",
+                f, "{}only functions can be called, and this value is not a function",
                 self.location()
+            ),
+            TypeError::CaptureAssign { name, .. } => write!(
+                f, "{}a lambda cannot assign '{}': it is a copy of a variable from the function it was written in",
+                self.location(), display_name(name)
             ),
             TypeError::UndefinedFunction { name, .. } => match name.split_once('.') {
                 // `@math.foo`: the namespace exists, the member doesn't
@@ -381,6 +419,14 @@ impl fmt::Display for TypeError {
             TypeError::VoidValue { .. } => write!(
                 f, "{}this expression has no value (void), so it cannot be stored in a variable",
                 self.location()
+            ),
+            TypeError::NoneNeedsType { .. } => write!(
+                f, "{}cannot tell which type 'none' belongs to; write it, e.g. 'let x: int? = none'",
+                self.location()
+            ),
+            TypeError::CoalesceNeedsOptional { found, .. } => write!(
+                f, "{}'??' needs an optional value on its left (like 'int?'), but found {}",
+                self.location(), found
             ),
             TypeError::EmptyMapNeedsType { .. } => write!(
                 f, "{}cannot tell what '[:]' holds; write the type, e.g. 'let m: map<string, int> = [:]'",

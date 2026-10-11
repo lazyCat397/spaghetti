@@ -72,6 +72,9 @@ struct Resolver {
     /// source text that takes priority over the disk, keyed by canonical
     /// path — how an editor's unsaved buffers get analysed
     overlay: HashMap<PathBuf, String>,
+    /// every file read for this program, in load order, with its text — what
+    /// `spg build` embeds in the executable
+    sources: Vec<(PathBuf, String)>,
 }
 
 /// Resolves `entry` and everything it transitively imports.
@@ -82,16 +85,56 @@ pub fn resolve(entry: &Path) -> Result<Program, ModuleError> {
 /// Same as `resolve`, but any file present in `overlay` (keyed by its
 /// canonical path, see `canon`) is read from there instead of the disk.
 pub fn resolve_with(entry: &Path, overlay: &HashMap<PathBuf, String>) -> Result<Program, ModuleError> {
-    let canonical = canonicalize(entry)?;
+    resolve_collect(entry, overlay).map(|(program, _)| program)
+}
+
+/// Same as `resolve_with`, and also returns every source file the program
+/// was built from (path and text, entry first). An overlay file does not need
+/// to exist on disk: the path is taken as-is, which is how a bundled program
+/// (`spg build`) runs from its embedded sources alone.
+pub fn resolve_collect(
+    entry: &Path,
+    overlay: &HashMap<PathBuf, String>,
+) -> Result<(Program, Vec<(PathBuf, String)>), ModuleError> {
+    let canonical = canonicalize_in(entry, overlay)?;
     let mut r = Resolver {
         loaded: HashMap::new(),
         in_progress: Vec::new(),
         merged: Vec::new(),
         entry: canonical.clone(),
         overlay: overlay.clone(),
+        sources: Vec::new(),
     };
     r.load_module(&canonical)?;
-    Ok(Program { stmts: r.merged })
+    Ok((Program { stmts: r.merged }, r.sources))
+}
+
+/// `canonicalize`, except that a path present in the overlay is taken lexically
+/// (no disk access needed)
+fn canonicalize_in(path: &Path, overlay: &HashMap<PathBuf, String>) -> Result<PathBuf, ModuleError> {
+    let lexical = lexical_normalize(path);
+    if overlay.contains_key(&lexical) {
+        return Ok(lexical);
+    }
+    canonicalize(path)
+}
+
+/// removes `.` and resolves `..` without touching the disk
+fn lexical_normalize(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for c in path.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    out.push(c.as_os_str());
+                }
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
 }
 
 /// `std::fs::canonicalize`, minus the `\\?\` verbatim prefix Windows adds
@@ -117,7 +160,7 @@ fn canonicalize(path: &Path) -> Result<PathBuf, ModuleError> {
     canon(path).map_err(|e| ModuleError::Io { path: path.to_path_buf(), message: e.to_string() })
 }
 
-fn read_and_parse(path: &Path, overlay: &HashMap<PathBuf, String>, is_entry: bool) -> Result<Program, ModuleError> {
+fn read_and_parse(path: &Path, overlay: &HashMap<PathBuf, String>, is_entry: bool) -> Result<(Program, String), ModuleError> {
     let source = match overlay.get(path) {
         Some(text) => text.clone(),
         None => std::fs::read_to_string(path)
@@ -133,9 +176,10 @@ fn read_and_parse(path: &Path, overlay: &HashMap<PathBuf, String>, is_entry: boo
             return Err(ModuleError::DirectiveInImport { path: path.to_path_buf(), name: name.clone(), line: *line, col: *col });
         }
     }
-    Parser::new(tokens)
+    let program = Parser::new(tokens)
         .parse_program()
-        .map_err(|e| ModuleError::Parse { path: path.to_path_buf(), message: e.to_string(), error: e })
+        .map_err(|e| ModuleError::Parse { path: path.to_path_buf(), message: e.to_string(), error: e })?;
+    Ok((program, source))
 }
 
 impl Resolver {
@@ -155,7 +199,8 @@ impl Resolver {
         self.in_progress.push(path.to_path_buf());
 
         let is_entry = path == self.entry;
-        let mut program = read_and_parse(path, &self.overlay, is_entry)?;
+        let (mut program, source) = read_and_parse(path, &self.overlay, is_entry)?;
+        self.sources.push((path.to_path_buf(), source));
         let is_entry = path == self.entry;
         let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
 
@@ -362,7 +407,7 @@ impl Resolver {
         // the path is relative to the IMPORTING file, not the cwd.
         // A missing file is reported with the path as the user wrote
         // it (not the half-joined `/dir/./x.spg` the join produces).
-        let dep_path = canon(&dir.join(from)).map_err(|e| ModuleError::Io {
+        let dep_path = canonicalize_in(&dir.join(from), &self.overlay).map_err(|e| ModuleError::Io {
             path: PathBuf::from(from),
             message: format!(
                 "{} (imported from '{}' at line {}, column {})",

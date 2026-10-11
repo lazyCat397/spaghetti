@@ -167,11 +167,21 @@ pub enum OpCode {
     Jump(usize),
     /// pop condition; jump if it was false
     JumpIfFalse(usize),
+    /// `a ?? b`: when the stack top is not `none`, jump (the value stays as the result);
+    /// when it is `none`, pop it and fall through to evaluate the default
+    JumpIfNotNone(usize),
 
     // ---- functions ----
     /// call the function at Program.functions[func_index], consuming
     /// `argc` stack values as arguments and pushing its return value
     Call { func_index: usize, argc: usize },
+    /// make a function value: pops `ncap` captured values (pushed in order) and
+    /// pushes a closure over `Program.functions[func_index]`. `ncap: 0` is a named
+    /// function used as a value
+    MakeClosure { func_index: usize, ncap: usize },
+    /// call a function VALUE: the stack holds the callee, then `argc` arguments.
+    /// The callee's captures go before the arguments in its locals
+    CallValue { argc: usize },
     /// fused `GetLocal(a); GetLocal(b); Call{argc:2}` — reads both
     /// locals directly instead of round-tripping through the stack
     CallLocals2 { func_index: usize, a: usize, b: usize },
@@ -350,7 +360,7 @@ impl OpCode {
     /// the middle of a fused op) and to rewrite targets after folding.
     pub fn jump_target(&self) -> Option<usize> {
         match *self {
-            OpCode::Jump(t) | OpCode::JumpIfFalse(t) => Some(t),
+            OpCode::Jump(t) | OpCode::JumpIfFalse(t) | OpCode::JumpIfNotNone(t) => Some(t),
             OpCode::JumpUnlessLtConst(_, t) | OpCode::JumpUnlessGtConst(_, t) | OpCode::JumpUnlessLtEqConst(_, t) | OpCode::JumpUnlessGtEqConst(_, t) | OpCode::JumpUnlessEqConst(_, t) | OpCode::JumpUnlessNotEqConst(_, t) | OpCode::JumpUnlessLt(t) | OpCode::JumpUnlessLtLocals(_, _, t) | OpCode::JumpUnlessLtLocalConst(_, _, t) | OpCode::JumpUnlessGt(t) | OpCode::JumpUnlessGtLocals(_, _, t) | OpCode::JumpUnlessGtLocalConst(_, _, t) | OpCode::JumpUnlessLtEq(t) | OpCode::JumpUnlessLtEqLocals(_, _, t) | OpCode::JumpUnlessLtEqLocalConst(_, _, t) | OpCode::JumpUnlessGtEq(t) | OpCode::JumpUnlessGtEqLocals(_, _, t) | OpCode::JumpUnlessGtEqLocalConst(_, _, t) | OpCode::JumpUnlessEq(t) | OpCode::JumpUnlessEqLocals(_, _, t) | OpCode::JumpUnlessEqLocalConst(_, _, t) | OpCode::JumpUnlessNotEq(t) | OpCode::JumpUnlessNotEqLocals(_, _, t) | OpCode::JumpUnlessNotEqLocalConst(_, _, t) => Some(t),
             OpCode::PushHandler { catch_target } => Some(catch_target),
             _ => None,
@@ -359,7 +369,7 @@ impl OpCode {
 
     pub fn jump_target_mut(&mut self) -> Option<&mut usize> {
         match self {
-            OpCode::Jump(t) | OpCode::JumpIfFalse(t) => Some(t),
+            OpCode::Jump(t) | OpCode::JumpIfFalse(t) | OpCode::JumpIfNotNone(t) => Some(t),
             OpCode::JumpUnlessLtConst(_, t) | OpCode::JumpUnlessGtConst(_, t) | OpCode::JumpUnlessLtEqConst(_, t) | OpCode::JumpUnlessGtEqConst(_, t) | OpCode::JumpUnlessEqConst(_, t) | OpCode::JumpUnlessNotEqConst(_, t) | OpCode::JumpUnlessLt(t) | OpCode::JumpUnlessLtLocals(_, _, t) | OpCode::JumpUnlessLtLocalConst(_, _, t) | OpCode::JumpUnlessGt(t) | OpCode::JumpUnlessGtLocals(_, _, t) | OpCode::JumpUnlessGtLocalConst(_, _, t) | OpCode::JumpUnlessLtEq(t) | OpCode::JumpUnlessLtEqLocals(_, _, t) | OpCode::JumpUnlessLtEqLocalConst(_, _, t) | OpCode::JumpUnlessGtEq(t) | OpCode::JumpUnlessGtEqLocals(_, _, t) | OpCode::JumpUnlessGtEqLocalConst(_, _, t) | OpCode::JumpUnlessEq(t) | OpCode::JumpUnlessEqLocals(_, _, t) | OpCode::JumpUnlessEqLocalConst(_, _, t) | OpCode::JumpUnlessNotEq(t) | OpCode::JumpUnlessNotEqLocals(_, _, t) | OpCode::JumpUnlessNotEqLocalConst(_, _, t) => Some(t),
             OpCode::PushHandler { catch_target } => Some(catch_target),
             _ => None,
@@ -367,10 +377,22 @@ impl OpCode {
     }
 }
 
+/// where an instruction came from: the source file (when known) and line.
+/// Shown in stack traces; the VM never reads it on the normal path.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Loc {
+    pub file: Option<std::rc::Rc<str>>,
+    pub line: u32,
+}
+
 #[derive(Debug, Clone)]
 pub struct Chunk {
     pub name: String,
     pub code: Vec<OpCode>,
+    /// one entry per instruction in `code`, same order
+    pub locs: Vec<Loc>,
+    /// location given to every instruction emitted from now on
+    pub cur_loc: Loc,
     pub constants: Vec<Value>,
     /// number of local variable slots this chunk needs (params + lets),
     /// allocated up front per call frame
@@ -380,7 +402,15 @@ pub struct Chunk {
 
 impl Chunk {
     pub fn new(name: impl Into<String>) -> Self {
-        Chunk { name: name.into(), code: Vec::new(), constants: Vec::new(), num_locals: 0, arity: 0 }
+        Chunk {
+            name: name.into(),
+            code: Vec::new(),
+            locs: Vec::new(),
+            cur_loc: Loc::default(),
+            constants: Vec::new(),
+            num_locals: 0,
+            arity: 0,
+        }
     }
 
     /// appends an instruction, returning its index (used by the compiler
@@ -388,6 +418,7 @@ impl Chunk {
     /// remember the index, backpatch once the real target is known)
     pub fn emit(&mut self, op: OpCode) -> usize {
         self.code.push(op);
+        self.locs.push(self.cur_loc.clone());
         self.code.len() - 1
     }
 
@@ -398,7 +429,7 @@ impl Chunk {
 
     pub fn patch_jump(&mut self, index: usize, target: usize) {
         match &mut self.code[index] {
-            OpCode::Jump(t) | OpCode::JumpIfFalse(t) => *t = target,
+            OpCode::Jump(t) | OpCode::JumpIfFalse(t) | OpCode::JumpIfNotNone(t) => *t = target,
             OpCode::PushHandler { catch_target } => *catch_target = target,
             other => panic!("patch_jump called on non-jump op: {:?}", other),
         }

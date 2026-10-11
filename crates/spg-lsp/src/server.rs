@@ -139,6 +139,10 @@ impl<W: Write> Server<W> {
                         ]),
                     ),
                     ("completionProvider", Json::obj(vec![("resolveProvider", Json::Bool(false)), ("triggerCharacters", Json::Arr(vec![Json::str("."), Json::str("@")]))])),
+                    ("hoverProvider", Json::Bool(true)),
+                    ("documentFormattingProvider", Json::Bool(true)),
+                    ("definitionProvider", Json::Bool(true)),
+                    ("signatureHelpProvider", Json::obj(vec![("triggerCharacters", Json::Arr(vec![Json::str("("), Json::str(",")]))])),
                 ]);
                 self.reply(
                     id,
@@ -201,6 +205,42 @@ impl<W: Write> Server<W> {
                     );
                     self.refresh_all();
                 }
+            }
+            "textDocument/formatting" => {
+                let uri = params.get("textDocument").and_then(|t| t.get("uri")).and_then(Json::as_str).unwrap_or("");
+                // no edits when the file cannot be formatted safely (see `spg_fmt::check`)
+                let result = self.formatting(uri).unwrap_or_else(|| Json::Arr(Vec::new()));
+                self.reply(id, result);
+            }
+            "textDocument/hover" => {
+                let uri = params.get("textDocument").and_then(|t| t.get("uri")).and_then(Json::as_str).unwrap_or("");
+                let cursor = params.get("position").and_then(|p| {
+                    let line = p.get("line").and_then(Json::as_f64)? as usize;
+                    let col = p.get("character").and_then(Json::as_f64)? as usize;
+                    Some((line, col))
+                });
+                let result = self.hover(uri, cursor).unwrap_or(Json::Null);
+                self.reply(id, result);
+            }
+            "textDocument/definition" => {
+                let uri = params.get("textDocument").and_then(|t| t.get("uri")).and_then(Json::as_str).unwrap_or("");
+                let cursor = params.get("position").and_then(|p| {
+                    let line = p.get("line").and_then(Json::as_f64)? as usize;
+                    let col = p.get("character").and_then(Json::as_f64)? as usize;
+                    Some((line, col))
+                });
+                let result = self.definition(uri, cursor).unwrap_or(Json::Null);
+                self.reply(id, result);
+            }
+            "textDocument/signatureHelp" => {
+                let uri = params.get("textDocument").and_then(|t| t.get("uri")).and_then(Json::as_str).unwrap_or("");
+                let cursor = params.get("position").and_then(|p| {
+                    let line = p.get("line").and_then(Json::as_f64)? as usize;
+                    let col = p.get("character").and_then(Json::as_f64)? as usize;
+                    Some((line, col))
+                });
+                let result = self.signature_help(uri, cursor).unwrap_or(Json::Null);
+                self.reply(id, result);
             }
             "textDocument/completion" => {
                 let uri = params.get("textDocument").and_then(|t| t.get("uri")).and_then(Json::as_str).unwrap_or("");
@@ -441,7 +481,7 @@ impl<W: Write> Server<W> {
         }
         const KEYWORDS: &[&str] = &[
             "let", "const", "function", "return", "if", "else", "while", "for", "in", "try", "catch", "throw", "break",
-            "continue", "when", "import", "export", "from", "install", "struct", "enum", "true", "false",
+            "continue", "when", "import", "export", "from", "install", "struct", "enum", "true", "false", "none",
         ];
         const TYPES: &[&str] = &["int", "float", "bool", "string", "void", "array", "map"];
         let edit_range = self.namespace_edit_range(uri, pos);
@@ -585,6 +625,8 @@ impl<W: Write> Server<W> {
             if let Ok(tokens) = spg_lexer::Lexer::new(&doc.text).tokenize() {
                 use spg_lexer::TokenKind as T;
                 let mut seen = std::collections::HashSet::new();
+                // the signature of each callable, shown as the completion detail
+                let labels: HashMap<String, String> = crate::signature::label_by_name(&tokens).into_iter().collect();
                 // a `function` inside a `struct { .. }` body is a METHOD: it is
                 // only callable as `value.name()`, so it must not be offered
                 // as a free name. Track brace depth to know when we are in one.
@@ -620,7 +662,7 @@ impl<W: Write> Server<W> {
                     };
                     if let T::Ident(name) = &w[1].kind {
                         if seen.insert(name.clone()) {
-                            items.push(item(name, kind, None));
+                            items.push(item(name, kind, labels.get(name).cloned()));
                         }
                     }
                 }
@@ -674,9 +716,128 @@ impl<W: Write> Server<W> {
                     }
                     i += 1;
                 }
+
+                // parameters of every function and lambda in the file: offered
+                // everywhere in the file (like the other names here), typed
+                for (name, ty) in crate::signature::all_params(&tokens) {
+                    if seen.insert(name.clone()) {
+                        items.push(item(&name, 6, Some(format!("parameter: {}", ty))));
+                    }
+                }
             }
         }
         items
+    }
+
+    /// the name under the cursor, resolved to what it refers to: the token
+    /// list, the declaration (in this file, or in the file it is imported from)
+    fn resolve_at(&self, uri: &str, pos: Option<(usize, usize)>) -> Option<(crate::navigate::Target, Vec<spg_lexer::Token>)> {
+        let (line, col) = pos?;
+        let doc = self.docs.get(uri)?;
+        let tokens = spg_lexer::Lexer::new(&doc.text).tokenize().ok()?;
+        let at = crate::navigate::word_at(&tokens, line, col)?;
+        let decls = crate::navigate::declarations(&tokens);
+        let target = crate::navigate::target(&tokens, &decls, at)?;
+        Some((target, tokens))
+    }
+
+    /// the declaration a target points at, and the file that holds it
+    fn locate(&self, uri: &str, target: &crate::navigate::Target) -> Option<(String, crate::navigate::Decl)> {
+        use crate::navigate::{declarations, Target};
+        match target {
+            Target::Local(d) => Some((uri.to_string(), d.clone())),
+            Target::Imported { name, file } => {
+                let dir = self.docs.get(uri)?.path.as_ref()?.parent()?.to_path_buf();
+                // `./util.spg` joins as `dir/./util.spg`: drop the `.` so the URI is clean
+                let path: PathBuf = dir.join(file).components().filter(|c| !matches!(c, std::path::Component::CurDir)).collect();
+                let text = self.source_of(&path)?;
+                let tokens = spg_lexer::Lexer::new(&text).tokenize().ok()?;
+                let found = declarations(&tokens)
+                    .into_iter()
+                    .find(|d| d.name == *name && d.owner.is_none() && matches!(d.kind, crate::navigate::Kind::Function | crate::navigate::Kind::Struct | crate::navigate::Kind::Enum | crate::navigate::Kind::Let))?;
+                Some((crate::uri::path_to_uri(&path), found))
+            }
+        }
+    }
+
+    /// `textDocument/formatting`: one edit that replaces the whole document with
+    /// its canonical layout, or none when it is already formatted or `spg_fmt`
+    /// refuses it (the file does not lex, or the result failed its safety proofs)
+    fn formatting(&self, uri: &str) -> Option<Json> {
+        let text = &self.docs.get(uri)?.text;
+        let formatted = spg_fmt::check(text).ok()?;
+        if formatted == *text {
+            return Some(Json::Arr(Vec::new()));
+        }
+        // the range ends where the document does; LSP counts UTF-16 units
+        let last_line = text.split('\n').count() - 1;
+        let end_character: usize = text.split('\n').last().unwrap_or("").chars().map(char::len_utf16).sum();
+        let point = |line: usize, character: usize| Json::obj(vec![("line", Json::int(line as i64)), ("character", Json::int(character as i64))]);
+        Some(Json::Arr(vec![Json::obj(vec![
+            ("range", Json::obj(vec![("start", point(0, 0)), ("end", point(last_line, end_character))])),
+            ("newText", Json::Str(formatted)),
+        ])]))
+    }
+
+    fn hover(&self, uri: &str, pos: Option<(usize, usize)>) -> Option<Json> {
+        let (target, _) = self.resolve_at(uri, pos)?;
+        let (_, decl) = self.locate(uri, &target)?;
+        let text = crate::navigate::describe(&decl);
+        Some(Json::obj(vec![(
+            "contents",
+            Json::obj(vec![("kind", Json::str("markdown")), ("value", Json::Str(format!("```spg\n{}\n```", text)))]),
+        )]))
+    }
+
+    fn definition(&self, uri: &str, pos: Option<(usize, usize)>) -> Option<Json> {
+        let (target, _) = self.resolve_at(uri, pos)?;
+        let (file_uri, decl) = self.locate(uri, &target)?;
+        // the name's span: LSP counts UTF-16 units, so convert the lexer's columns
+        let line0 = decl.line.saturating_sub(1);
+        let text = if file_uri == uri {
+            self.docs.get(uri)?.text.clone()
+        } else {
+            let path = crate::uri::uri_to_path(&file_uri)?;
+            self.source_of(&path)?
+        };
+        let line_text = text.split('\n').nth(line0)?;
+        let utf16 = |chars: usize| -> usize { line_text.chars().take(chars).map(char::len_utf16).sum() };
+        let start = utf16(decl.col.saturating_sub(1));
+        let end = utf16(decl.col.saturating_sub(1) + decl.name.chars().count());
+        let point = |line: usize, character: usize| Json::obj(vec![("line", Json::int(line as i64)), ("character", Json::int(character as i64))]);
+        Some(Json::obj(vec![
+            ("uri", Json::str(&file_uri)),
+            ("range", Json::obj(vec![("start", point(line0, start)), ("end", point(line0, end))])),
+        ]))
+    }
+
+    /// `textDocument/signatureHelp`: the call around the cursor, its signature,
+    /// and which argument the cursor is on
+    fn signature_help(&self, uri: &str, pos: Option<(usize, usize)>) -> Option<Json> {
+        let (tokens, at, _) = self.member_context(uri, pos)?;
+        // `recv.f(`: the method of the receiver's struct wins over a free name `f`
+        let decls = crate::navigate::declarations(&tokens);
+        let (sig, active) = crate::navigate::method_signature(&tokens, &decls, at)
+            .or_else(|| crate::signature::signature_help(&tokens, at))?;
+        let parameters: Vec<Json> = sig
+            .params
+            .iter()
+            .map(|(name, ty)| {
+                let label = if name.is_empty() { ty.clone() } else { format!("{}: {}", name, ty) };
+                Json::obj(vec![("label", Json::Str(label))])
+            })
+            .collect();
+        Some(Json::obj(vec![
+            (
+                "signatures",
+                Json::Arr(vec![Json::obj(vec![
+                    ("label", Json::Str(sig.label())),
+                    ("parameters", Json::Arr(parameters)),
+                ])]),
+            ),
+            ("activeSignature", Json::int(0)),
+            ("activeParameter", Json::int(active as i64)),
+        ]))
     }
 
     /// the text of a source file: an open buffer wins over the disk
@@ -1180,7 +1341,7 @@ mod tests {
         };
         // `it.` -> the fields and the method of the imported struct, with their kinds
         let items = at(2, 3);
-        assert_eq!(labels_of(&items), ["name", "qty", "total"]);
+        assert_eq!(labels_of(&items), ["name", "qty", "total", "string"]);
         let kind = |l: &str| items.iter().find(|i| i.get("label").and_then(Json::as_str) == Some(l)).unwrap().get("kind").and_then(Json::as_f64);
         assert_eq!((kind("name"), kind("total")), (Some(5.0), Some(2.0)));
         // `Item { name: "y", ` -> only the field not written yet, inserted as `qty: `

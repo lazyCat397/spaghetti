@@ -18,7 +18,7 @@ print(@map.remove(ages, "bia"), @map.remove(ages, "bia"))
 print(ages, total(ages))
 ages["bia"] = 1
 print(@map.keys(ages))
-let none: map<string, int> = [:]
-print(none, @map.len(none), total(none))
+let vazio: map<string, int> = [:]
+print(vazio, @map.len(vazio), total(vazio))
 let dup: map<int, string> = [1: "a", 2: "b", 1: "c"]
 print(dup)

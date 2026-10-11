@@ -169,5 +169,77 @@
       "throw \"${1:message}\""
     ],
     "description": "raise an exception with a message (caught by try/catch, in this function or any caller)"
+  },
+  "Lambda": {
+    "prefix": [
+      "lambda",
+      "fnv"
+    ],
+    "body": [
+      "function(${1:x}: ${2:int}) -> ${3:int} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Anonymous function value (a lambda)"
+  },
+  "Function type": {
+    "prefix": [
+      "fntype"
+    ],
+    "body": [
+      "function(${1:int}) -> ${2:int}"
+    ],
+    "description": "Type of a function value"
+  },
+  "Optional type": {
+    "prefix": [
+      "opt",
+      "opt?"
+    ],
+    "body": [
+      "${1:int}?"
+    ],
+    "description": "Optional type: a value of ${1:int} or none"
+  },
+  "Optional let": {
+    "prefix": [
+      "letopt"
+    ],
+    "body": [
+      "let ${1:x}: ${2:int}? = ${3:none}"
+    ],
+    "description": "Mutable optional variable"
+  },
+  "Check none": {
+    "prefix": [
+      "ifnone",
+      "ifn"
+    ],
+    "body": [
+      "if (${1:x} != none) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Runs the block only when the optional is not none (narrows its type inside)"
+  },
+  "Default value": {
+    "prefix": [
+      "coalesce",
+      "??"
+    ],
+    "body": [
+      "${1:x} ?? ${2:0}"
+    ],
+    "description": "The value of an optional, or a default when it is none"
+  },
+  "Interpolation": {
+    "prefix": [
+      "interp",
+      "${"
+    ],
+    "body": [
+      "\"${${1:expr}}\""
+    ],
+    "description": "String with an embedded expression"
   }
 }

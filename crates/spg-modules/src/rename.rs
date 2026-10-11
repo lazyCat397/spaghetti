@@ -95,6 +95,13 @@ impl<'a> Renamer<'a> {
                 self.rename_type(key);
                 self.rename_type(value);
             }
+            TypeExpr::Optional(inner) => self.rename_type(inner),
+            TypeExpr::Function { params, ret } => {
+                for p in params {
+                    self.rename_type(p);
+                }
+                self.rename_type(ret);
+            }
             _ => {}
         }
     }
@@ -258,7 +265,7 @@ impl<'a> Renamer<'a> {
 
     fn rename_expr(&mut self, expr: &mut Expr) {
         match expr {
-            Expr::IntLit(..) | Expr::FloatLit(..) | Expr::StringLit(..) | Expr::BoolLit(..) => {}
+            Expr::IntLit(..) | Expr::FloatLit(..) | Expr::StringLit(..) | Expr::BoolLit(..) | Expr::NoneLit(..) => {}
 
             Expr::ArrayLit(items, _) => {
                 for i in items {
@@ -274,6 +281,21 @@ impl<'a> Renamer<'a> {
             }
 
             Expr::Ident(name, _) => *name = self.value_name(name),
+
+            // a lambda's parameters shadow module-level names inside its body,
+            // exactly like a function declaration's do
+            Expr::Lambda { params, return_type, body, .. } => {
+                self.rename_params(params);
+                if let Some(rt) = return_type {
+                    self.rename_type(rt);
+                }
+                self.shadowed.push(HashSet::new());
+                for p in params.iter() {
+                    self.shadow(&p.name);
+                }
+                self.rename_block(body);
+                self.shadowed.pop();
+            }
 
             Expr::Binary { left, right, .. } => {
                 self.rename_expr(left);

@@ -1,0 +1,3 @@
+function f(x: int) -> int { return x }
+let y: int? = 3
+print(f(y))
