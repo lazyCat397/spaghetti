@@ -174,6 +174,19 @@ impl<'a> Renamer<'a> {
                 self.rename_expr(value);
             }
 
+            Stmt::Match { subject, arms, else_branch, .. } => {
+                self.rename_expr(subject);
+                for arm in arms.iter_mut() {
+                    for v in arm.values.iter_mut() {
+                        self.rename_expr(v);
+                    }
+                    self.rename_block(&mut arm.body);
+                }
+                if let Some(b) = else_branch {
+                    self.rename_block(b);
+                }
+            }
+
             Stmt::IfStmt { cond, then_branch, else_branch, .. } => {
                 self.rename_expr(cond);
                 self.rename_block(then_branch);

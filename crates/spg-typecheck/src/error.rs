@@ -21,6 +21,13 @@ pub enum TypeError {
     /// the two branches of an if-EXPRESSION disagree in type
     IfExprBranchMismatch { then_ty: Ty, else_ty: Ty, pos: Pos },
 
+    /// `when (x)` where `x` is not an int, a string or an enum
+    MatchSubjectType { found: Ty, pos: Pos },
+    /// a case value whose type differs from the matched value's
+    MatchCaseType { expected: Ty, found: Ty, pos: Pos },
+    /// an enum match without `else` that leaves some variants out
+    MatchNonExhaustive { missing: Vec<String>, pos: Pos },
+
     /// identifier used but never declared in any visible scope
     UndefinedVariable { name: String, pos: Pos },
 
@@ -180,6 +187,9 @@ impl TypeError {
             | TypeError::ReturnTypeMismatch { pos, .. }
             | TypeError::MissingReturn { pos, .. }
             | TypeError::IfExprBranchMismatch { pos, .. }
+            | TypeError::MatchSubjectType { pos, .. }
+            | TypeError::MatchCaseType { pos, .. }
+            | TypeError::MatchNonExhaustive { pos, .. }
             | TypeError::UndefinedVariable { pos, .. }
             | TypeError::UndefinedFunction { pos, .. }
             | TypeError::RemovedBuiltin { pos, .. }
@@ -293,6 +303,18 @@ impl TypeError {
             TypeError::MissingReturn { function_name, expected, .. } => write!(
                 f, "{}function '{}' must return {} on every path, but a return is missing",
                 self.location(), display_name(function_name), expected
+            ),
+            TypeError::MatchSubjectType { found, .. } => write!(
+                f, "{}'when' can only match an int, a string or an enum, but this value is {}",
+                self.location(), found
+            ),
+            TypeError::MatchCaseType { expected, found, .. } => write!(
+                f, "{}this case is {}, but the matched value is {}",
+                self.location(), found, expected
+            ),
+            TypeError::MatchNonExhaustive { missing, .. } => write!(
+                f, "{}'when' does not cover every variant of the enum (missing: {}); add those cases or an 'else'",
+                self.location(), missing.join(", ")
             ),
             TypeError::IfExprBranchMismatch { then_ty, else_ty, .. } => write!(
                 f, "{}if-expression branches disagree in type (then: {}, else: {})",

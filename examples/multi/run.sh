@@ -251,6 +251,7 @@ diag arraylit_erro.spg 1 "type error in lib/rx_arraylit_erro.spg" "undefined var
 # enums: `enum E { A, B }`, `E.A`, == / != only, `for x in E`, printed by variant name
 ok enum_basic.spg  'Green\ncolor: Green Green\ntrue false false\nRed hot\nGreen natural\nBlue cool\n[Blue, Red]\nCar { name: fusca, color: Blue }\ntrue false\n3 Red'
 ok enum_forms.spg  '101 10\n1 10 100\ntrue false\nGreen Red true\ntrue false\ntrue false\ntrue\nfalse Red\nSignal { now: Green, ticks: 1 } true\n[Yellow, Red, Yellow] 1 -1\n2'
+ok match_basic.spg  'moving down\n210\nhorizontal vertical\none few many\nelif ok\nnot up'
 ok enum_multi.spg  '0 Red\n1 Green\n2 Blue\n3 Red\ntrue\nRed\nGreen\nBlue\nMagenta'
 ok enum_scope.spg  '7\nGreen\n1\n2\nRed'
 err enum_bad_variant.spg    "enum 'Color' has no variant 'Purple' (variants: Red, Green)" "line 2"
@@ -298,6 +299,9 @@ err map_missing_key.spg     'key not found in map: "zz"' "@map.has"
 err map_keysof_tipo.spg      "'@map.keysOf' argument #2 expects int, got string" "line 2, column 18"
 err let_void.spg             "this expression has no value (void)" "line 1, column 1"
 err const_void.spg           "this expression has no value (void)" "line 1, column 1"
+err when_nonexhaustive.spg "does not cover every variant" "missing: Left, Right" "line 3, column 1"
+err when_case_type.spg     "this case is string, but the matched value is Dir" "line 4, column 5"
+err when_subject_float.spg "can only match an int, a string or an enum, but this value is float"
 err into_method_int.spg     "'@into.int' argument #1 expects float, got int" "line 2, column 12"
 err map_missing_compound.spg 'key not found in map: "zz"'
 err map_parse_colon.spg     "expected ']'" "line 1, column 14"

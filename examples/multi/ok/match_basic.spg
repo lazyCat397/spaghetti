@@ -1,0 +1,44 @@
+enum Dir { Up, Down, Left, Right }
+
+function axis(d: Dir) -> string {
+    when (d) {
+        Dir.Up, Dir.Down { return "vertical" }
+        Dir.Left, Dir.Right { return "horizontal" }
+    }
+    return "never"
+}
+
+function score(n: int) -> string {
+    when (n) {
+        1 { return "one" }
+        2, 3 { return "few" }
+        else { return "many" }
+    }
+}
+
+let cmd: string = "s"
+when (cmd) {
+    "up", "w" { print("moving up") }
+    "down", "s" { print("moving down") }
+    else { print("unknown") }
+}
+
+let total: int = 0
+for i in 1..4 {
+    when (i) {
+        1 { total += 10 }
+        2, 3 { total += 100 }
+    }
+}
+print(total)
+print(axis(Dir.Left), axis(Dir.Down))
+print(score(1), score(3), score(9))
+
+let x: int = 5
+if (x == 1) { print("a") } elif (x == 5) { print("elif ok") } else { print("c") }
+
+let d: Dir = Dir.Right
+when (d) {
+    Dir.Up { print("up") }
+    else { print("not up") }
+}

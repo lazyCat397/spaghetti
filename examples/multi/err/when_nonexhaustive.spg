@@ -1,0 +1,6 @@
+enum Dir { Up, Down, Left, Right }
+let d: Dir = Dir.Up
+when (d) {
+    Dir.Up { print("up") }
+    Dir.Down { print("down") }
+}

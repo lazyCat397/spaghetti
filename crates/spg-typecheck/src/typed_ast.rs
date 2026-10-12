@@ -319,6 +319,10 @@ pub enum TypedStmt {
         else_branch: Option<TypedBlock>,
     },
 
+    /// a `{ }` scope of its own: the checker wraps a lowered `when` match in one
+    /// so its hidden subject local goes out of scope at its end
+    Block { body: TypedBlock },
+
     While { cond: TypedExpr, body: TypedBlock },
 
     ForIn { var_name: String, elem_ty: Ty, iterable: TypedExpr, body: TypedBlock },

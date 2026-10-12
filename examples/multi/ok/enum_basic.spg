@@ -4,7 +4,7 @@ struct Car { name: string, color: Color }
 
 function describe(c: Color) -> string {
     if (c == Color.Red) { return "hot" }
-    when (c != Color.Blue) { return "natural" }
+    elif (c != Color.Blue) { return "natural" }
     else { return "cool" }
 }
 

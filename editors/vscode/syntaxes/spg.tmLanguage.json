@@ -113,7 +113,7 @@
     },
     "keywords": {
       "patterns": [
-        { "match": "\\b(if|else|when)\\b", "name": "keyword.control.conditional.spg" },
+        { "match": "\\b(if|elif|else|when)\\b", "name": "keyword.control.conditional.spg" },
         { "match": "\\b(while|for|in|break|continue)\\b", "name": "keyword.control.loop.spg" },
         { "match": "\\b(try|catch|throw)\\b", "name": "keyword.control.trycatch.spg" },
         { "match": "\\breturn\\b", "name": "keyword.control.flow.spg" },

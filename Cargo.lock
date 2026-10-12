@@ -4,7 +4,7 @@ version = 3
 
 [[package]]
 name = "spg-cli"
-version = "1.21.2"
+version = "1.22.2"
 dependencies = [
  "spg-compiler",
  "spg-fmt",
@@ -18,7 +18,7 @@ dependencies = [
 
 [[package]]
 name = "spg-compiler"
-version = "1.21.2"
+version = "1.22.2"
 dependencies = [
  "spg-lexer",
  "spg-parser",
@@ -28,18 +28,18 @@ dependencies = [
 
 [[package]]
 name = "spg-fmt"
-version = "1.21.2"
+version = "1.22.2"
 dependencies = [
  "spg-lexer",
 ]
 
 [[package]]
 name = "spg-lexer"
-version = "1.21.2"
+version = "1.22.2"
 
 [[package]]
 name = "spg-lsp"
-version = "1.21.2"
+version = "1.22.2"
 dependencies = [
  "spg-compiler",
  "spg-fmt",
@@ -51,7 +51,7 @@ dependencies = [
 
 [[package]]
 name = "spg-modules"
-version = "1.21.2"
+version = "1.22.2"
 dependencies = [
  "spg-lexer",
  "spg-parser",
@@ -59,14 +59,14 @@ dependencies = [
 
 [[package]]
 name = "spg-parser"
-version = "1.21.2"
+version = "1.22.2"
 dependencies = [
  "spg-lexer",
 ]
 
 [[package]]
 name = "spg-typecheck"
-version = "1.21.2"
+version = "1.22.2"
 dependencies = [
  "spg-lexer",
  "spg-parser",
@@ -74,7 +74,7 @@ dependencies = [
 
 [[package]]
 name = "spg-vm"
-version = "1.21.2"
+version = "1.22.2"
 dependencies = [
  "spg-lexer",
  "spg-typecheck",

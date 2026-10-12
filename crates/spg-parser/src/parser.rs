@@ -202,6 +202,7 @@ impl Parser {
             TokenKind::Let => self.parse_let(false, false),
             TokenKind::Const => self.parse_let(true, false),
             TokenKind::If => self.parse_if_stmt(),
+            TokenKind::When => self.parse_match_stmt(),
             TokenKind::While => self.parse_while(),
             TokenKind::For => self.parse_for_in(),
             TokenKind::Return => self.parse_return(),
@@ -348,8 +349,8 @@ impl Parser {
         }
     }
 
-    /// `if (cond) { } when (cond2) { } when (cond3) { } else { }` — `when`
-    /// is Flow Code's else-if, ported as-is (same shape, same keyword).
+    /// `if (cond) { } elif (cond2) { } elif (cond3) { } else { }` — `elif`
+    /// is the else-if chain keyword (`when` is now the match statement).
     /// Structurally there's no new AST node: each `when` just becomes a
     /// nested `IfStmt` living inside the previous branch's `else_branch`
     /// — the same trick "else if" chains use under the hood in most
@@ -368,15 +369,46 @@ impl Parser {
         Ok(Stmt::IfStmt { cond, then_branch, else_branch, pos })
     }
 
-    /// parses whatever comes after an `if`'s (or a previous `when`'s)
-    /// body: another `when (cond) { }` — which recurses, wrapping itself
+    /// `when (subject) { "a", "b" { } 3 { } else { } }`: a match. Each arm lists
+    /// one or more values (comma separated) and a body; an optional `else`
+    /// block closes it. Exhaustiveness and value types are checked later.
+    fn parse_match_stmt(&mut self) -> Result<Stmt, ParseError> {
+        let pos = self.peek_pos();
+        self.advance(); // when
+        self.expect(TokenKind::LParen, "'('")?;
+        let subject = self.parse_expr_no_struct_literal()?;
+        self.expect(TokenKind::RParen, "')'")?;
+        self.expect(TokenKind::LBrace, "'{'")?;
+
+        let mut arms = Vec::new();
+        let mut else_branch = None;
+        while !self.check(&TokenKind::RBrace) {
+            if self.match_kind(&TokenKind::Else) {
+                else_branch = Some(self.parse_block()?);
+                continue;
+            }
+            let arm_pos = self.peek_pos();
+            let mut values = vec![self.parse_expr_no_struct_literal()?];
+            while self.match_kind(&TokenKind::Comma) {
+                values.push(self.parse_expr_no_struct_literal()?);
+            }
+            let body = self.parse_block()?;
+            arms.push(MatchArm { values, body, pos: arm_pos });
+        }
+        self.expect(TokenKind::RBrace, "'}'")?;
+
+        Ok(Stmt::Match { subject, arms, else_branch, pos })
+    }
+
+    /// parses whatever comes after an `if`'s (or a previous `elif`'s)
+    /// body: another `elif (cond) { }` — which recurses, wrapping itself
     /// in a one-statement Block so it fits `else_branch: Option<Block>`
     /// unchanged and keeps the chain going — or a trailing `else { }`,
     /// or neither.
     fn parse_when_or_else_tail(&mut self) -> Result<Option<Block>, ParseError> {
-        if self.check(&TokenKind::When) {
+        if self.check(&TokenKind::Elif) {
             let when_pos = self.peek_pos();
-            self.advance(); // when
+            self.advance(); // elif
             self.expect(TokenKind::LParen, "'('")?;
             let when_cond = self.parse_expr_no_struct_literal()?;
             self.expect(TokenKind::RParen, "')'")?;
@@ -1042,9 +1074,9 @@ impl Parser {
     /// `else { }` — there's no "neither" case here, unlike the
     /// statement version, since an if-expression always needs a value.
     fn parse_when_or_else_tail_expr(&mut self) -> Result<Block, ParseError> {
-        if self.check(&TokenKind::When) {
+        if self.check(&TokenKind::Elif) {
             let when_pos = self.peek_pos();
-            self.advance(); // when
+            self.advance(); // elif
             self.expect(TokenKind::LParen, "'('")?;
             let when_cond = self.parse_expr_no_struct_literal()?;
             self.expect(TokenKind::RParen, "')'")?;

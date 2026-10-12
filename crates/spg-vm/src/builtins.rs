@@ -113,6 +113,36 @@ fn print_values(vs: &[Value]) {
 /// ignored: a closed pipe at this point is not our bug. Waits for the lock, so
 /// when it returns everything printed before it has reached the OS (even if
 /// the flusher thread was in the middle of a flush).
+/// Windows consoles ignore ANSI escapes until VT processing is switched on.
+/// Done once, quietly; a no-op everywhere else. No external crate: direct kernel32 calls.
+#[cfg(windows)]
+fn enable_ansi_once() {
+    use std::ffi::c_void;
+    use std::sync::Once;
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetStdHandle(n: u32) -> *mut c_void;
+            fn GetConsoleMode(h: *mut c_void, mode: *mut u32) -> i32;
+            fn SetConsoleMode(h: *mut c_void, mode: u32) -> i32;
+        }
+        const STD_OUTPUT_HANDLE: u32 = -11i32 as u32;
+        const ENABLE_VIRTUAL_TERMINAL_PROCESSING: u32 = 0x0004;
+        unsafe {
+            let h = GetStdHandle(STD_OUTPUT_HANDLE);
+            let mut mode = 0u32;
+            if GetConsoleMode(h, &mut mode) != 0 {
+                SetConsoleMode(h, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+            }
+        }
+    });
+}
+
+#[cfg(not(windows))]
+fn enable_ansi_once() {}
+
+
 pub fn flush_stdout() {
     if let Some(w) = lock_out().as_mut() {
         let _ = w.flush();
@@ -546,6 +576,13 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
         SysCwd => {
             let dir = std::env::current_dir().map_err(|e| io_error("@sys.cwd", "", e))?;
             Value::String(Rc::new(dir.to_string_lossy().into_owned()))
+        }
+        SysClear => {
+            enable_ansi_once();
+            // clear screen, clear scrollback, cursor home (buffered stdout, flushed right after)
+            write_out_text("\x1b[2J\x1b[3J\x1b[H")?;
+            flush_stdout();
+            Value::Void
         }
         SysReadLine => Value::String(Rc::new(read_stdin_line("@sys.readLine")?)),
         SysReadAll => {

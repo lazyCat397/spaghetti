@@ -74,7 +74,7 @@ struct Fork {
         while (true) {
             let low = @str.toLower(@str.trim(readLine(prompt + " [y/n]: ")))
             if (low == "y" || low == "yes" || low == "s" || low == "sim") { return true }
-            when (low == "n" || low == "no" || low == "não" || low == "nao") { return false }
+            elif (low == "n" || low == "no" || low == "não" || low == "nao") { return false }
             printError("Oops! Answer with y or n.")
         }
         return false
@@ -144,10 +144,6 @@ struct Fork {
         return edge + "\n| " + text + " |\n" + edge
     }
 
-    // mostly here so the namespace can introduce itself, i guess
-    function this() -> string {
-        return "io namespace"
-    }
 }
 
 export const fork: Fork = Fork { _v: 0 }

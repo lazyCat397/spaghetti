@@ -481,7 +481,7 @@ impl<W: Write> Server<W> {
         }
         const KEYWORDS: &[&str] = &[
             "let", "const", "function", "return", "if", "else", "while", "for", "in", "try", "catch", "throw", "break",
-            "continue", "when", "import", "export", "from", "install", "struct", "enum", "true", "false", "none",
+            "continue", "when", "elif", "import", "export", "from", "install", "struct", "enum", "true", "false", "none",
         ];
         const TYPES: &[&str] = &["int", "float", "bool", "string", "void", "array", "map"];
         let edit_range = self.namespace_edit_range(uri, pos);
@@ -1305,7 +1305,7 @@ mod tests {
         // the standard library folder of this checkout (the compiler finds it the same way)
         std::env::set_var("SPG_STD", concat!(env!("CARGO_MANIFEST_DIR"), "/../../stdlib"));
         let labels = labels_of(&complete_at("compl_std_fork", "install <std: \"fork\">\nfork.\n", 1, 5));
-        for want in ["box", "center", "rule", "askInt", "readLines", "this"] {
+        for want in ["box", "center", "rule", "askInt", "readLines"] {
             assert!(labels.iter().any(|l| l == want), "missing {} in {:?}", want, labels);
         }
         // the name with the extension works the same way

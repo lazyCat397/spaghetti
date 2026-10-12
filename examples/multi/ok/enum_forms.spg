@@ -15,7 +15,7 @@ function localLocal(a: Light, b: Light) -> int {
 function localConst(a: Light) -> int {
     let n = 0
     if (a == Light.Green) { n += 1 }
-    when (a != Light.Red) { n += 10 }
+    elif (a != Light.Red) { n += 10 }
     else { n += 100 }
     return n
 }

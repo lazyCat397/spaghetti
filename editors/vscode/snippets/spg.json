@@ -67,18 +67,32 @@
     ],
     "description": "if with else"
   },
-  "if / when / else": {
-    "prefix": "ifw",
+  "if / elif / else": {
+    "prefix": "ifelif",
     "body": [
       "if (${1:condition}) {",
       "\t$2",
-      "} when (${3:other}) {",
+      "} elif (${3:other}) {",
       "\t$4",
       "} else {",
       "\t$0",
       "}"
     ],
-    "description": "if / when / else chain"
+    "description": "if / elif / else chain"
+  },
+  "when (match)": {
+    "prefix": "when",
+    "body": [
+      "when (${1:value}) {",
+      "\t${2:\"case\"} {",
+      "\t\t$0",
+      "\t}",
+      "\telse {",
+      "\t\t",
+      "\t}",
+      "}"
+    ],
+    "description": "match on an int, a string or an enum (cases list: \"a\", \"b\" { })"
   },
   "while": {
     "prefix": "while",

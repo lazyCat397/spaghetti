@@ -1,0 +1,6 @@
+enum Dir { Up, Down }
+let d: Dir = Dir.Up
+when (d) {
+    "up" { print("y") }
+    else { print("n") }
+}

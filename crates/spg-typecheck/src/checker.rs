@@ -283,6 +283,14 @@ impl Checker {
                     }
                 }
                 Stmt::While { body, .. } => self.collect_return_types_in_stmts(&body.stmts, found),
+                Stmt::Match { arms, else_branch, .. } => {
+                    for arm in arms {
+                        self.collect_return_types_in_stmts(&arm.body.stmts, found);
+                    }
+                    if let Some(eb) = else_branch {
+                        self.collect_return_types_in_stmts(&eb.stmts, found);
+                    }
+                }
                 Stmt::ForIn { body, .. } => self.collect_return_types_in_stmts(&body.stmts, found),
                 Stmt::ForRange { body, .. } => self.collect_return_types_in_stmts(&body.stmts, found),
                 Stmt::Try { try_block, catch_block, .. } => {
@@ -799,6 +807,104 @@ impl Checker {
 
                 self.declare(name, final_ty.clone(), false, pos);
                 Some(TypedStmt::Const { name: name.clone(), ty: final_ty, value: typed_value, exported: *exported })
+            }
+
+            Stmt::Match { subject, arms, else_branch, pos } => {
+                let typed_subject = self.check_expr(subject)?;
+                let subject_ty = typed_subject.ty().clone();
+
+                // enum subjects carry their variant names; int and string ones have none
+                let variants: Option<Vec<String>> = match &subject_ty {
+                    Ty::Named(n) => self.enum_named(n).cloned(),
+                    _ => None,
+                };
+                if variants.is_none() && !matches!(subject_ty, Ty::Int | Ty::String) {
+                    self.errors.push(TypeError::MatchSubjectType { found: subject_ty.clone(), pos: pos.clone() });
+                    return None;
+                }
+
+                let mut typed_arms: Vec<(Vec<TypedExpr>, TypedBlock)> = Vec::new();
+                let mut covered: Vec<usize> = Vec::new();
+                let mut bad_case = false;
+                for arm in arms {
+                    let mut values = Vec::new();
+                    for value in &arm.values {
+                        let typed_value = self.check_expr(value)?;
+                        if typed_value.ty() != &subject_ty {
+                            self.errors.push(TypeError::MatchCaseType {
+                                expected: subject_ty.clone(),
+                                found: typed_value.ty().clone(),
+                                pos: arm.pos.clone(),
+                            });
+                            bad_case = true;
+                            continue;
+                        }
+                        if let TypedExpr::EnumLit { index, .. } = &typed_value {
+                            covered.push(*index);
+                        }
+                        values.push(typed_value);
+                    }
+                    self.push_scope();
+                    let typed_body = self.check_block(&arm.body);
+                    self.pop_scope();
+                    typed_arms.push((values, typed_body));
+                }
+
+                let typed_else = else_branch.as_ref().map(|b| {
+                    self.push_scope();
+                    let t = self.check_block(b);
+                    self.pop_scope();
+                    t
+                });
+
+                // an enum match without `else` must name every variant
+                if let (Some(names), None, false) = (&variants, &typed_else, bad_case) {
+                    let missing: Vec<String> = names
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| !covered.contains(i))
+                        .map(|(_, n)| n.clone())
+                        .collect();
+                    if !missing.is_empty() {
+                        self.errors.push(TypeError::MatchNonExhaustive { missing, pos: pos.clone() });
+                    }
+                }
+
+                // lowering: `let $match = subject;` then an if/elif chain comparing
+                // against it (enums compare as their int index, same as `==` on enums)
+                let hidden = "$match".to_string();
+                let is_enum = variants.is_some();
+                let wrap = |e: TypedExpr| if is_enum { TypedExpr::AsInt(Box::new(e)) } else { e };
+                let subject_ref = TypedExpr::Ident { name: hidden.clone(), ty: subject_ty.clone() };
+                let loc = SrcLoc { file: pos.file.clone(), line: pos.line };
+
+                let mut chain: Option<TypedBlock> = typed_else;
+                for (values, body) in typed_arms.into_iter().rev() {
+                    let cond = values
+                        .into_iter()
+                        .map(|v| TypedExpr::Binary {
+                            left: Box::new(wrap(subject_ref.clone())),
+                            op: BinaryOp::Eq,
+                            right: Box::new(wrap(v)),
+                            ty: Ty::Bool,
+                        })
+                        .reduce(|a, b| TypedExpr::Binary { left: Box::new(a), op: BinaryOp::Or, right: Box::new(b), ty: Ty::Bool });
+                    if let Some(cond) = cond {
+                        chain = Some(TypedBlock {
+                            stmts: vec![TypedStmt::IfStmt { cond, then_branch: body, else_branch: chain }],
+                            locs: vec![loc.clone()],
+                            ty: Ty::Void,
+                        });
+                    }
+                }
+
+                let mut stmts = vec![TypedStmt::Let { name: hidden, ty: subject_ty, value: typed_subject, exported: false }];
+                let mut locs = vec![loc.clone()];
+                if let Some(c) = chain {
+                    stmts.extend(c.stmts);
+                    locs.extend(c.locs);
+                }
+                Some(TypedStmt::Block { body: TypedBlock { stmts, locs, ty: Ty::Void } })
             }
 
             Stmt::IfStmt { cond, then_branch, else_branch, pos } => {
@@ -2135,6 +2241,13 @@ fn stmt_always_returns(stmt: &Stmt) -> bool {
             then_ok && else_ok
         }
 
+        // a match returns only when every arm and the `else` do (conservative: an
+        // enum match that covers all variants without `else` still needs one here)
+        Stmt::Match { arms, else_branch, .. } => {
+            else_branch.as_ref().map_or(false, |b| always_returns(&b.stmts))
+                && arms.iter().all(|a| always_returns(&a.body.stmts))
+        }
+
         // loops never guarantee a return: the body might run zero times
         Stmt::While { .. } => false,
         Stmt::ForIn { .. } => false,
@@ -2216,6 +2329,7 @@ fn stmt_exits(stmt: &Stmt) -> bool {
     match stmt {
         Stmt::Return { .. } | Stmt::Break { .. } | Stmt::Continue { .. } | Stmt::Throw { .. } => true,
         Stmt::IfStmt { then_branch, else_branch: Some(other), .. } => block_exits(then_branch) && block_exits(other),
+        Stmt::Match { arms, else_branch: Some(other), .. } => block_exits(other) && arms.iter().all(|a| block_exits(&a.body)),
         _ => false,
     }
 }

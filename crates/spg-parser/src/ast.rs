@@ -212,6 +212,15 @@ pub enum Stmt {
         pos: Pos,
     },
 
+    /// `when (subject) { 1, 2 { } 3 { } else { } }`: a match on an int, a string
+    /// or an enum. Lowered by the checker to an if/elif chain on a hidden local.
+    Match {
+        subject: Expr,
+        arms: Vec<MatchArm>,
+        else_branch: Option<Block>,
+        pos: Pos,
+    },
+
     /// `if` as a plain STATEMENT — else is optional here, unlike IfExpr
     IfStmt {
         cond: Expr,
@@ -439,6 +448,14 @@ impl Expr {
     }
 }
 
+/// one `values { body }` arm of a `when` match: `"up", "w" { ... }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchArm {
+    pub values: Vec<Expr>,
+    pub body: Block,
+    pub pos: Pos,
+}
+
 impl Stmt {
     /// where the statement starts (an expression statement takes its expression's position)
     pub fn pos(&self) -> Option<&Pos> {
@@ -446,6 +463,7 @@ impl Stmt {
             Stmt::Let { pos, .. }
             | Stmt::Const { pos, .. }
             | Stmt::IfStmt { pos, .. }
+            | Stmt::Match { pos, .. }
             | Stmt::While { pos, .. }
             | Stmt::ForIn { pos, .. }
             | Stmt::ForRange { pos, .. }

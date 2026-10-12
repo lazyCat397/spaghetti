@@ -61,6 +61,21 @@ fn annotate_stmt(stmt: &mut Stmt, file: &str) {
             annotate_expr(value, file);
         }
 
+        Stmt::Match { subject, arms, else_branch, pos } => {
+            stamp(pos, file);
+            annotate_expr(subject, file);
+            for arm in arms.iter_mut() {
+                stamp(&mut arm.pos, file);
+                for v in arm.values.iter_mut() {
+                    annotate_expr(v, file);
+                }
+                annotate_block(&mut arm.body, file);
+            }
+            if let Some(b) = else_branch {
+                annotate_block(b, file);
+            }
+        }
+
         Stmt::IfStmt { cond, then_branch, else_branch, pos } => {
             stamp(pos, file);
             annotate_expr(cond, file);

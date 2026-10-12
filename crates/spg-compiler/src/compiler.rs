@@ -537,6 +537,10 @@ impl<'a> FunctionCompiler<'a> {
                 }
             }
 
+            TypedStmt::Block { body } => {
+                self.compile_block(body)?;
+            }
+
             TypedStmt::While { cond, body } => {
                 let loop_start = self.chunk.next_index();
                 self.compile_expr(cond)?;

@@ -104,6 +104,7 @@ pub enum BuiltinId {
     SysEnv,
     SysPlatform,
     SysCwd,
+    SysClear,
     SysReadLine,
     SysReadAll,
 
@@ -436,6 +437,7 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
     add("@sys.env", BuiltinSig { id: BuiltinId::SysEnv, params: vec![s.clone(), s.clone()], return_type: s.clone() });
     add("@sys.platform", BuiltinSig { id: BuiltinId::SysPlatform, params: vec![], return_type: s.clone() });
     add("@sys.cwd", BuiltinSig { id: BuiltinId::SysCwd, params: vec![], return_type: s.clone() });
+    add("@sys.clear", BuiltinSig { id: BuiltinId::SysClear, params: vec![], return_type: Ty::Void });
     add("@sys.readLine", BuiltinSig { id: BuiltinId::SysReadLine, params: vec![], return_type: s.clone() });
     add("@sys.readAll", BuiltinSig { id: BuiltinId::SysReadAll, params: vec![], return_type: s.clone() });
 
