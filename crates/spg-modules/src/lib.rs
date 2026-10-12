@@ -78,6 +78,35 @@ struct Resolver {
 }
 
 /// Resolves `entry` and everything it transitively imports.
+/// Folder with the standard library. Order: the `SPG_STD` environment
+/// variable, then `stdlib/` next to the `spg` executable, then the same
+/// folder two levels up (running from the workspace's target/release).
+pub fn std_dir() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("SPG_STD") {
+        return Some(PathBuf::from(dir));
+    }
+    let exe = std::env::current_exe().ok()?;
+    let bin = exe.parent()?;
+    [bin.join("stdlib"), bin.join("../../stdlib"), bin.join("../stdlib")]
+        .into_iter()
+        .find(|p| p.is_dir())
+        .and_then(|p| p.canonicalize().ok())
+}
+
+/// Path of a standard module (`<std: "name">` -> `<std dir>/name.spg`),
+/// or a message saying where it was looked for.
+pub fn standard_module(name: &str) -> Result<PathBuf, String> {
+    let dir = std_dir().ok_or_else(|| {
+        "standard library folder not found (set SPG_STD, or put a 'stdlib' folder next to spg)".to_string()
+    })?;
+    let file = dir.join(format!("{name}.spg"));
+    if file.is_file() {
+        Ok(file)
+    } else {
+        Err(format!("no standard module named '{name}' (looked for {})", file.display()))
+    }
+}
+
 pub fn resolve(entry: &Path) -> Result<Program, ModuleError> {
     resolve_with(entry, &HashMap::new())
 }
@@ -309,8 +338,19 @@ impl Resolver {
         let mut installed: HashMap<String, (String, spg_parser::ast::Pos, String)> = HashMap::new();
         let mut ambiguous: HashMap<String, ((spg_parser::ast::Pos, String), (spg_parser::ast::Pos, String))> = HashMap::new();
         for stmt in &program.stmts {
-            let Stmt::Install { from, pos } = stmt else { continue };
-            for (name, sym) in self.resolve_all(path, &dir, from, pos)? {
+            let Stmt::Install { from, pos, std } = stmt else { continue };
+            // `install <std: "name">` points at the standard library folder;
+            // `install "path"` is a path relative to this file, as before
+            let target = if *std {
+                let file = standard_module(from).map_err(|message| ModuleError::Io {
+                    path: path.to_path_buf(),
+                    message,
+                })?;
+                file.to_string_lossy().into_owned()
+            } else {
+                from.clone()
+            };
+            for (name, sym) in self.resolve_all(path, &dir, &target, pos)? {
                 if symbols.contains_key(&name) || imported_here.contains_key(&name) {
                     continue;
                 }

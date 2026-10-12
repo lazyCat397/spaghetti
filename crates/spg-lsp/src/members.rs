@@ -30,6 +30,9 @@ pub struct Decls {
     pub enums: HashSet<String>,
     /// free function name -> return type as written
     pub functions: HashMap<String, String>,
+    /// exported `const`/`let` with a written type (`export const fork: Fork`), taken
+    /// from the installed/imported files so their members can be listed
+    pub globals: HashMap<String, String>,
 }
 
 pub struct Member {
@@ -54,6 +57,16 @@ impl Decls {
                 T::Struct => {
                     if let (Some(T::Ident(n)), Some(T::LBrace)) = (kind(tokens, i + 1), kind(tokens, i + 2)) {
                         d.structs.insert(n.clone(), parse_struct_body(tokens, i + 3));
+                    }
+                }
+                T::Export => {
+                    if matches!(kind(tokens, i + 1), Some(T::Const) | Some(T::Let)) {
+                        if let (Some(T::Ident(n)), Some(T::Colon)) = (kind(tokens, i + 2), kind(tokens, i + 3)) {
+                            let ty = read_type(tokens, i + 4).0;
+                            if !ty.is_empty() {
+                                d.globals.insert(n.clone(), ty);
+                            }
+                        }
                     }
                 }
                 T::Function if depth[i] == 0 => {
@@ -81,6 +94,9 @@ impl Decls {
         self.enums.extend(other.enums);
         for (k, v) in other.functions {
             self.functions.entry(k).or_insert(v);
+        }
+        for (k, v) in other.globals {
+            self.globals.entry(k).or_insert(v);
         }
     }
 }
@@ -434,7 +450,8 @@ fn resolve_head(tokens: &[Token], depth: &[i32], at: usize, head: &str, decls: &
             return r;
         }
     }
-    None
+    // 4. an exported global of an installed/imported file (its type is written there)
+    decls.globals.get(head).cloned()
 }
 
 /// the members after `value.`: the type's own list, plus the conversion
@@ -442,6 +459,8 @@ fn resolve_head(tokens: &[Token], depth: &[i32], at: usize, head: &str, decls: &
 /// numbers (`@into.int` / `@into.float` take them)
 fn members_of(ty: &str, decls: &Decls) -> Vec<Member> {
     let mut out = members_of_own(ty, decls);
+    // a name starting with `_` is private to its struct: never offered after a dot
+    out.retain(|m| !m.name.starts_with('_'));
     let mut shortcut = |name: &str, detail: &str| {
         if !out.iter().any(|m| m.name == name) {
             out.push(Member { name: name.to_string(), detail: detail.to_string(), kind: KIND_METHOD, insert: None });

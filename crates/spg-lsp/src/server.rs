@@ -891,8 +891,17 @@ impl<W: Write> Server<W> {
         if let Some(dir) = doc.path.as_ref().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
             for (i, t) in tokens.iter().enumerate() {
                 let file = match &t.kind {
+                    // `install "path"`: relative to this file
                     T::Install => match tokens.get(i + 1).map(|t| &t.kind) {
                         Some(T::Str(f)) => Some(f.clone()),
+                        // `install <std: "name">`: a standard module, the same
+                        // file the compiler resolves (see spg_modules::standard_module)
+                        Some(T::Lt) => match (tokens.get(i + 2).map(|t| &t.kind), tokens.get(i + 3).map(|t| &t.kind), tokens.get(i + 4).map(|t| &t.kind)) {
+                            (Some(T::Ident(w)), Some(T::Colon), Some(T::Str(name))) if w == "std" => {
+                                spg_modules::standard_module(name).ok().map(|p| p.to_string_lossy().into_owned())
+                            }
+                            _ => None,
+                        },
                         _ => None,
                     },
                     T::Import => {
@@ -1289,6 +1298,20 @@ mod tests {
         // `enum` is a keyword and the enum's own name is offered as a symbol
         let plain = labels_of(&complete_at("compl_enum_plain", "enum Color { Red }\nlet a = \n", 1, 8));
         assert!(plain.iter().any(|l| l == "enum") && plain.iter().any(|l| l == "Color"));
+    }
+
+    #[test]
+    fn dot_after_a_standard_module_lists_its_members() {
+        // the standard library folder of this checkout (the compiler finds it the same way)
+        std::env::set_var("SPG_STD", concat!(env!("CARGO_MANIFEST_DIR"), "/../../stdlib"));
+        let labels = labels_of(&complete_at("compl_std_fork", "install <std: \"fork\">\nfork.\n", 1, 5));
+        for want in ["box", "center", "rule", "askInt", "readLines", "this"] {
+            assert!(labels.iter().any(|l| l == want), "missing {} in {:?}", want, labels);
+        }
+        // private members (`_v`, the struct's filler field) are not offered
+        assert!(!labels.iter().any(|l| l.starts_with('_')), "private member offered: {:?}", labels);
+        // a name that is not a standard module offers nothing (and does not crash)
+        assert!(complete_at("compl_std_none", "install <std: \"nope\">\nfork.\n", 1, 5).is_empty());
     }
 
     #[test]

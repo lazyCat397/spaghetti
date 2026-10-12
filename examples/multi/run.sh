@@ -12,7 +12,9 @@ norm() { sed -E 's#[^ ()]*(err|ok)[\\/]#\1/#g'; }
 if [ "$(printf '%s' 'at f (C:\a\b\err\x.spg:2) and \\?\C:\a\err\y.spg, keep a\nb' | norm)" != 'at f (err/x.spg:2) and err/y.spg, keep a\nb' ]; then
     echo "FAIL norm: the path normalizer changed the wrong text"; exit 1
 fi
-spgrun() { timeout 30 "$SPG" "$@"; }   # a hung program (infinite loop) becomes a clean FAIL (exit 124), not a stuck suite
+spgrun() {   # stdin: a pipe from the caller is passed through; a terminal is cut off (a program that reads input would otherwise wait on the keyboard for the whole 30 s)
+    if [ -t 0 ]; then timeout 30 "$SPG" "$@" </dev/null; else timeout 30 "$SPG" "$@"; fi
+}   # a hung program (infinite loop) becomes a clean FAIL (exit 124), not a stuck suite
 pass=0; fail=0
 
 ok() {   # ok <arquivo> <saída esperada, com \n>

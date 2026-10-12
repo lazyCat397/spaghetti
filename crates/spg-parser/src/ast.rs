@@ -316,6 +316,9 @@ pub enum Stmt {
     Install {
         from: String,
         pos: Pos,
+        /// `install <std: "name">`: `from` is a standard module name
+        /// (looked up in the standard library folder), not a path
+        std: bool,
     },
 
     /// `export { a, b } from "./y.spg"` — makes names that live in

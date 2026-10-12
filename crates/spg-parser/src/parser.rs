@@ -500,6 +500,34 @@ impl Parser {
     fn parse_install(&mut self) -> Result<Stmt, ParseError> {
         let pos = self.peek_pos();
         self.advance(); // install
+        if self.check(&TokenKind::Lt) {
+            self.advance(); // <
+            match self.advance().kind {
+                TokenKind::Ident(ref word) if word == "std" => {}
+                other => {
+                    return Err(ParseError::Unexpected {
+                        expected: "`std` (as in `install <std: \"name\">`)".to_string(),
+                        found: other,
+                        line: pos.line,
+                        col: pos.col,
+                    })
+                }
+            }
+            self.expect(TokenKind::Colon, "`:` after `std`")?;
+            let name = match self.advance().kind {
+                TokenKind::Str(s) => s,
+                other => {
+                    return Err(ParseError::Unexpected {
+                        expected: "name of a standard module, in quotes".to_string(),
+                        found: other,
+                        line: pos.line,
+                        col: pos.col,
+                    })
+                }
+            };
+            self.expect(TokenKind::Gt, "`>` to close `<std: ...>`")?;
+            return Ok(Stmt::Install { from: name, pos, std: true });
+        }
         let from = match self.advance().kind {
             TokenKind::Str(s) => s,
             other => {
@@ -511,7 +539,7 @@ impl Parser {
                 })
             }
         };
-        Ok(Stmt::Install { from, pos })
+        Ok(Stmt::Install { from, pos, std: false })
     }
 
     /// `export { a, b } from "./y.spg"` — the `export` keyword is already
