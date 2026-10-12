@@ -17,6 +17,10 @@ jobs:
       - name: Rust tests
         run: cargo test --workspace
 
+      # the suite runs the RELEASE binary at target/release/spg, which cargo test does not build
+      - name: Build release binary
+        run: cargo build --release
+
       - name: Multi-file suite
         run: bash examples/multi/run.sh
 
