@@ -1308,6 +1308,9 @@ mod tests {
         for want in ["box", "center", "rule", "askInt", "readLines", "this"] {
             assert!(labels.iter().any(|l| l == want), "missing {} in {:?}", want, labels);
         }
+        // the name with the extension works the same way
+        let with_ext = labels_of(&complete_at("compl_std_ext", "install <std: \"fork.spg\">\nfork.\n", 1, 5));
+        assert!(with_ext.iter().any(|l| l == "box"), "fork.spg form lists nothing: {:?}", with_ext);
         // private members (`_v`, the struct's filler field) are not offered
         assert!(!labels.iter().any(|l| l.starts_with('_')), "private member offered: {:?}", labels);
         // a name that is not a standard module offers nothing (and does not crash)

@@ -33,6 +33,7 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 [Files]
 Source: "payload\spg.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "payload\spaghetti.vsix"; DestDir: "{app}"; Flags: ignoreversion
+Source: "payload\stdlib\*"; DestDir: "{app}\stdlib"; Flags: ignoreversion recursesubdirs
 
 [Icons]
 Name: "{group}\Spaghetti (terminal)"; Filename: "{cmd}"; Parameters: "/k spg --help"

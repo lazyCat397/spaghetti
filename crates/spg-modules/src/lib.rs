@@ -99,7 +99,9 @@ pub fn standard_module(name: &str) -> Result<PathBuf, String> {
     let dir = std_dir().ok_or_else(|| {
         "standard library folder not found (set SPG_STD, or put a 'stdlib' folder next to spg)".to_string()
     })?;
-    let file = dir.join(format!("{name}.spg"));
+    // the name is written without the extension (`<std: "fork">`); `"fork.spg"` is accepted too
+    let stem = name.strip_suffix(".spg").unwrap_or(name);
+    let file = dir.join(format!("{stem}.spg"));
     if file.is_file() {
         Ok(file)
     } else {
