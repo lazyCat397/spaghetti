@@ -1,7 +1,7 @@
-// header com comentario antes
+// header with a comment before it
 
 #> strict
-#>timeout 5000 // sem espaco tambem vale
+#>timeout 5000 // no space works too
 let total: int = 0
 for i in 0..3 {
   total = total + i

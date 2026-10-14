@@ -1,2 +1,2 @@
-export function valor() -> int { return 1000 }
+export function value() -> int { return 1000 }
 export let g: int = 500

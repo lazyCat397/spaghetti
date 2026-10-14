@@ -1,11 +1,11 @@
-// teste dos builtins novos
+// tests for the new builtins
 
-let s: string = "  Ola, Spaghetti!  "
+let s: string = "  Hi, Spaghetti!  "
 print(@str.trim(s))
 print(@str.toUpper(s))
 print(@str.toLower(s))
 print(len("abcde"))
-print(@str.charAt("mundo", 1))
+print(@str.charAt("world", 1))
 print(@str.contains("chocolate", "cola"))
 print(@str.startsWith("spaghetti", "spa"))
 print(@str.endsWith("spaghetti", "etti"))

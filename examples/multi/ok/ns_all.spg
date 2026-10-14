@@ -1,4 +1,4 @@
-// um pouco de cada namespace, saída determinística
+// a bit of every namespace, deterministic output
 print(len("abc") + len([1, 2]))
 print(@str.toUpper("spg"))
 print(@str.contains("banana", "nan"))
@@ -17,9 +17,9 @@ print(@into.float(5))
 print(@into.int(5.9))
 print(@into.int("123") + 1)
 
-// time: só propriedades, nunca valores
-// @time.elapsed() é um texto já formatado (45ms, 3s 250ms, 1h 2m...) desde o início do programa:
-// no começo não pode ter horas (o bug antigo do clock() devolvia ~1.7e12 ms = 472222h)
+// time: only properties, never values
+// @time.elapsed() is pre-formatted text (45ms, 3s 250ms, 1h 2m...) since the program started:
+// at the start it must not show hours (the old clock() bug returned ~1.7e12 ms = 472222h)
 print(@str.contains(@time.elapsed(), "h"))
 let u0: int = @time.unix()
 @time.sleep(40)

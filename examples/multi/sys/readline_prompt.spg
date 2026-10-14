@@ -1,4 +1,4 @@
-let nome: string = readLine("Nome: ")
-let idade: int = readLine("Idade: ").int()
-print("Oi", nome, idade)
-try { readLine() } catch (e) { print("fim:", e) }
+let name: string = readLine("Name: ")
+let age: int = readLine("Age: ").int()
+print("Hi", name, age)
+try { readLine() } catch (e) { print("end:", e) }

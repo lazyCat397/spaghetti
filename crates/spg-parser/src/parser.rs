@@ -137,7 +137,11 @@ impl Parser {
 
     pub fn parse_program(mut self) -> Result<Program, ParseError> {
         let mut stmts = Vec::new();
-        while !self.check(&TokenKind::Eof) {
+        loop {
+            self.skip_semicolons();
+            if self.check(&TokenKind::Eof) {
+                break;
+            }
             stmts.push(self.parse_stmt()?);
             stmts.append(&mut self.pending);
         }
@@ -153,6 +157,13 @@ impl Parser {
     /// whether the token after the current one is `kind` (one token of lookahead)
     fn next_is(&self, kind: &TokenKind) -> bool {
         self.tokens.get(self.pos + 1).is_some_and(|t| std::mem::discriminant(&t.kind) == std::mem::discriminant(kind))
+    }
+
+    /// whether the current token sits on a later line than the one before it.
+    /// A line break alone never ends a statement, so this is only used where
+    /// the next token could also start a new statement: `(`, `[`, `-`.
+    fn starts_new_line(&self) -> bool {
+        self.pos > 0 && self.peek().line > self.tokens[self.pos - 1].line
     }
 
     fn peek_pos(&self) -> Pos {
@@ -183,6 +194,14 @@ impl Parser {
                 line: t.line,
                 col: t.col,
             })
+        }
+    }
+
+    /// `;` is an optional statement separator (like JavaScript): any run of
+    /// them, including none, may sit between statements.
+    fn skip_semicolons(&mut self) {
+        while self.check(&TokenKind::Semicolon) {
+            self.advance();
         }
     }
 
@@ -468,8 +487,12 @@ impl Parser {
         let pos = self.peek_pos();
         self.advance(); // return
 
-        // no value: the next token is '}' or already ends the statement
-        let value = if self.check(&TokenKind::RBrace) {
+        // no value: the next token is '}', ';' or the end of the file
+        let value = if self.check(&TokenKind::RBrace)
+            || self.check(&TokenKind::Semicolon)
+            || self.check(&TokenKind::Eof)
+            || self.starts_new_line()
+        {
             None
         } else {
             Some(self.parse_expr()?)
@@ -867,7 +890,11 @@ impl Parser {
         self.expect(TokenKind::LBrace, "'{'")?;
 
         let mut stmts = Vec::new();
-        while !self.check(&TokenKind::RBrace) && !self.check(&TokenKind::Eof) {
+        loop {
+            self.skip_semicolons();
+            if self.check(&TokenKind::RBrace) || self.check(&TokenKind::Eof) {
+                break;
+            }
             stmts.push(self.parse_stmt()?);
             stmts.append(&mut self.pending);
         }
@@ -1161,7 +1188,9 @@ impl Parser {
         loop {
             let op = match &self.peek().kind {
                 TokenKind::Plus => BinaryOp::Add,
-                TokenKind::Minus => BinaryOp::Sub,
+                // `-` at the start of a line is a new statement (`a` / `-1`),
+                // not `a - 1`; write `a - 1` or `a -\n 1` to subtract
+                TokenKind::Minus if !self.starts_new_line() => BinaryOp::Sub,
                 _ => break,
             };
             let pos = self.peek_pos();
@@ -1227,7 +1256,10 @@ impl Parser {
         let mut expr = self.parse_primary()?;
 
         loop {
-            if self.check(&TokenKind::LParen) {
+            // `(` and `[` on a new line start a new statement, not a call or
+            // an index of the line above (`f` / `(0)` is two statements)
+            let breaks_line = self.starts_new_line();
+            if self.check(&TokenKind::LParen) && !breaks_line {
                 let pos = self.peek_pos();
                 self.advance(); // (
 
@@ -1241,7 +1273,7 @@ impl Parser {
                 self.expect(TokenKind::RParen, "')'")?;
 
                 expr = Expr::Call { callee: Box::new(expr), args, pos };
-            } else if self.check(&TokenKind::LBracket) {
+            } else if self.check(&TokenKind::LBracket) && !breaks_line {
                 let pos = self.peek_pos();
                 self.advance(); // [
                 let index = self.parse_expr()?;

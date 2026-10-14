@@ -4,6 +4,6 @@ function boom(n: int) -> int {
 try {
     print(boom(0))
 } catch (e: string) {
-    print("pegou")
+    print("caught")
 }
-print("fim")
+print("end")

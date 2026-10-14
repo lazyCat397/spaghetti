@@ -80,6 +80,10 @@ pub struct Checker {
     /// placeholder infer_return_type falls back to would just produce
     /// confusing, redundant ReturnTypeMismatch noise on top of it.
     uninferrable_functions: std::collections::HashSet<String>,
+    /// enum matches with no `else` that name every variant, keyed by their
+    /// position. They always end in one of their arms, so the return-path
+    /// check may count them as returning.
+    exhaustive_matches: std::collections::HashSet<(Option<String>, usize, usize)>,
     /// declared/inferred return type of the function whose body is being
     /// checked RIGHT NOW (`None` at the root, outside any function).
     /// `Stmt::Return` compares against this in the same pass that checks
@@ -106,6 +110,7 @@ pub fn type_check_with(program: p::Program, strict: bool) -> Result<TypedProgram
         errors: Vec::new(),
         loop_depth: 0,
         uninferrable_functions: std::collections::HashSet::new(),
+        exhaustive_matches: std::collections::HashSet::new(),
         current_return: None,
         lambdas: Vec::new(),
         strict,
@@ -826,10 +831,25 @@ impl Checker {
                 let mut typed_arms: Vec<(Vec<TypedExpr>, TypedBlock)> = Vec::new();
                 let mut covered: Vec<usize> = Vec::new();
                 let mut bad_case = false;
+                let mut seen_literals: Vec<String> = Vec::new();
                 for arm in arms {
                     let mut values = Vec::new();
                     for value in &arm.values {
                         let typed_value = self.check_expr(value)?;
+                        // the first matching case wins, so a repeat can never run
+                        let key = match &typed_value {
+                            TypedExpr::IntLit(n) => Some(format!("{}", n)),
+                            TypedExpr::StringLit(st) => Some(format!("{:?}", st)),
+                            TypedExpr::EnumLit { index, .. } => variants.as_ref().map(|v| v[*index].clone()),
+                            _ => None,
+                        };
+                        if let Some(k) = key {
+                            if seen_literals.contains(&k) {
+                                self.errors.push(TypeError::MatchDuplicateCase { value: k.clone(), pos: arm.pos.clone() });
+                            } else {
+                                seen_literals.push(k);
+                            }
+                        }
                         if typed_value.ty() != &subject_ty {
                             self.errors.push(TypeError::MatchCaseType {
                                 expected: subject_ty.clone(),
@@ -867,6 +887,8 @@ impl Checker {
                         .collect();
                     if !missing.is_empty() {
                         self.errors.push(TypeError::MatchNonExhaustive { missing, pos: pos.clone() });
+                    } else {
+                        self.exhaustive_matches.insert((pos.file.clone(), pos.line, pos.col));
                     }
                 }
 
@@ -1418,7 +1440,7 @@ impl Checker {
             return;
         }
 
-        if *expected != Ty::Void && !always_returns(stmts) {
+        if *expected != Ty::Void && !always_returns(stmts, &self.exhaustive_matches) {
             self.errors.push(TypeError::MissingReturn {
                 function_name: fn_name.to_string(),
                 expected: expected.clone(),
@@ -2210,8 +2232,8 @@ pub(crate) fn ty_matches(expected: &Ty, found: &Ty) -> bool {
 /// True if this sequence of statements is guaranteed to hit a `return` on
 /// every possible execution path, regardless of runtime values. Used to
 /// detect functions that can fall off the end without returning.
-fn always_returns(stmts: &[Stmt]) -> bool {
-    stmts.iter().any(|s| stmt_always_returns(s))
+fn always_returns(stmts: &[Stmt], exh: &std::collections::HashSet<(Option<String>, usize, usize)>) -> bool {
+    stmts.iter().any(|s| stmt_always_returns(s, exh))
 }
 
 /// the value of an integer literal, `-` included (`3`, `-3`); `None` for
@@ -2227,7 +2249,7 @@ fn literal_int(e: &Expr) -> Option<i64> {
     }
 }
 
-fn stmt_always_returns(stmt: &Stmt) -> bool {
+fn stmt_always_returns(stmt: &Stmt, exh: &std::collections::HashSet<(Option<String>, usize, usize)>) -> bool {
     match stmt {
         Stmt::Return { .. } => true,
         // a `throw` never falls through either
@@ -2236,16 +2258,20 @@ fn stmt_always_returns(stmt: &Stmt) -> bool {
         // both branches must guarantee a return; a missing else means the
         // "fall through without entering the if" path never returns
         Stmt::IfStmt { then_branch, else_branch, .. } => {
-            let then_ok = always_returns(&then_branch.stmts);
-            let else_ok = else_branch.as_ref().map_or(false, |b| always_returns(&b.stmts));
+            let then_ok = always_returns(&then_branch.stmts, exh);
+            let else_ok = else_branch.as_ref().map_or(false, |b| always_returns(&b.stmts, exh));
             then_ok && else_ok
         }
 
         // a match returns only when every arm and the `else` do (conservative: an
         // enum match that covers all variants without `else` still needs one here)
-        Stmt::Match { arms, else_branch, .. } => {
-            else_branch.as_ref().map_or(false, |b| always_returns(&b.stmts))
-                && arms.iter().all(|a| always_returns(&a.body.stmts))
+        // an enum match with no `else` is fine when it names every variant
+        // (the checker records those in `exh`)
+        Stmt::Match { arms, else_branch, pos, .. } => {
+            let no_else_but_exhaustive =
+                else_branch.is_none() && exh.contains(&(pos.file.clone(), pos.line, pos.col));
+            (no_else_but_exhaustive || else_branch.as_ref().map_or(false, |b| always_returns(&b.stmts, exh)))
+                && arms.iter().all(|a| always_returns(&a.body.stmts, exh))
         }
 
         // loops never guarantee a return: the body might run zero times
@@ -2255,7 +2281,7 @@ fn stmt_always_returns(stmt: &Stmt) -> bool {
 
         // both the try body and the catch body must guarantee a return
         Stmt::Try { try_block, catch_block, .. } => {
-            always_returns(&try_block.stmts) && always_returns(&catch_block.stmts)
+            always_returns(&try_block.stmts, exh) && always_returns(&catch_block.stmts, exh)
         }
 
         _ => false,

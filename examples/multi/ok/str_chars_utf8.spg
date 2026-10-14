@@ -1,6 +1,6 @@
 function run() -> int {
     let a = "abcdef"
-    let u = "olá mundo"
+    let u = "naïve world"
     let c = "çaé"
     let i = 2
     let n = 0

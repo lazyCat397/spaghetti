@@ -1,11 +1,11 @@
-// primeiro teste do lexer
+// first lexer test
 
-function soma(a: int, b: int) -> int {
+function sum(a: int, b: int) -> int {
     return a + b
 }
 
 let x = 10
-const nome: string = "spaghetti"
+const name: string = "spaghetti"
 
 if (x > 5) {
     print("grande")

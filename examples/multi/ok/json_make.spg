@@ -11,6 +11,6 @@ print(@json.stringify(it))
 let m: map<string, int> = ["a": 1, "b": 2]
 print(@json.stringify(m))
 print(@json.stringify([1, 2, 3]))
-print(@json.stringify("oi"))
+print(@json.stringify("hi"))
 print(@json.stringify(1.0))
 print(@json.pretty(it))

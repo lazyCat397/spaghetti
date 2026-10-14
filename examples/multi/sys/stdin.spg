@@ -1,7 +1,7 @@
-print("nome?")
+print("name?")
 let a = @sys.readLine()
 let b = @sys.readLine()
-print("oi", a, b.len())
+print("hi", a, b.len())
 let rest = @sys.readAll()
 print(rest.len())
-try { @sys.readLine() } catch (e) { print("fim:", e) }
+try { @sys.readLine() } catch (e) { print("end:", e) }

@@ -621,7 +621,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             Value::String(Rc::new(s.repeat(n)))
         }
         IntToString => Value::String(Rc::new(as_int(args.remove(0)).to_string())),
-        FloatToString => Value::String(Rc::new(as_float(args.remove(0)).to_string())),
+        FloatToString => Value::String(Rc::new(crate::value::format_float(as_float(args.remove(0))))),
         // the variant's name (`Value`'s Display prints exactly that)
         EnumToString => Value::String(Rc::new(args.remove(0).to_string())),
         AnyToString => Value::String(Rc::new(args.remove(0).to_string())),

@@ -1,4 +1,4 @@
-// teste de indexação de arrays
+// array indexing test
 
 let nums: array<int> = [10, 20, 30, 40]
 print(nums[0])
@@ -12,18 +12,18 @@ print(nums[i])
 nums[i] = nums[i] + 1
 print(nums[2])
 
-// índice como expressão composta
+// index as a compound expression
 print(nums[i - 1])
 
-// array retornado de builtin, indexado direto
+// array returned by a builtin, indexed directly
 let sorted: array<int> = @array.sort([5, 1, 3])
 print(sorted[0])
 print(sorted[2])
 
-// string vinda de split, indexada
+// string coming from split, indexed
 let parts: array<string> = @str.split("a,b,c", ",")
 print(parts[0])
 print(parts[2])
 
-// out of bounds deve dar erro em runtime
+// out of bounds must raise a runtime error
 print(nums[99])

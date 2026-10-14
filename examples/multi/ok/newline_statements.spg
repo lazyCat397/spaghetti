@@ -1,0 +1,19 @@
+// a line break alone never joins statements: a `-`, `(` or `[` that starts
+// a line begins a new statement; `return` with nothing after it on its line
+// returns nothing
+let a = 1
+-1
+print(a)
+let f = 5
+let g = f
+(2)
+print(g)
+function h() -> void {
+    return
+    print("h")
+}
+h()
+let s = "x"
+s
+.len()
+print(s.len())

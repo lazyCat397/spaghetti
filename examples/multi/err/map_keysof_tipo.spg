@@ -1,2 +1,2 @@
-let estoque: map<string, int> = ["Pão": 5]
+let estoque: map<string, int> = ["Crème": 5]
 print(@map.keysOf(estoque, "cinco"))

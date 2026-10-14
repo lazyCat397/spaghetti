@@ -1,4 +1,4 @@
-function this(n: int = 10, s: string = "oi", f: float = -1.5, b: bool = true) {
+function this(n: int = 10, s: string = "hi", f: float = -1.5, b: bool = true) {
     print(n, s, f, b)
 }
 this()

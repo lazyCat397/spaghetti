@@ -19,5 +19,5 @@ print(@into.int(@json.get(t, "n")) + 1)
 try {
     print(@json.get(t, "nested.q"))
 } catch (e) {
-    print("sem q")
+    print("no q")
 }

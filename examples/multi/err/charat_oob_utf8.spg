@@ -1,6 +1,6 @@
 function run() -> int {
-    let s = "olá"
-    print(@str.charAt(s, 3))
+    let s = "naïve"
+    print(@str.charAt(s, 5))
     return 0
 }
 print(run())

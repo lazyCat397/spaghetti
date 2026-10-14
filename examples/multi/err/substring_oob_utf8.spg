@@ -1,5 +1,5 @@
 function run() -> int {
-    let s = "olá"
+    let s = "naïve"
     print(@str.substring(s, 0, 9))
     return 0
 }

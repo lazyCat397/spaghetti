@@ -231,7 +231,7 @@ impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Value::Int(n) => write!(f, "{}", n),
-            Value::Float(n) => write!(f, "{}", n),
+            Value::Float(n) => write!(f, "{}", format_float(*n)),
             Value::Bool(b) => write!(f, "{}", b),
             Value::String(s) => write!(f, "{}", s),
             Value::Array(items) => {
@@ -280,4 +280,16 @@ impl fmt::Display for Value {
             }
         }
     }
+}
+
+/// how a float shows up on screen. Rust prints `2.0` as `2`, which looks
+/// like an int, so a float that is whole keeps its `.0` (`-0.0` included).
+pub fn format_float(n: f64) -> String {
+    if n.is_finite() && n.fract() == 0.0 {
+        if n == 0.0 && n.is_sign_negative() {
+            return "-0.0".to_string();
+        }
+        return format!("{:.1}", n);
+    }
+    format!("{}", n)
 }

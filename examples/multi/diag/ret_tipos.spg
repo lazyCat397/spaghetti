@@ -1,4 +1,4 @@
 function a(n: int) -> int {
-    if (n > 0) { return "um" }
+    if (n > 0) { return "one" }
     return true
 }

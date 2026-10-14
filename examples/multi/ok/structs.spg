@@ -1,8 +1,8 @@
-import { Vec2, Caixa, novo, soma, pontos, origem } from "../lib/geo.spg"
+import { Vec2, Caixa, novo, sum, pontos, origem } from "../lib/geo.spg"
 
 let a: Vec2 = novo(1, 1)
 let b: Vec2 = Vec2 { x: 10, y: 20 }
-let s: Vec2 = soma(a, b)
+let s: Vec2 = sum(a, b)
 print(s.x)
 print(s.y)
 

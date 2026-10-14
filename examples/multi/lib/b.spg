@@ -1,2 +1,2 @@
-import { soma } from "./base.spg"
-export function addB() -> void { soma(10) }
+import { sum } from "./base.spg"
+export function addB() -> void { sum(10) }

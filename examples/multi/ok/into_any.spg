@@ -1,4 +1,4 @@
-enum Cor { Vermelho, Verde }
+enum Color { Red, Green }
 struct P { x: int, y: int }
 let arr: array<string> = ["a", "b"]
 let m: map<string, int> = ["ana": 1]
@@ -7,8 +7,8 @@ print(@into.string(arr))
 print(@into.string([1, 2, 3]))
 print(@into.string(m))
 print(@into.string(p))
-print(@into.string(Cor.Verde))
+print(@into.string(Color.Green))
 print(@into.string(true), @into.string(3), @into.string(2.5))
-print(@into.string("texto") + "!")
+print(@into.string("text") + "!")
 let s: string = @into.string(arr)
 print(s.len())

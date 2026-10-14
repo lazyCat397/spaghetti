@@ -20,7 +20,7 @@ print(i.string())
 print(f.string())
 let b: bool = true
 print(b.string())
-let s: string = "olá"
+let s: string = "naïve"
 print(s.len())
 print(s.toUpper())
 let xs: array<int> = [3, 1, 2]

@@ -6,7 +6,7 @@ x *= 3
 x /= 2
 print(x) // (((10+5-2)*3)/2) = 19
 
-// compound assign em array simples
+// compound assignment on a simple array
 let a: array<int> = [1, 2, 3]
 a[0] += 10
 a[1] -= 1
@@ -15,12 +15,12 @@ print(a[0])
 print(a[1])
 print(a[2])
 
-// float também
+// floats too
 let f: array<float> = [1.5, 2.5]
 f[0] += 0.5
 print(f[0])
 
-// arrays aninhados: leitura, escrita simples e escrita composta
+// nested arrays: plain and compound reads and writes
 let grid: array<array<int>> = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
 print(grid[0][0])
 print(grid[2][2])
@@ -34,7 +34,7 @@ print(grid[0][2])
 grid[2][0] *= 2
 print(grid[2][0])
 
-// índice avaliado uma única vez, mesmo aninhado
+// index evaluated only once, even when nested
 function pick() -> int {
     print("pick chamado")
     return 1
@@ -42,13 +42,13 @@ function pick() -> int {
 grid[pick()][0] += 1
 print(grid[1][0])
 
-// array de array de array, só pra ver se aguenta 3 níveis
+// array of array of array, to see if it holds 3 levels
 let cube: array<array<array<int>>> = [[[1, 2]], [[3, 4]]]
 print(cube[1][0][1])
 cube[1][0][1] += 100
 print(cube[1][0][1])
 
-// função que devolve array indexado na hora
+// function that returns an array, indexed right away
 function makeRow() -> array<int> {
     return [9, 8, 7]
 }

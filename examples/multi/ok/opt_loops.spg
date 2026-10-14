@@ -24,7 +24,7 @@ function countDown(n: int) -> int {
     }
     return c
 }
-function le(n: int) -> int {
+function lte(n: int) -> int {
     let c = 0
     let i = 0
     while (i <= n) {
@@ -69,8 +69,8 @@ print(skipEvens(20))
 print(skipEvens(0))
 print(countDown(10))
 print(countDown(0))
-print(le(5))
-print(le(0))
+print(lte(5))
+print(lte(0))
 print(ne(4))
 print(ne(0))
 print(nested(5))

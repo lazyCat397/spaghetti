@@ -1,0 +1,10 @@
+let name = "Ana"
+let age = 30
+let xs = [1, 2, 3]
+print("hi ${name}, I am ${age} years old")
+print("sum ${age + 1} and ${xs.len()} items")
+print("nested: ${"x${name}y"} / ${@str.len("}")}")
+print("raw \${name} and $5 and ${ 2 * 3 }")
+print("${1.5}|${true}|${xs}")
+let s = "${name}".len()
+print(s)

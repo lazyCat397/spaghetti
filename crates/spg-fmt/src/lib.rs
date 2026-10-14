@@ -520,4 +520,10 @@ mod optional_tests {
         assert_eq!(format_source("let y = a??b??-1\n"), "let y = a ?? b ?? -1\n");
         assert!(check("let y = a??b\n").is_ok());
     }
+
+    #[test]
+    fn semicolons_are_kept_and_hug_the_statement_before_them() {
+        assert_eq!(format_source("let a = 1; let b = 2 ;\n"), "let a = 1; let b = 2;\n");
+        assert_eq!(format_source("print(a);;print(b)\n"), "print(a);; print(b)\n");
+    }
 }

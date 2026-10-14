@@ -1,0 +1,3 @@
+enum E { A, B }
+let e = E.A
+when (e) { E.A { print(1) } E.A { print(2) } E.B { print(3) } }

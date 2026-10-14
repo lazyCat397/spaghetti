@@ -1,8 +1,8 @@
 let dir = @sys.args()[0]
 let f = @file.join(dir, "a.txt")
 print(@file.exists(f), @file.isDir(dir))
-@file.write(f, "um\ndois\r\ntres\n")
-@file.append(f, "quatro")
+@file.write(f, "one\ntwo\r\nthree\n")
+@file.append(f, "four")
 print(@file.read(f).len(), @file.lines(f), @file.lines(f).len())
 @file.mkdir(@file.join(dir, "sub/fundo"))
 @file.copy(f, @file.join(dir, "sub/b.txt"))

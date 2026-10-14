@@ -1,4 +1,4 @@
-// teste completo de structs
+// full struct test
 
 struct Point {
     x: int,
@@ -13,16 +13,16 @@ print(p.y)
 p.x = 100
 print(p.x)
 
-// compound assign em campo
+// compound assignment on a field
 p.y += 50
 print(p.y)
 p.x *= 2
 print(p.x)
 
-// print direto do struct
+// printing a struct directly
 print(p)
 
-// struct com campo float e string
+// struct with a float and a string field
 struct Player {
     name: string,
     health: float,
@@ -35,7 +35,7 @@ print(hero.health)
 hero.health -= 25.5
 print(hero.health)
 
-// struct aninhado dentro de struct
+// struct nested inside a struct
 struct Line {
     start: Point,
     end: Point
@@ -49,7 +49,7 @@ print(l.start.x)
 l.end.y += 1
 print(l.end.y)
 
-// array de structs
+// array of structs
 let points: array<Point> = [Point { x: 1, y: 1 }, Point { x: 2, y: 2 }]
 print(points[0].x)
 print(points[1].y)
@@ -58,7 +58,7 @@ print(points[0].x)
 points[1].y += 100
 print(points[1].y)
 
-// struct dentro de array dentro de struct
+// struct inside an array inside a struct
 struct Path {
     points: array<Point>
 }
@@ -68,7 +68,7 @@ print(path.points[1].y)
 path.points[0].x += 1000
 print(path.points[0].x)
 
-// função recebendo e devolvendo struct
+// function taking and returning a struct
 function makeOrigin() -> Point {
     return Point { x: 0, y: 0 }
 }
@@ -81,7 +81,7 @@ let origin: Point = makeOrigin()
 print(origin.x)
 print(distSq(Point { x: 0, y: 0 }, Point { x: 3, y: 4 }))
 
-// side effect avaliado uma única vez em field compound assign
+// side effect evaluated only once in a field compound assignment
 function getPoint(pt: Point) -> Point {
     print("getPoint chamado")
     return pt
@@ -89,9 +89,9 @@ function getPoint(pt: Point) -> Point {
 getPoint(p).x += 1
 print(p.x)
 
-// struct literal dentro de condição (a ambiguidade que resolvemos)
+// struct literal inside a condition (the ambiguity we resolved)
 if (p.x == 201) {
-    print("condicao ok, sem ambiguidade com struct literal")
+    print("condition ok, no ambiguity with struct literal")
 }
 for i in [1, 2, 3] {
     print(i)

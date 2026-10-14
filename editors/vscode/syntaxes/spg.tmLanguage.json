@@ -179,7 +179,8 @@
         { "match": "==|!=|<=|>=|&&|\\|\\|", "name": "keyword.operator.logical.spg" },
         { "match": "\\+=|-=|\\*=|/=", "name": "keyword.operator.assignment.compound.spg" },
         { "match": "=", "name": "keyword.operator.assignment.spg" },
-        { "match": "[-+*/%<>!]", "name": "keyword.operator.arithmetic.spg" }
+        { "match": "[-+*/%<>!]", "name": "keyword.operator.arithmetic.spg" },
+        { "match": ";", "name": "punctuation.terminator.statement.spg" }
       ]
     }
   }

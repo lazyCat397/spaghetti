@@ -77,6 +77,10 @@ const cases = [
   ['struct names', 'let p = Ponto { x: 1 }', 'Ponto', 0, 'entity.name.type.spg'],
   ['properties', 'print(p.x)', 'x', 0, 'variable.other.property.spg'],
   ['comments', 'let a = 1 // oi', '// oi', 0, 'comment.line.double-slash.spg'],
+  // statement separator (optional, like JavaScript)
+  ['; separates statements', 'let a = 1; let b = 2;', ';', 0, 'punctuation.terminator.statement.spg'],
+  ['; closing a block line', '    print(a);', ';', 0, 'punctuation.terminator.statement.spg'],
+  ['doubled ; is still a terminator', 'print(a);;', ';', 1, 'punctuation.terminator.statement.spg'],
 ];
 
 (async () => {

@@ -8,5 +8,5 @@ function usa() -> int {
 try {
     print(usa())
 } catch (e: string) {
-    print("pegou")
+    print("caught")
 }

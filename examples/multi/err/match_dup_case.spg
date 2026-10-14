@@ -1,0 +1,2 @@
+let s = "x"
+when (s) { "x" { print(1) } "y" { print(2) } "x" { print(3) } else { print(4) } }

@@ -1,5 +1,5 @@
 struct No {
-    valor: int,
+    value: int,
     prox: No?
 }
 
@@ -21,17 +21,17 @@ function dobra(x: int?) -> int {
     return x * 2
 }
 
-function soma(lista: No?) -> int {
+function sum(list: No?) -> int {
     let total = 0
-    let atual = lista
+    let atual = list
     while (atual != none) {
-        total += atual.valor
+        total += atual.value
         atual = atual.prox
     }
     return total
 }
 
-function dois(a: int?, b: int?) -> int {
+function two(a: int?, b: int?) -> int {
     if (a == none || b == none) {
         return 0
     }
@@ -52,17 +52,17 @@ let a: int? = none
 let b: int? = 10
 print(a ?? 99, b ?? 99)
 print(a == none, b != none, b == 10, a == b)
-let lista = No { valor: 1, prox: No { valor: 2, prox: No { valor: 3, prox: none } } }
-print(soma(lista), soma(none))
-let nome: string? = "Ana"
-if (nome != none && @str.len(nome) > 2) {
-    print("oi ${nome}")
+let list = No { value: 1, prox: No { value: 2, prox: No { value: 3, prox: none } } }
+print(sum(list), sum(none))
+let name: string? = "Ana"
+if (name != none && @str.len(name) > 2) {
+    print("hi ${name}")
 }
-print("${a} e ${b}")
+print("${a} and ${b}")
 let xs: array<int?> = [1, none, 3]
 print(xs)
 print(a ?? acha([1, 2], 2) ?? 0)
-print(dois(2, 3), dois(none, 1), usaLambda(4), usaLambda(none))
+print(two(2, 3), two(none, 1), usaLambda(4), usaLambda(none))
 let calls = 0
 function conta() -> int {
     calls += 1

@@ -1,3 +1,3 @@
-import { soma, lerTotal } from "./base.spg"
-export function addC() -> void { soma(100) }
+import { sum, lerTotal } from "./base.spg"
+export function addC() -> void { sum(100) }
 export function verC() -> int { return lerTotal() }

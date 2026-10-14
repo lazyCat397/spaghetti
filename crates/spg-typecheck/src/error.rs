@@ -27,6 +27,7 @@ pub enum TypeError {
     MatchCaseType { expected: Ty, found: Ty, pos: Pos },
     /// an enum match without `else` that leaves some variants out
     MatchNonExhaustive { missing: Vec<String>, pos: Pos },
+    MatchDuplicateCase { value: String, pos: Pos },
 
     /// identifier used but never declared in any visible scope
     UndefinedVariable { name: String, pos: Pos },
@@ -190,6 +191,7 @@ impl TypeError {
             | TypeError::MatchSubjectType { pos, .. }
             | TypeError::MatchCaseType { pos, .. }
             | TypeError::MatchNonExhaustive { pos, .. }
+            | TypeError::MatchDuplicateCase { pos, .. }
             | TypeError::UndefinedVariable { pos, .. }
             | TypeError::UndefinedFunction { pos, .. }
             | TypeError::RemovedBuiltin { pos, .. }
@@ -311,6 +313,11 @@ impl TypeError {
             TypeError::MatchCaseType { expected, found, .. } => write!(
                 f, "{}this case is {}, but the matched value is {}",
                 self.location(), found, expected
+            ),
+            TypeError::MatchDuplicateCase { value, .. } => write!(
+                f,
+                "'when' already has a case for {}; the first one is the only one that can run, remove this one",
+                value
             ),
             TypeError::MatchNonExhaustive { missing, .. } => write!(
                 f, "{}'when' does not cover every variant of the enum (missing: {}); add those cases or an 'else'",

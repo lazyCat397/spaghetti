@@ -3,5 +3,5 @@ let x: int = 9223372036854775807
 try {
   print(x + 1)
 } catch (e) {
-  print("pegou")
+  print("caught")
 }

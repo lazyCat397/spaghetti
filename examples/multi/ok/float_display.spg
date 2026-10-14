@@ -1,0 +1,6 @@
+let f: float = 3.0
+print(f)
+print("${2.0}")
+print(@into.string(4.0))
+print(-0.0)
+print(0.5)
