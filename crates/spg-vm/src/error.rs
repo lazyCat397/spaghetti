@@ -71,6 +71,8 @@ pub enum RuntimeError {
     StackOverflow { limit: usize },
     /// `@json.*`: invalid JSON text, a path that leads nowhere, a value with no JSON form
     Json { function: &'static str, message: String },
+    /// `ps.*`: PowerShell is missing or could not be started (catchable)
+    Process { function: &'static str, reason: String },
 }
 
 impl RuntimeError {
@@ -124,6 +126,7 @@ impl fmt::Display for RuntimeError {
                 write!(f, "integer overflow in {}: the result does not fit in an int (64 bits, #> strict)", op)
             }
             RuntimeError::Json { function, message } => write!(f, "{}: {}", function, message),
+            RuntimeError::Process { function, reason } => write!(f, "{}: {}", function, reason),
             RuntimeError::StackOverflow { limit } => write!(
                 f,
                 "stack overflow: more than {} nested calls (is a function calling itself forever?)",

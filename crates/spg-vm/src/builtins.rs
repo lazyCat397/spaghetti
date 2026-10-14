@@ -585,6 +585,12 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             Value::Void
         }
         SysReadLine => Value::String(Rc::new(read_stdin_line("@sys.readLine")?)),
+        // ps.run / ps.runFile build a PsResult, which needs the program: the VM handles them
+        PsRun | PsRunFile => {
+            return Err(RuntimeError::Process { function: "ps.run", reason: "internal: ps.run is run by the VM".to_string() })
+        }
+        PsVersion => Value::String(Rc::new(crate::powershell::version()?)),
+        PsIsAvailable => Value::Bool(crate::powershell::is_available()),
         SysReadAll => {
             flush_stdout();
             let mut all = String::new();

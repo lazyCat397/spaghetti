@@ -24,7 +24,7 @@ pub enum LexError {
 }
 
 /// every `#>` directive the engine understands
-pub const DIRECTIVES: [&str; 3] = ["friendly-terminal", "timeout", "strict"];
+pub const DIRECTIVES: [&str; 4] = ["friendly-terminal", "timeout", "strict", "safe-party"];
 
 /// what a file's `#>` header asked for
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -32,6 +32,8 @@ pub struct FileSpec {
     pub friendly_terminal: bool,
     /// `#> strict`: ambiguities become errors (int overflow, hidden names, dead code)
     pub strict: bool,
+    /// `#> safe-party`: `ps.run` / `ps.runFile` stay inside the script's folder for files
+    pub safe_party: bool,
     /// `#> timeout N`: the program is stopped after N milliseconds
     pub timeout_ms: Option<u64>,
     /// every directive written, in order: (name, line, column)
@@ -355,6 +357,7 @@ impl<'a> Lexer<'a> {
         match name.as_str() {
             "friendly-terminal" => self.spec.friendly_terminal = true,
             "strict" => self.spec.strict = true,
+            "safe-party" => self.spec.safe_party = true,
             _ => self.spec.timeout_ms = timeout_ms,
         }
         self.spec.directives.push((name, line, col));

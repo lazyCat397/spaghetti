@@ -422,6 +422,8 @@ pub struct Param {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
     pub stmts: Vec<Stmt>,
+    /// native libraries enabled by `install <std: "...">` (e.g. "powershell")
+    pub natives: Vec<String>,
 }
 
 impl Expr {

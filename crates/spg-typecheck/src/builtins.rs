@@ -105,6 +105,12 @@ pub enum BuiltinId {
     SysPlatform,
     SysCwd,
     SysClear,
+
+    // ---- ps: PowerShell, a native namespace enabled by `install <std: "powershell">` ----
+    PsRun,
+    PsRunFile,
+    PsVersion,
+    PsIsAvailable,
     SysReadLine,
     SysReadAll,
 
@@ -438,6 +444,15 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
     add("@sys.platform", BuiltinSig { id: BuiltinId::SysPlatform, params: vec![], return_type: s.clone() });
     add("@sys.cwd", BuiltinSig { id: BuiltinId::SysCwd, params: vec![], return_type: s.clone() });
     add("@sys.clear", BuiltinSig { id: BuiltinId::SysClear, params: vec![], return_type: Ty::Void });
+
+    // ---- ps.* (only checked when `install <std: "powershell">` is present) ----
+    let ps_result = Ty::Named("PsResult".to_string());
+    add("ps.run", BuiltinSig { id: BuiltinId::PsRun, params: vec![s.clone()], return_type: ps_result.clone() });
+    add("ps.run", BuiltinSig { id: BuiltinId::PsRun, params: vec![s.clone(), Ty::Int], return_type: ps_result.clone() });
+    add("ps.runFile", BuiltinSig { id: BuiltinId::PsRunFile, params: vec![s.clone()], return_type: ps_result.clone() });
+    add("ps.runFile", BuiltinSig { id: BuiltinId::PsRunFile, params: vec![s.clone(), Ty::Int], return_type: ps_result });
+    add("ps.version", BuiltinSig { id: BuiltinId::PsVersion, params: vec![], return_type: s.clone() });
+    add("ps.isAvailable", BuiltinSig { id: BuiltinId::PsIsAvailable, params: vec![], return_type: Ty::Bool });
     add("@sys.readLine", BuiltinSig { id: BuiltinId::SysReadLine, params: vec![], return_type: s.clone() });
     add("@sys.readAll", BuiltinSig { id: BuiltinId::SysReadAll, params: vec![], return_type: s.clone() });
 

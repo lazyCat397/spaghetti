@@ -81,6 +81,7 @@ const DIRECTIVE_DOCS: &[(&str, &str, &str)] = &[
     ("friendly-terminal", "friendly-terminal", "#> friendly-terminal: error messages in a friendlier tone"),
     ("timeout", "timeout ", "#> timeout <ms>: stops the program after <ms> milliseconds (exit code 124)"),
     ("strict", "strict", "#> strict: int overflow, hidden names and unreachable code become errors"),
+    ("safe-party", "safe-party", "#> safe-party: ps.runFile only takes a .ps1 inside the script's folder (no absolute paths, no ..)"),
 ];
 
 impl<W: Write> Server<W> {

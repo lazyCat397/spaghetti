@@ -178,6 +178,7 @@ fn execute_program(bytecode: &Program, spec: &spg_lexer::FileSpec, program_args:
 
     spg_vm::set_program_args(program_args);
     spg_vm::set_strict(strict);
+    spg_vm::set_safe_party(spec.safe_party);
     if let Some(ms) = spec.timeout_ms {
         start_watchdog(ms, friendly);
     }

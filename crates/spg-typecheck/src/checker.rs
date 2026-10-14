@@ -1793,6 +1793,14 @@ impl Checker {
                 }
                 let name = match callee.as_ref() {
                     Expr::Ident(n, _) => n.clone(),
+                    // `ps.run(...)`: the native namespace of a file that installed PowerShell
+                    // (the resolver renames its `ps` to `ps#powershell`, see spg-modules)
+                    Expr::Field { object, field, .. }
+                        if matches!(object.as_ref(), Expr::Ident(ns, _) if ns == "ps#powershell")
+                            && self.lookup_var("ps#powershell").is_none() =>
+                    {
+                        format!("ps.{}", field)
+                    }
                     // `math.sqrt(x)`: the pre-`@` namespace spelling. Only when
                     // `math` is not a variable the user declared (a struct
                     // field holding... nothing callable, but `math.x` is a

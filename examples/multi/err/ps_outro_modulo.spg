@@ -1,0 +1,3 @@
+// `install <std: "powershell">` only covers the file that installs it
+import { check } from "./ps_lib_sem_install.spg"
+print(ps.version())

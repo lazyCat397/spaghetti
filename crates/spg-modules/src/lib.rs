@@ -58,7 +58,24 @@ struct Symbol {
     pos: spg_parser::ast::Pos,
 }
 
+/// libraries written in Rust, enabled by `install <std: "name">` (no file is read)
+const NATIVE_LIBS: [&str; 1] = ["powershell"];
+
+/// the declarations a native library needs in the program (the struct its calls return)
+fn native_prelude(natives: &[String]) -> Vec<Stmt> {
+    let mut stmts = Vec::new();
+    if natives.iter().any(|n| n == "powershell") {
+        let source = "struct PsResult {\n    success: bool,\n    code: int,\n    output: string,\n    error: string\n}\n";
+        let tokens = Lexer::new(source).tokenize().expect("the PowerShell prelude lexes");
+        let parsed = Parser::new(tokens).parse_program().expect("the PowerShell prelude parses");
+        stmts.extend(parsed.stmts);
+    }
+    stmts
+}
+
 struct Resolver {
+    /// native libraries installed anywhere in the program
+    natives: Vec<String>,
     /// canonical path -> already-resolved module
     loaded: HashMap<PathBuf, ModuleInfo>,
     /// modules currently being resolved, outermost first — finding a
@@ -132,12 +149,15 @@ pub fn resolve_collect(
         loaded: HashMap::new(),
         in_progress: Vec::new(),
         merged: Vec::new(),
+        natives: Vec::new(),
         entry: canonical.clone(),
         overlay: overlay.clone(),
         sources: Vec::new(),
     };
     r.load_module(&canonical)?;
-    Ok((Program { stmts: r.merged }, r.sources))
+    let mut stmts = native_prelude(&r.natives);
+    stmts.extend(r.merged);
+    Ok((Program { stmts, natives: r.natives }, r.sources))
 }
 
 /// `canonicalize`, except that a path present in the overlay is taken lexically
@@ -337,10 +357,19 @@ impl Resolver {
         // (so a new export in the library can't break its installers). Two
         // installs giving one name different meanings is only an error if
         // the name is USED (found while renaming, below).
+        let mut installs_native = false;
         let mut installed: HashMap<String, (String, spg_parser::ast::Pos, String)> = HashMap::new();
         let mut ambiguous: HashMap<String, ((spg_parser::ast::Pos, String), (spg_parser::ast::Pos, String))> = HashMap::new();
         for stmt in &program.stmts {
             let Stmt::Install { from, pos, std } = stmt else { continue };
+            // native libraries live in the engine, not in stdlib/: installing one enables it
+            if *std && NATIVE_LIBS.contains(&from.as_str()) {
+                if !self.natives.contains(from) {
+                    self.natives.push(from.clone());
+                }
+                installs_native = true;
+                continue;
+            }
             // `install <std: "name">` points at the standard library folder;
             // `install "path"` is a path relative to this file, as before
             let target = if *std {
@@ -374,6 +403,14 @@ impl Resolver {
             if !ambiguous.contains_key(name) {
                 name_map.insert(name.clone(), mangled.clone());
             }
+        }
+
+        // a native namespace belongs to the file that installed it: inside that file
+        // `ps` is renamed to a name a program cannot spell (`ps#powershell`), so files
+        // that did not install it never see it. Variables named `ps` there follow the rename.
+        if installs_native {
+            let map: rename::NameMap = [("ps".to_string(), "ps#powershell".to_string())].into_iter().collect();
+            rename::Renamer::new(&map).rename_program(&mut program.stmts);
         }
 
         // 3) rewrite every declaration and use to the mangled names, drop

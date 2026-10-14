@@ -472,5 +472,18 @@ if [ "$got" = "$want" ] && spgrun fmt --check "$fdir/x.spg" >/dev/null 2>&1; the
     fail=$((fail+1)); echo "FAIL fmt/x.spg"; echo "  got: $got"; fi
 rm -rf "$fdir"
 
+# ps.*: the no-PowerShell path (runs with an empty PATH, so it works the same on every machine)
+raw=$(env PATH=/nonexistent "$SPG" ok/ps_missing.spg 2>&1); code=$?
+want=$(printf 'false\nps.run: PowerShell not found (tried pwsh and powershell)')
+if [ "$code" = 0 ] && [ "$raw" = "$want" ]; then pass=$((pass+1)); else
+    fail=$((fail+1)); echo "FAIL ok/ps_missing.spg (exit=$code)"; echo "  got: $raw"; fi
+
+raw=$(env PATH=/nonexistent "$SPG" ok/ps_safe.spg 2>&1); code=$?
+want='ps.runFile: blocked by #> safe-party: runFile only takes a .ps1 inside the script'"'"'s folder (no absolute paths, no ..)'
+if [ "$code" = 0 ] && [ "$raw" = "$want" ]; then pass=$((pass+1)); else
+    fail=$((fail+1)); echo "FAIL ok/ps_safe.spg (exit=$code)"; echo "  got: $raw"; fi
+err ps_sem_install.spg "undefined variable 'ps'"
+err ps_outro_modulo.spg "undefined variable 'ps'"
+
 echo "multi-file: $pass ok, $fail failed"
 [ "$fail" = 0 ]

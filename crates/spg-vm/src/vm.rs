@@ -134,6 +134,60 @@ impl<'p> Vm<'p> {
     /// `value_stack` is threaded through by reference instead of living
     /// on `Vm` itself, which avoids a borrow conflict on the recursive
     /// call.
+    /// `ps.run(cmd [, timeout])` and `ps.runFile(path [, timeout])`: runs PowerShell and
+    /// builds the `PsResult` the program declared (fields in order: success, code, output, error)
+    fn ps_run(&self, frame: &mut CallFrame<'p, '_>, id: spg_typecheck::BuiltinId, argc: usize) -> Result<Value, RuntimeError> {
+        let function = if id == spg_typecheck::BuiltinId::PsRunFile { "ps.runFile" } else { "ps.run" };
+        let mut args: Vec<Value> = (0..argc).map(|_| frame.pop()).collect::<Result<_, _>>()?;
+        args.reverse();
+        let text = match args.first() {
+            Some(Value::String(s)) => s.to_string(),
+            _ => return Err(RuntimeError::TypeMismatch { expected: "string", found: "other" }),
+        };
+        let timeout = match args.get(1) {
+            Some(Value::Int(n)) => *n,
+            _ => 30,
+        };
+        // the folder of the script that made the call (the frame's own file)
+        let here = frame.chunk.locs.get(frame.ip.saturating_sub(1)).and_then(|loc| loc.file.as_deref());
+        let (mode, arg) = if id == spg_typecheck::BuiltinId::PsRunFile {
+            let path = std::path::Path::new(&text);
+            let escapes = path.components().any(|c| {
+                matches!(c, std::path::Component::ParentDir | std::path::Component::RootDir | std::path::Component::Prefix(_))
+            });
+            if crate::powershell::safe_party() && escapes {
+                return Err(RuntimeError::Process {
+                    function,
+                    reason: "blocked by #> safe-party: runFile only takes a .ps1 inside the script's folder (no absolute paths, no ..)".to_string(),
+                });
+            }
+            let resolved = if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                here.map(|file| std::path::Path::new(file).parent().unwrap_or(std::path::Path::new(".")).join(path))
+                    .unwrap_or_else(|| path.to_path_buf())
+            };
+            ("file", resolved.to_string_lossy().into_owned())
+        } else {
+            ("cmd", text)
+        };
+        let done = crate::powershell::exec(function, mode, &arg, timeout)?;
+        let def = self
+            .program
+            .struct_defs
+            .iter()
+            .find(|d| d.name == "PsResult")
+            .cloned()
+            .ok_or(RuntimeError::Process { function, reason: "PsResult is not declared (internal error)".to_string() })?;
+        let values = vec![
+            Value::Bool(done.code == 0),
+            Value::Int(done.code),
+            Value::String(Rc::new(done.output)),
+            Value::String(Rc::new(done.error)),
+        ];
+        Ok(Value::Struct(Rc::new(std::cell::RefCell::new((def, values)))))
+    }
+
     fn run_chunk(&mut self, chunk: &'p Chunk, args: Vec<Value>, value_stack: &mut Vec<Value>) -> Result<Value, RuntimeError> {
         if self.depth >= MAX_CALL_DEPTH {
             return Err(RuntimeError::StackOverflow { limit: MAX_CALL_DEPTH });
@@ -535,6 +589,10 @@ impl<'p> Vm<'p> {
                 return Ok(Some(FrameOutcome::Returned(v)));
             }
 
+            OpCode::CallBuiltin { id, argc } if matches!(id, spg_typecheck::BuiltinId::PsRun | spg_typecheck::BuiltinId::PsRunFile) => {
+                let value = self.ps_run(frame, id, argc)?;
+                frame.push(value);
+            }
             OpCode::CallBuiltin { id, argc } => call_builtin_on_stack(frame.value_stack, id, argc)?,
 
             OpCode::Pop => {

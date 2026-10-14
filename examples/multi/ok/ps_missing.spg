@@ -1,0 +1,8 @@
+// without PowerShell on the PATH, ps.* must say so instead of crashing
+install <std: "powershell">
+print(ps.isAvailable())
+try {
+    ps.run("Get-Date")
+} catch (e: string) {
+    print(e)
+}

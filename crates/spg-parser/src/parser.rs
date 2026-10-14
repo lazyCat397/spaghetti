@@ -145,7 +145,7 @@ impl Parser {
             stmts.push(self.parse_stmt()?);
             stmts.append(&mut self.pending);
         }
-        Ok(Program { stmts })
+        Ok(Program { stmts, natives: Vec::new() })
     }
 
     // navigation helpers
