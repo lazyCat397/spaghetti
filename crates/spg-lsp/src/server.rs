@@ -377,9 +377,23 @@ impl<W: Write> Server<W> {
         } else if !head.ends_with('.') && !head.ends_with('@') && !ns.is_empty() && self.enum_variants(uri, &ns).is_some() {
             // `Color.`: the name of an enum declared in this document
             DotContext::Enum(ns)
+        } else if ns == "ps" && !head.ends_with('.') && !head.ends_with('@') && self.installs_native(uri, "powershell") {
+            // `ps.`: the native namespace, while this document installs PowerShell
+            DotContext::Native(ns)
         } else {
             DotContext::Other
         }
+    }
+
+    /// whether this document has `install <std: "name">` for a native library
+    fn installs_native(&self, uri: &str, name: &str) -> bool {
+        use spg_lexer::TokenKind as T;
+        let Some(doc) = self.docs.get(uri) else { return false };
+        let Ok(tokens) = spg_lexer::Lexer::new(&doc.text).tokenize() else { return false };
+        tokens.iter().enumerate().any(|(i, t)| {
+            t.kind == T::Install
+                && tokens[i + 1..tokens.len().min(i + 6)].iter().any(|u| u.kind == T::Str(name.to_string()))
+        })
     }
 
     /// the variants of `enum <name> { .. }` declared in this document, found by
@@ -574,6 +588,16 @@ impl<W: Write> Server<W> {
             }
             DotContext::Namespace(ns) => {
                 let prefix = format!("@{}.", ns);
+                return builtins
+                    .into_iter()
+                    .filter_map(|(name, detail)| {
+                        let member = name.strip_prefix(&prefix)?.to_string();
+                        Some(item(&member, 3, Some(detail)))
+                    })
+                    .collect();
+            }
+            DotContext::Native(ns) => {
+                let prefix = format!("{}.", ns);
                 return builtins
                     .into_iter()
                     .filter_map(|(name, detail)| {
@@ -972,6 +996,8 @@ enum DotContext {
     Namespace(String),
     /// right after `Name.` where `Name` is an enum declared in the document
     Enum(String),
+    /// right after `ps.` in a document that runs `install <std: "powershell">`
+    Native(String),
     Other,
 }
 
@@ -1169,6 +1195,18 @@ mod tests {
     }
 
     /// completion result items for `text` with the cursor at (line, col)
+    #[test]
+    fn ps_dot_lists_the_native_members_only_when_installed() {
+        let with_install = "install <std: \"powershell\">\nps.\n";
+        let labels = labels_of(&complete_at("ps_dot_on", with_install, 1, 3));
+        for member in ["run", "runFile", "version", "isAvailable"] {
+            assert!(labels.iter().any(|l| l == member), "missing {member}: {:?}", labels);
+        }
+        let without = "ps.\n";
+        let labels = labels_of(&complete_at("ps_dot_off", without, 0, 3));
+        assert!(!labels.iter().any(|l| l == "run"), "{:?}", labels);
+    }
+
     fn complete_at(name: &str, text: &str, line: i64, col: i64) -> Vec<Json> {
         let (_f, uri) = tmp_file(name, "let x = 1\n");
         let (_, out) = session(vec![
