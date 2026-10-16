@@ -297,12 +297,13 @@ fn check(chunk: &Chunk, own: &Sig, sigs: &[Option<Sig>]) -> Option<Vec<K>> {
     if code.is_empty() || !matches!(code.last(), Some(OpCode::Return) | Some(OpCode::Jump(_))) {
         return None;
     }
-    // every jump must land on an instruction of this function (and fall-through must exist),
-    // otherwise there is no block to jump to
+    // a jump may land one past the end: that is the "after the function" label. Such a jump
+    // only sits in dead code (the `else` of an if whose branches both return), and if it is
+    // ever taken, the native call fails and the VM runs the function. Anything further out is refused.
     for (i, op) in code.iter().enumerate() {
         match op {
-            OpCode::Jump(t) if *t >= code.len() => return None,
-            OpCode::JumpIfFalse(t) if *t >= code.len() || i + 1 >= code.len() => return None,
+            OpCode::Jump(t) if *t > code.len() => return None,
+            OpCode::JumpIfFalse(t) if *t > code.len() || i + 1 >= code.len() => return None,
             _ => {}
         }
     }
@@ -842,14 +843,17 @@ fn lower(
                 stack.push((b.ins().bxor_imm(x, 1), K::Bool));
             }
             OpCode::Jump(t) => {
-                b.ins().jump(blocks[t], &[]);
+                // past-the-end target: reaching it means the native code went wrong, so fail
+                let target = blocks.get(t).copied().unwrap_or(fail);
+                b.ins().jump(target, &[]);
                 terminated = true;
             }
             OpCode::JumpIfFalse(t) => {
                 let (c, _) = stack.pop().unwrap();
                 // brif: non-zero (true) continues, zero (false) jumps to the target
                 let next = blocks[&(i + 1)];
-                b.ins().brif(c, next, &[], blocks[t], &[]);
+                let target = blocks.get(t).copied().unwrap_or(fail);
+                b.ins().brif(c, next, &[], target, &[]);
                 terminated = true;
             }
             OpCode::Call { func_index, argc } => {

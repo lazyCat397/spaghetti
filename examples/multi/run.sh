@@ -15,6 +15,7 @@ fi
 spgrun() {   # stdin: a pipe from the caller is passed through; a terminal is cut off (a program that reads input would otherwise wait on the keyboard for the whole 30 s)
     if [ -t 0 ]; then timeout 30 "$SPG" "$@" </dev/null; else timeout 30 "$SPG" "$@"; fi
 }   # a hung program (infinite loop) becomes a clean FAIL (exit 124), not a stuck suite
+exec </dev/null   # no test may wait on the keyboard (tests that need input pipe it in)
 pass=0; fail=0
 
 ok() {   # ok <file> <expected output, with \n>
@@ -380,7 +381,9 @@ err file_bytes_type.spg   "'@file.writeBytes' argument #2 expects array<int>, go
 # the optimizer must never change behaviour: every program in the project
 # has to print the same thing (and exit the same way) with and without it
 for f in ok/*.spg ../*.spg; do
-    case "$f" in *time_test*|*sleep*) continue;; esac
+    # environment-dependent programs: their output depends on the machine (time, PowerShell on the PATH),
+    # not on the optimizer. ps_missing is checked on its own below, with PATH controlled.
+    case "$f" in *time_test*|*sleep*|*ps_missing*) continue;; esac
     a=$(spgrun "$f" 2>&1); ca=$?
     b=$(spgrun --no-opt "$f" 2>&1); cb=$?
     if [ "$a" = "$b" ] && [ "$ca" = "$cb" ]; then pass=$((pass+1)); else
@@ -473,12 +476,12 @@ if [ "$got" = "$want" ] && spgrun fmt --check "$fdir/x.spg" >/dev/null 2>&1; the
 rm -rf "$fdir"
 
 # ps.*: the no-PowerShell path (runs with an empty PATH, so it works the same on every machine)
-raw=$(env PATH=/nonexistent "$SPG" ok/ps_missing.spg 2>&1); code=$?
+raw=$(timeout 30 env PATH=/nonexistent "$SPG" ok/ps_missing.spg </dev/null 2>&1); code=$?
 want=$(printf 'false\nps.run: PowerShell not found (tried pwsh and powershell)')
 if [ "$code" = 0 ] && [ "$raw" = "$want" ]; then pass=$((pass+1)); else
     fail=$((fail+1)); echo "FAIL ok/ps_missing.spg (exit=$code)"; echo "  got: $raw"; fi
 
-raw=$(env PATH=/nonexistent "$SPG" ok/ps_safe.spg 2>&1); code=$?
+raw=$(timeout 30 env PATH=/nonexistent "$SPG" ok/ps_safe.spg </dev/null 2>&1); code=$?
 want='ps.runFile: blocked by #> safe-party: runFile only takes a .ps1 inside the script'"'"'s folder (no absolute paths, no ..)'
 if [ "$code" = 0 ] && [ "$raw" = "$want" ]; then pass=$((pass+1)); else
     fail=$((fail+1)); echo "FAIL ok/ps_safe.spg (exit=$code)"; echo "  got: $raw"; fi
