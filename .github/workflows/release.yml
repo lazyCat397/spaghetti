@@ -18,6 +18,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: Swatinem/rust-cache@v2
+
       - name: Rust tests
         run: cargo test --workspace
 
@@ -78,6 +80,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
 
       - name: Read version from tag
         id: ver

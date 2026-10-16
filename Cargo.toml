@@ -19,7 +19,8 @@ edition = "2021"
 
 [profile.release]
 # strip: only removes symbols from the executable.
-# lto = "fat": whole-program optimization, ~1.07x on tools/perf/bench (measured 2026-10-03).
+# lto = "thin" (was "fat"): fat LTO re-optimizes the whole program on every release build and
+# made CI and the local update script slow; thin keeps most of the gain at a fraction of the time.
 # DO NOT add codegen-units = 1: measured 0.80x (slower on every benchmark).
 strip = true
-lto = "fat"
+lto = "thin"

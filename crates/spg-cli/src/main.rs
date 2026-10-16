@@ -200,7 +200,17 @@ fn execute_program(bytecode: &Program, spec: &spg_lexer::FileSpec, program_args:
     }
     let mut vm = Vm::new(bytecode);
     if let Some(src) = native_src {
-        match spg_jit::build(src) {
+        // native code is an optimization: if generating it panics, the VM runs everything.
+        // The panic hook is silenced for this step only, so the user sees nothing.
+        let hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| spg_jit::build(src)));
+        std::panic::set_hook(hook);
+        let built = match built {
+            Ok(r) => r,
+            Err(_) => Err("internal error while generating native code".to_string()),
+        };
+        match built {
             Ok(table) => {
                 if show_time {
                     eprintln!("--- native: {} function(s) compiled ---", table.compiled);

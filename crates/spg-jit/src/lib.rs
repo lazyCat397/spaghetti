@@ -297,6 +297,15 @@ fn check(chunk: &Chunk, own: &Sig, sigs: &[Option<Sig>]) -> Option<Vec<K>> {
     if code.is_empty() || !matches!(code.last(), Some(OpCode::Return) | Some(OpCode::Jump(_))) {
         return None;
     }
+    // every jump must land on an instruction of this function (and fall-through must exist),
+    // otherwise there is no block to jump to
+    for (i, op) in code.iter().enumerate() {
+        match op {
+            OpCode::Jump(t) if *t >= code.len() => return None,
+            OpCode::JumpIfFalse(t) if *t >= code.len() || i + 1 >= code.len() => return None,
+            _ => {}
+        }
+    }
     let leaders = leaders(chunk);
     let mut slots: Vec<Option<K>> = vec![None; chunk.num_locals];
     for (i, k) in own.0.iter().enumerate() {
