@@ -478,6 +478,8 @@ pub enum NativeKind {
     String,
     /// an array whose elements are all of this kind (arrays are reference counted too)
     Array(ElemKind),
+    /// a struct value of the struct type `Program.struct_defs[index]`
+    Struct(usize),
 }
 
 /// element kinds an array can have in native code (nested arrays are not supported)

@@ -329,22 +329,29 @@ fn build_cmd(args: &[String]) -> i32 {
 /// an executable made by `spg build`: compile the embedded sources and run them
 fn run_bundle(bundle: bundle::Bundle, args: &[String]) -> i32 {
     let spec = spg_lexer::read_file_spec(&bundle.files[0].1).unwrap_or_default();
-    let program = match spg_modules::resolve_with(&bundle.entry(), &bundle.overlay()) {
-        Ok(program) => program,
-        Err(e) => {
-            if spec.friendly_terminal {
-                eprintln!("error: {}", e.friendly());
-            } else {
-                eprintln!("error: {}", e);
+    // the same two copies `spg run` makes: the optimized one the VM runs, and the
+    // plain one native code is generated from (spg-jit only understands the plain one)
+    let compile = |optimize: bool| -> Result<Program, i32> {
+        let program = match spg_modules::resolve_with(&bundle.entry(), &bundle.overlay()) {
+            Ok(program) => program,
+            Err(e) => {
+                if spec.friendly_terminal {
+                    eprintln!("error: {}", e.friendly());
+                } else {
+                    eprintln!("error: {}", e);
+                }
+                return Err(1);
             }
-            return 1;
-        }
+        };
+        compile_resolved(program, optimize, spec.friendly_terminal, spec.strict)
     };
-    let bytecode = match compile_resolved(program, true, spec.friendly_terminal, spec.strict) {
+    let bytecode = match compile(true) {
         Ok(bytecode) => bytecode,
         Err(code) => return code,
     };
-    execute_program(&bytecode, &spec, args.to_vec(), false, false, None)
+    // native code is an optimization: without its plain copy the VM just runs everything
+    let native_src = compile(false).ok();
+    execute_program(&bytecode, &spec, args.to_vec(), false, false, native_src.as_ref())
 }
 
 /// native stack reserved for the worker thread that runs the whole CLI

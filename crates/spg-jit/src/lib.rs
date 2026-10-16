@@ -180,18 +180,227 @@ extern "C" fn spg_arr_get_str(p: i64, i: i64) -> i64 {
     }
 }
 
+// Undo log for native stores (array elements and struct fields), so a failed native
+// call can be rerun by the VM from the state it started in. Stores are logged one by
+// one. When the log passes a limit it is compacted into a snapshot of each touched
+// object's original contents, so memory grows with the objects, not the writes.
+const MIN_LOG: usize = 4096;
+
+/// a heap object whose slots native code can store into: an array, or a struct's fields
+#[derive(Clone)]
+enum Obj {
+    Arr(Rc<RefCell<Vec<Value>>>),
+    Rec(spg_vm::value::StructRef),
+}
+
+impl Obj {
+    fn addr(&self) -> usize {
+        match self {
+            Obj::Arr(r) => Rc::as_ptr(r) as usize,
+            Obj::Rec(r) => Rc::as_ptr(r) as usize,
+        }
+    }
+
+    /// the slots, mutably borrowed; None when something else holds a borrow
+    fn slots(&self) -> Option<std::cell::RefMut<'_, Vec<Value>>> {
+        match self {
+            Obj::Arr(r) => r.try_borrow_mut().ok(),
+            Obj::Rec(r) => r.try_borrow_mut().ok().map(|t| std::cell::RefMut::map(t, |t| &mut t.1)),
+        }
+    }
+}
+
+/// hasher for object addresses: one multiply, instead of SipHash on every store
+#[derive(Default)]
+struct AddrHasher(u64);
+
+impl std::hash::Hasher for AddrHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = self.0.rotate_left(8) ^ b as u64;
+        }
+    }
+    fn write_usize(&mut self, n: usize) {
+        self.0 = (n as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    }
+}
+
+type AddrSet = std::collections::HashSet<usize, std::hash::BuildHasherDefault<AddrHasher>>;
+
+#[derive(Default)]
+struct Undo {
+    /// (object, slot, value it replaced), oldest first
+    log: Vec<(Obj, usize, Value)>,
+    /// the original contents of each object compacted during this call
+    snaps: Vec<(Obj, Vec<Value>)>,
+    /// the addresses of the objects in `snaps`
+    snap_ids: AddrSet,
+    /// log size that triggers the next compaction (0 when there is none yet)
+    limit: usize,
+}
+
+thread_local! {
+    static UNDO: RefCell<Undo> = RefCell::new(Undo::default());
+}
+
+impl Undo {
+    /// turns the log into snapshots of the original contents of the objects it touched
+    fn compact(&mut self) {
+        let mut copies: std::collections::HashMap<usize, (Obj, Vec<Value>)> = Default::default();
+        // newest first: the last undo applied to a copy is the oldest value, the original
+        for (o, i, old) in self.log.iter().rev() {
+            let p = o.addr();
+            if self.snap_ids.contains(&p) {
+                continue;
+            }
+            let (_, copy) = copies.entry(p).or_insert_with(|| {
+                let now: Vec<Value> = o.slots().expect("no borrow is active during a native call").to_vec();
+                (o.clone(), now)
+            });
+            copy[*i] = old.clone();
+        }
+        for (p, (o, copy)) in copies {
+            self.snap_ids.insert(p);
+            self.snaps.push((o, copy));
+        }
+        self.log.clear();
+        let total: usize = self.snaps.iter().map(|(_, c)| c.len()).sum();
+        self.limit = 2 * total;
+    }
+
+    /// ends a native call: keeps its stores, or undoes them (the VM reruns the call)
+    fn finish(&mut self, keep: bool) {
+        if !keep {
+            while let Some((o, i, old)) = self.log.pop() {
+                if let Some(mut slots) = o.slots() {
+                    if let Some(slot) = slots.get_mut(i) {
+                        *slot = old;
+                    }
+                }
+            }
+            for (o, copy) in self.snaps.drain(..) {
+                if let Some(mut slots) = o.slots() {
+                    *slots = copy;
+                }
+            }
+        }
+        self.log.clear();
+        self.snaps.clear();
+        self.snap_ids.clear();
+        self.limit = 0;
+    }
+}
+
+/// stores `new` at slot `i` of `o`, logging the value it replaces. Returns 1 when the
+/// store cannot be done (bad index, or a borrow is active); `new` is dropped then.
+fn store(o: Obj, i: i64, new: Value) -> i64 {
+    let old = o.slots().and_then(|mut slots| {
+        let slot = slots.get_mut(i as usize)?;
+        Some(std::mem::replace(slot, new))
+    });
+    match old {
+        Some(old) => {
+            // an object already snapshotted in this call is restored from its snapshot,
+            // so its later stores need no entry of their own
+            UNDO.with(|u| {
+                let mut u = u.borrow_mut();
+                if u.snap_ids.contains(&o.addr()) {
+                    return;
+                }
+                u.log.push((o, i as usize, old));
+                if u.log.len() >= MIN_LOG.max(u.limit) {
+                    u.compact();
+                }
+            });
+            0
+        }
+        None => 1,
+    }
+}
+
+/// a store's value, from the 64-bit pattern native code passes: a string is an owned
+/// `Rc::into_raw` pointer, which the value takes over
+fn value_of(bits: i64, tag: i64) -> Value {
+    match tag {
+        0 => Value::Int(bits),
+        1 => Value::Bool(bits != 0),
+        2 => Value::Float(f64::from_bits(bits as u64)),
+        // SAFETY: native code passes an owned reference made by Rc::into_raw
+        _ => Value::String(unsafe { Rc::from_raw(bits as *const String) }),
+    }
+}
+
+/// a new reference to the array behind `p` (the caller's reference is left alone)
+unsafe fn arr_ref(p: i64) -> Rc<RefCell<Vec<Value>>> {
+    Rc::increment_strong_count(p as *const RefCell<Vec<Value>>);
+    Rc::from_raw(p as *const RefCell<Vec<Value>>)
+}
+
+/// a new reference to the struct behind `p` (the caller's reference is left alone)
+unsafe fn rec_ref(p: i64) -> spg_vm::value::StructRef {
+    Rc::increment_strong_count(p as *const RefCell<(Rc<spg_vm::value::StructDef>, Vec<Value>)>);
+    Rc::from_raw(p as *const RefCell<(Rc<spg_vm::value::StructDef>, Vec<Value>)>)
+}
+
+/// Stores into `p[i]`. `tag` is the element kind (0 int, 1 bool, 2 float, 3 string).
+/// Returns 1 when the store could not be done.
+extern "C" fn spg_arr_set(p: i64, i: i64, bits: i64, tag: i64) -> i64 {
+    // SAFETY: as in spg_arr_len
+    store(Obj::Arr(unsafe { arr_ref(p) }), i, value_of(bits, tag))
+}
+
+/// Stores into field `i` of the struct behind `p`; same contract as spg_arr_set.
+extern "C" fn spg_struct_set(p: i64, i: i64, bits: i64, tag: i64) -> i64 {
+    // SAFETY: as in spg_arr_len
+    store(Obj::Rec(unsafe { rec_ref(p) }), i, value_of(bits, tag))
+}
+
+/// reads field `i` of the struct behind `p` (borrowed); a string comes back as an
+/// owned reference. The kinds are checked by native code, so a mismatch reads as 0.
+extern "C" fn spg_struct_get(p: i64, i: i64, tag: i64) -> i64 {
+    // SAFETY: as in spg_arr_len
+    let rec = unsafe { &*(p as *const RefCell<(Rc<spg_vm::value::StructDef>, Vec<Value>)>) };
+    let Ok(t) = rec.try_borrow() else { return 0 };
+    match (t.1.get(i as usize), tag) {
+        (Some(Value::Int(n)), 0) => *n,
+        (Some(Value::Bool(b)), 1) => *b as i64,
+        (Some(Value::Float(f)), 2) => f.to_bits() as i64,
+        (Some(Value::String(s)), 3) => Rc::into_raw(s.clone()) as i64,
+        _ => 0,
+    }
+}
+
+extern "C" fn spg_struct_retain(p: i64) {
+    if p != 0 {
+        // SAFETY: as in spg_str_retain
+        unsafe { Rc::increment_strong_count(p as *const RefCell<(Rc<spg_vm::value::StructDef>, Vec<Value>)>) }
+    }
+}
+
+extern "C" fn spg_struct_release(p: i64) {
+    if p != 0 {
+        // SAFETY: as in spg_str_release
+        unsafe { drop(Rc::from_raw(p as *const RefCell<(Rc<spg_vm::value::StructDef>, Vec<Value>)>)) }
+    }
+}
+
 /// the ownership a native-call argument carries, so a bail-out can release it
 #[derive(Clone, Copy, PartialEq)]
 enum Owned {
     No,
     Str,
     Arr,
+    Obj,
 }
 
 fn owned_of(k: K) -> Owned {
     match k {
         K::String => Owned::Str,
         K::Array(_) => Owned::Arr,
+        K::Struct(_) => Owned::Obj,
         _ => Owned::No,
     }
 }
@@ -226,6 +435,7 @@ impl NativeCalls for NativeTable {
                 match o {
                     Owned::Str => spg_str_release(*a),
                     Owned::Arr => spg_arr_release(*a),
+                    Owned::Obj => spg_struct_release(*a),
                     Owned::No => {}
                 }
             }
@@ -248,9 +458,12 @@ impl NativeCalls for NativeTable {
         // on failure the native code has already released everything it owned,
         // arguments included
         if ctx[0] != 0 {
+            // the VM reruns this call, so the stores made before the failure must go
+            UNDO.with(|u| u.borrow_mut().finish(false));
             self.disabled[func_index].set(true);
             None
         } else {
+            UNDO.with(|u| u.borrow_mut().finish(true));
             Some(r)
         }
     }
@@ -282,7 +495,7 @@ fn leaders(chunk: &Chunk) -> BTreeSet<usize> {
 
 /// whether a value of this kind is reference counted
 fn is_heap(k: K) -> bool {
-    matches!(k, K::String | K::Array(_))
+    matches!(k, K::String | K::Array(_) | K::Struct(_))
 }
 
 /// Type-checks the unoptimized bytecode of one function against the signatures
@@ -290,9 +503,8 @@ fn is_heap(k: K) -> bool {
 /// anything the native backend does not support: unsupported opcodes or
 /// constants, operands of the wrong kind, a local read before its kind is known,
 /// a local that changes kind, values left on the stack across a jump, or a
-/// return of the wrong kind. Array writes are not supported (they would be
-/// repeated if the VM reran the call after a failure).
-fn check(chunk: &Chunk, own: &Sig, sigs: &[Option<Sig>]) -> Option<Vec<K>> {
+/// return of the wrong kind.
+fn check(chunk: &Chunk, own: &Sig, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::value::StructDef>]) -> Option<Vec<K>> {
     let code = &chunk.code;
     if code.is_empty() || !matches!(code.last(), Some(OpCode::Return) | Some(OpCode::Jump(_))) {
         return None;
@@ -376,6 +588,39 @@ fn check(chunk: &Chunk, own: &Sig, sigs: &[Option<Sig>]) -> Option<Vec<K>> {
                     _ => return None,
                 }
             }
+            OpCode::IndexSet => {
+                // stack: array, index, value; the value must have the element's kind
+                let v = st.pop()?;
+                pop(&mut st, K::Int)?;
+                match st.pop()? {
+                    K::Array(e) if e.value_kind() == v => {}
+                    _ => return None,
+                }
+            }
+            OpCode::Dup2 => {
+                let n = st.len();
+                if n < 2 {
+                    return None;
+                }
+                let (a, c) = (st[n - 2], st[n - 1]);
+                st.push(a);
+                st.push(c);
+            }
+            OpCode::FieldGet { field_index } => {
+                // stack: struct
+                let K::Struct(d) = st.pop()? else { return None };
+                let fk = (*structs.get(d)?.field_kinds.get(*field_index)?)?;
+                st.push(fk);
+            }
+            OpCode::FieldSet { field_index } => {
+                // stack: struct, value
+                let v = st.pop()?;
+                let K::Struct(d) = st.pop()? else { return None };
+                let fk = (*structs.get(d)?.field_kinds.get(*field_index)?)?;
+                if fk != v {
+                    return None;
+                }
+            }
             OpCode::Jump(_) => {
                 if !st.is_empty() {
                     return None;
@@ -429,7 +674,7 @@ fn check(chunk: &Chunk, own: &Sig, sigs: &[Option<Sig>]) -> Option<Vec<K>> {
                 pop(&mut st, own.1)?;
                 st.clear();
             }
-            // array writes, globals, maps, structs, the rest of the builtins: still in the VM
+            // globals, maps, structs, the rest of the builtins: still in the VM
             _ => return None,
         }
     }
@@ -457,7 +702,7 @@ fn eligible(program: &Program) -> (Vec<bool>, Vec<Option<Vec<K>>>) {
                 continue;
             }
             let own = sigs[i].clone().unwrap();
-            match check(&program.functions[i], &own, &sigs) {
+            match check(&program.functions[i], &own, &sigs, &program.struct_defs) {
                 Some(s) => slots[i] = Some(s),
                 None => {
                     elig[i] = false;
@@ -491,6 +736,11 @@ struct Helpers {
     arr_get_bool: FuncRef,
     arr_get_float: FuncRef,
     arr_get_str: FuncRef,
+    arr_set: FuncRef,
+    struct_set: FuncRef,
+    struct_get: FuncRef,
+    struct_retain: FuncRef,
+    struct_release: FuncRef,
 }
 
 impl Helpers {
@@ -501,6 +751,9 @@ impl Helpers {
             }
             K::Array(_) => {
                 b.ins().call(self.arr_retain, &[v]);
+            }
+            K::Struct(_) => {
+                b.ins().call(self.struct_retain, &[v]);
             }
             _ => {}
         }
@@ -513,6 +766,9 @@ impl Helpers {
             }
             K::Array(_) => {
                 b.ins().call(self.arr_release, &[v]);
+            }
+            K::Struct(_) => {
+                b.ins().call(self.struct_release, &[v]);
             }
             _ => {}
         }
@@ -557,6 +813,17 @@ fn fail_block(b: &mut FunctionBuilder, h: Helpers, ctx: CV, fail: Block, heap_va
     b.ins().return_(&[zero]);
 }
 
+/// the element tag the struct helpers take: 0 int, 1 bool, 2 float, 3 string
+fn struct_tag(k: K) -> i64 {
+    match k {
+        K::Int => 0,
+        K::Bool => 1,
+        K::Float => 2,
+        K::String => 3,
+        _ => unreachable!("check() admits only scalar and string fields"),
+    }
+}
+
 fn cl_type(k: K) -> Type {
     match k {
         K::Float => F64,
@@ -570,6 +837,7 @@ fn lower(
     own: &Sig,
     slot_kinds: &[K],
     sigs: &[Option<Sig>],
+    structs: &[Rc<spg_vm::value::StructDef>],
     refs: &HashMap<usize, FuncRef>,
     h: Helpers,
 ) {
@@ -800,6 +1068,88 @@ fn lower(
                 h.release(b, ak, arr);
                 stack.push((val, k));
             }
+            OpCode::IndexSet => {
+                // stack: array, index, value. A string value's reference moves into the array.
+                let (val, vk) = stack.pop().unwrap();
+                let (idx, _) = stack.pop().unwrap();
+                let (arr, ak) = stack.pop().unwrap();
+                let elem = match ak {
+                    K::Array(e) => e,
+                    _ => unreachable!("check() ensures an array"),
+                };
+                let len = b.ins().call(h.arr_len, &[arr]);
+                let len = b.inst_results(len)[0];
+                let bad = b.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, idx, len);
+                let mut temps = heap_temps(&stack);
+                temps.push((arr, ak));
+                if is_heap(vk) {
+                    temps.push((val, vk));
+                }
+                guard(b, h, bad, fail, temps);
+                let (bits, tag) = match elem {
+                    ElemKind::Int => (val, 0),
+                    ElemKind::Bool => (val, 1),
+                    ElemKind::Float => (b.ins().bitcast(I64, MemFlags::new(), val), 2),
+                    ElemKind::String => (val, 3),
+                };
+                let tag = b.ins().iconst(I64, tag);
+                let inst = b.ins().call(h.arr_set, &[arr, idx, bits, tag]);
+                let status = b.inst_results(inst)[0];
+                // the store consumed a string value either way; only a borrow clash lands here
+                let mut temps = heap_temps(&stack);
+                temps.push((arr, ak));
+                guard(b, h, status, fail, temps);
+                h.release(b, ak, arr);
+            }
+            OpCode::Dup2 => {
+                // the top two values again; heap ones get their own reference
+                let n = stack.len();
+                let (a, ak) = stack[n - 2];
+                let (c, ck) = stack[n - 1];
+                for (v, k) in [(a, ak), (c, ck)] {
+                    if is_heap(k) {
+                        h.retain(b, k, v);
+                    }
+                }
+                stack.push((a, ak));
+                stack.push((c, ck));
+            }
+            OpCode::FieldGet { field_index } => {
+                // stack: struct. The struct reference is ours: released after the read.
+                let (s, sk) = stack.pop().unwrap();
+                let d = match sk {
+                    K::Struct(d) => d,
+                    _ => unreachable!("check() ensures a struct"),
+                };
+                let fk = structs[d].field_kinds[*field_index].unwrap();
+                let fi = b.ins().iconst(I64, *field_index as i64);
+                let tag = b.ins().iconst(I64, struct_tag(fk));
+                let inst = b.ins().call(h.struct_get, &[s, fi, tag]);
+                let bits = b.inst_results(inst)[0];
+                let v = if fk == K::Float { b.ins().bitcast(F64, MemFlags::new(), bits) } else { bits };
+                h.release(b, sk, s);
+                stack.push((v, fk));
+            }
+            OpCode::FieldSet { field_index } => {
+                // stack: struct, value. A string value's reference moves into the struct.
+                let (val, _) = stack.pop().unwrap();
+                let (s, sk) = stack.pop().unwrap();
+                let d = match sk {
+                    K::Struct(d) => d,
+                    _ => unreachable!("check() ensures a struct"),
+                };
+                let fk = structs[d].field_kinds[*field_index].unwrap();
+                let bits = if fk == K::Float { b.ins().bitcast(I64, MemFlags::new(), val) } else { val };
+                let fi = b.ins().iconst(I64, *field_index as i64);
+                let tag = b.ins().iconst(I64, struct_tag(fk));
+                let inst = b.ins().call(h.struct_set, &[s, fi, bits, tag]);
+                let status = b.inst_results(inst)[0];
+                // the store consumed a string value either way; only a borrow clash lands here
+                let mut temps = heap_temps(&stack);
+                temps.push((s, sk));
+                guard(b, h, status, fail, temps);
+                h.release(b, sk, s);
+            }
             OpCode::EqBool | OpCode::NotEqBool => {
                 let (y, _) = stack.pop().unwrap();
                 let (x, _) = stack.pop().unwrap();
@@ -970,6 +1320,11 @@ pub fn build(program: &Program) -> Result<NativeTable, String> {
         ("spg_arr_get_bool", spg_arr_get_bool as *const u8),
         ("spg_arr_get_float", spg_arr_get_float as *const u8),
         ("spg_arr_get_str", spg_arr_get_str as *const u8),
+        ("spg_arr_set", spg_arr_set as *const u8),
+        ("spg_struct_set", spg_struct_set as *const u8),
+        ("spg_struct_get", spg_struct_get as *const u8),
+        ("spg_struct_retain", spg_struct_retain as *const u8),
+        ("spg_struct_release", spg_struct_release as *const u8),
     ];
     for (name, ptr) in symbols {
         jb.symbol(*name, *ptr);
@@ -995,6 +1350,8 @@ pub fn build(program: &Program) -> Result<NativeTable, String> {
     let i1i = sig(&[I64], Some(I64));
     let i2i = sig(&[I64, I64], Some(I64));
     let i2f = sig(&[I64, I64], Some(F64));
+    let i4i = sig(&[I64, I64, I64, I64], Some(I64));
+    let i3i = sig(&[I64, I64, I64], Some(I64));
     let decls: Vec<(&str, FuncId)> = vec![
         ("spg_fmod", imp(&mut module, "spg_fmod", &f2f)?),
         ("spg_powf", imp(&mut module, "spg_powf", &f2f)?),
@@ -1013,6 +1370,11 @@ pub fn build(program: &Program) -> Result<NativeTable, String> {
         ("spg_arr_get_bool", imp(&mut module, "spg_arr_get_bool", &i2i)?),
         ("spg_arr_get_float", imp(&mut module, "spg_arr_get_float", &i2f)?),
         ("spg_arr_get_str", imp(&mut module, "spg_arr_get_str", &i2i)?),
+        ("spg_arr_set", imp(&mut module, "spg_arr_set", &i4i)?),
+        ("spg_struct_set", imp(&mut module, "spg_struct_set", &i4i)?),
+        ("spg_struct_get", imp(&mut module, "spg_struct_get", &i3i)?),
+        ("spg_struct_retain", imp(&mut module, "spg_struct_retain", &i1v)?),
+        ("spg_struct_release", imp(&mut module, "spg_struct_release", &i1v)?),
     ];
     let id_of = |name: &str| decls.iter().find(|(n, _)| *n == name).unwrap().1;
 
@@ -1070,11 +1432,16 @@ pub fn build(program: &Program) -> Result<NativeTable, String> {
             arr_get_bool: declare("spg_arr_get_bool"),
             arr_get_float: declare("spg_arr_get_float"),
             arr_get_str: declare("spg_arr_get_str"),
+            arr_set: declare("spg_arr_set"),
+            struct_set: declare("spg_struct_set"),
+            struct_get: declare("spg_struct_get"),
+            struct_retain: declare("spg_struct_retain"),
+            struct_release: declare("spg_struct_release"),
         };
         {
             let mut b = FunctionBuilder::new(&mut fctx.func, &mut fbc);
             let own = sigs[i].clone().unwrap();
-            lower(&mut b, chunk, &own, slots[i].as_ref().unwrap(), &sigs, &refs, h);
+            lower(&mut b, chunk, &own, slots[i].as_ref().unwrap(), &sigs, &program.struct_defs, &refs, h);
             b.finalize();
         }
         module.define_function(id, &mut fctx).map_err(|e| format!("{}: {e}", chunk.name))?;

@@ -64,7 +64,17 @@ pub fn compile_with(program: TypedProgram, optimize: bool) -> Result<Program, Co
             struct_name_to_index.insert(name.clone(), struct_defs.len());
             struct_field_indices.insert(name.clone(), field_indices);
             struct_field_types.insert(name.clone(), field_types);
-            struct_defs.push(std::rc::Rc::new(spg_vm::value::StructDef { name: name.clone(), field_names }));
+            let field_kinds: Vec<Option<spg_vm::chunk::NativeKind>> = fields
+                .iter()
+                .map(|p| match spg_typecheck::resolve_type_expr(&p.type_ann) {
+                    Ty::Int => Some(spg_vm::chunk::NativeKind::Int),
+                    Ty::Float => Some(spg_vm::chunk::NativeKind::Float),
+                    Ty::Bool => Some(spg_vm::chunk::NativeKind::Bool),
+                    Ty::String => Some(spg_vm::chunk::NativeKind::String),
+                    _ => None,
+                })
+                .collect();
+            struct_defs.push(std::rc::Rc::new(spg_vm::value::StructDef { name: name.clone(), field_names, field_kinds }));
         }
     }
     // pass 1b': every enum under a stable index, so `Color.Green` compiles to
@@ -134,6 +144,16 @@ pub fn compile_with(program: TypedProgram, optimize: bool) -> Result<Program, Co
                 fc.chunk.native_sig = {
                     use spg_parser::ast::TypeExpr;
                     use spg_vm::chunk::NativeKind;
+                    let struct_idx: HashMap<String, usize> = program
+                        .stmts
+                        .iter()
+                        .filter_map(|s| match s {
+                            TypedStmt::StructDecl { name, .. } => Some(name.clone()),
+                            _ => None,
+                        })
+                        .enumerate()
+                        .map(|(i, n)| (n, i))
+                        .collect();
                     let elem = |t: &TypeExpr| match t {
                         TypeExpr::Int => Some(spg_vm::chunk::ElemKind::Int),
                         TypeExpr::Float => Some(spg_vm::chunk::ElemKind::Float),
@@ -147,6 +167,7 @@ pub fn compile_with(program: TypedProgram, optimize: bool) -> Result<Program, Co
                         TypeExpr::Bool => Some(NativeKind::Bool),
                         TypeExpr::String => Some(NativeKind::String),
                         TypeExpr::Array(inner) => elem(inner).map(NativeKind::Array),
+                        TypeExpr::Named(n) => struct_idx.get(n).map(|i| NativeKind::Struct(*i)),
                         _ => None,
                     };
                     let kind_r = |t: &Ty| match t {

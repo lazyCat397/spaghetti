@@ -106,6 +106,8 @@ pub type MapRef = Rc<RefCell<SpgMap>>;
 pub struct StructDef {
     pub name: String,
     pub field_names: Vec<String>,
+    /// native kind of each field (`None` for fields native code cannot read or write)
+    pub field_kinds: Vec<Option<crate::chunk::NativeKind>>,
 }
 pub type StructRef = Rc<RefCell<(Rc<StructDef>, Vec<Value>)>>;
 

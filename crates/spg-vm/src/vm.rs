@@ -144,7 +144,8 @@ impl<'p> Vm<'p> {
                     | (Value::Float(_), NativeKind::Float)
                     | (Value::String(_), NativeKind::String)
                     | (Value::Array(_), NativeKind::Array(_))
-            )
+            ) || matches!((v, k), (Value::Struct(s), NativeKind::Struct(d))
+                if Rc::ptr_eq(&s.borrow().0, &self.program.struct_defs[*d]))
         });
         if !fits {
             return false;
@@ -159,6 +160,7 @@ impl<'p> Vm<'p> {
                 Value::Float(f) => f.to_bits() as i64,
                 Value::String(s) => Rc::into_raw(s.clone()) as i64,
                 Value::Array(a) => Rc::into_raw(a.clone()) as i64,
+                Value::Struct(s) => Rc::into_raw(s.clone()) as i64,
                 _ => unreachable!("kinds were checked above"),
             };
         }
@@ -170,7 +172,7 @@ impl<'p> Vm<'p> {
                     NativeKind::Bool => Value::Bool(r != 0),
                     NativeKind::Float => Value::Float(f64::from_bits(r as u64)),
                     // arrays never come back from native code (native_sig rejects array returns)
-                    NativeKind::Array(_) => return false,
+                    NativeKind::Array(_) | NativeKind::Struct(_) => return false,
                     NativeKind::String if r != 0 => {
                         // SAFETY: native code returns an owned reference made by Rc::into_raw
                         Value::String(unsafe { Rc::from_raw(r as *const String) })
