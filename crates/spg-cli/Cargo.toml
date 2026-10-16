@@ -16,3 +16,4 @@ spg-compiler = { path = "../spg-compiler" }
 spg-vm = { path = "../spg-vm" }
 spg-lsp = { path = "../spg-lsp" }
 spg-fmt = { path = "../spg-fmt" }
+spg-jit = { path = "../spg-jit" }

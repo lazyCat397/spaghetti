@@ -131,6 +131,37 @@ pub fn compile_with(program: TypedProgram, optimize: bool) -> Result<Program, Co
                 fc.sink = sink.clone();
                 fc.chunk.cur_loc = loc;
                 fc.chunk.arity = params.len();
+                fc.chunk.native_sig = {
+                    use spg_parser::ast::TypeExpr;
+                    use spg_vm::chunk::NativeKind;
+                    let elem = |t: &TypeExpr| match t {
+                        TypeExpr::Int => Some(spg_vm::chunk::ElemKind::Int),
+                        TypeExpr::Float => Some(spg_vm::chunk::ElemKind::Float),
+                        TypeExpr::Bool => Some(spg_vm::chunk::ElemKind::Bool),
+                        TypeExpr::String => Some(spg_vm::chunk::ElemKind::String),
+                        _ => None,
+                    };
+                    let kind_t = |t: &TypeExpr| match t {
+                        TypeExpr::Int => Some(NativeKind::Int),
+                        TypeExpr::Float => Some(NativeKind::Float),
+                        TypeExpr::Bool => Some(NativeKind::Bool),
+                        TypeExpr::String => Some(NativeKind::String),
+                        TypeExpr::Array(inner) => elem(inner).map(NativeKind::Array),
+                        _ => None,
+                    };
+                    let kind_r = |t: &Ty| match t {
+                        Ty::Int => Some(NativeKind::Int),
+                        Ty::Float => Some(NativeKind::Float),
+                        Ty::Bool => Some(NativeKind::Bool),
+                        Ty::String => Some(NativeKind::String),
+                        _ => None,
+                    };
+                    let ps: Option<Vec<NativeKind>> = params.iter().map(|p| kind_t(&p.type_ann)).collect();
+                    match (ps, kind_r(return_type)) {
+                        (Some(ps), Some(r)) => Some((ps, r)),
+                        _ => None,
+                    }
+                };
                 fc.begin_scope();
                 for p in params {
                     fc.declare_local(&p.name);

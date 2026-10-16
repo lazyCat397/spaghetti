@@ -9,8 +9,12 @@ permissions:
 
 jobs:
   # gate: nothing is built or published unless the Rust tests and the multi-file suite pass
+  # on Windows the suite runs too (Git Bash), so the native code is tested where users run it
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -21,8 +25,26 @@ jobs:
       - name: Build release binary
         run: cargo build --release
 
-      - name: Multi-file suite
+      - name: Multi-file suite - default, native code on
+        shell: bash
         run: bash examples/multi/run.sh
+
+      # same suite with the VM only: the fallback must stay correct too
+      - name: Multi-file suite (--no-jit)
+        shell: bash
+        run: |
+          REAL="$(pwd)/target/release/spg"
+          WRAP="$RUNNER_TEMP/spg-novm"
+          cat > "$WRAP" <<EOF
+          #!/bin/bash
+          case "\$1" in
+            run) shift; exec "$REAL" run --no-jit "\$@" ;;
+            check|build|fmt|lsp) exec "$REAL" "\$@" ;;
+            *) exec "$REAL" "\$1" --no-jit "\${@:2}" ;;
+          esac
+          EOF
+          chmod +x "$WRAP"
+          SPG="$WRAP" bash examples/multi/run.sh
 
   # the .vsix is generated here, not committed to the repository
   vsix:
@@ -114,7 +136,13 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG" assets/* \
-            --repo lazyCat397/spaghetti-releases \
-            --title "Spaghetti $TAG" \
-            --notes "Spaghetti $TAG. Download the installer for Windows or the package for Linux."
+          REPO=lazyCat397/spaghetti-releases
+          NOTES="Spaghetti $TAG. Download the installer for Windows or the package for Linux."
+          # a re-run (or a re-publish of the same tag) must not fail on "release already exists":
+          # replace the assets and the notes of the existing release instead
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" assets/* --clobber --repo "$REPO"
+            gh release edit "$TAG" --repo "$REPO" --title "Spaghetti $TAG" --notes "$NOTES"
+          else
+            gh release create "$TAG" assets/* --repo "$REPO" --title "Spaghetti $TAG" --notes "$NOTES"
+          fi

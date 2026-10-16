@@ -33,6 +33,7 @@ OPTIONS:
     --time              print the VM execution time to stderr
     --dump-bytecode     print the compiled bytecode before running
     --no-opt            skip the superinstruction optimizer (slower; for debugging)
+    --no-jit            run everything in the VM (native code for numeric, string and array functions is on by default)
     -V, --version       print the version
     -h, --help          print this help
 
@@ -108,6 +109,8 @@ fn run_cmd(args: &[String], execute: bool) -> i32 {
     let mut dump_bytecode = false;
     let mut show_time = false;
     let mut optimize = true;
+    // native code is on by default; --no-jit turns it off
+    let mut jit = true;
     let mut program_args: Vec<String> = Vec::new();
 
     for (i, a) in args.iter().enumerate() {
@@ -120,6 +123,9 @@ fn run_cmd(args: &[String], execute: bool) -> i32 {
             "--dump-bytecode" if execute => dump_bytecode = true,
             "--time" if execute => show_time = true,
             "--no-opt" if execute => optimize = false,
+            // native code is the default (see spg-jit); --jit is kept as a no-op for old scripts
+            "--jit" if execute => jit = true,
+            "--no-jit" if execute => jit = false,
             s if s.starts_with('-') && s.len() > 1 => {
                 return usage_error(&format!("unknown option '{}'", s));
             }
@@ -148,17 +154,27 @@ fn run_cmd(args: &[String], execute: bool) -> i32 {
         Ok(b) => b,
         Err(code) => return code,
     };
+    // native code is generated from the plain (unfused) bytecode, which is what
+    // spg-jit understands; the VM keeps running the optimized program
+    let native_src = if jit {
+        match build(std::path::Path::new(file), false, friendly, strict) {
+            Ok(b) => Some(b),
+            Err(code) => return code,
+        }
+    } else {
+        None
+    };
 
     if !execute {
         println!("ok: {} ({} function(s))", file, bytecode.functions.len());
         return 0;
     }
-    execute_program(&bytecode, &spec, program_args, show_time, dump_bytecode)
+    execute_program(&bytecode, &spec, program_args, show_time, dump_bytecode, native_src.as_ref())
 }
 
 /// runs a compiled program: the `--dump-bytecode` listing, the program's
 /// arguments, the `#>` timeout, and the error report with its stack trace
-fn execute_program(bytecode: &Program, spec: &spg_lexer::FileSpec, program_args: Vec<String>, show_time: bool, dump_bytecode: bool) -> i32 {
+fn execute_program(bytecode: &Program, spec: &spg_lexer::FileSpec, program_args: Vec<String>, show_time: bool, dump_bytecode: bool, native_src: Option<&Program>) -> i32 {
     let friendly = spec.friendly_terminal;
     let strict = spec.strict;
 
@@ -183,6 +199,22 @@ fn execute_program(bytecode: &Program, spec: &spg_lexer::FileSpec, program_args:
         start_watchdog(ms, friendly);
     }
     let mut vm = Vm::new(bytecode);
+    if let Some(src) = native_src {
+        match spg_jit::build(src) {
+            Ok(table) => {
+                if show_time {
+                    eprintln!("--- native: {} function(s) compiled ---", table.compiled);
+                }
+                vm.set_native(Box::new(table));
+            }
+            // not an error: the VM runs everything. Only shown with --time, so normal runs stay quiet.
+            Err(e) => {
+                if show_time {
+                    eprintln!("--- native code disabled, running in the VM: {e} ---");
+                }
+            }
+        }
+    }
     let start = std::time::Instant::now();
     let result = vm.run();
     let elapsed = start.elapsed();
@@ -302,7 +334,7 @@ fn run_bundle(bundle: bundle::Bundle, args: &[String]) -> i32 {
         Ok(bytecode) => bytecode,
         Err(code) => return code,
     };
-    execute_program(&bytecode, &spec, args.to_vec(), false, false)
+    execute_program(&bytecode, &spec, args.to_vec(), false, false, None)
 }
 
 /// native stack reserved for the worker thread that runs the whole CLI

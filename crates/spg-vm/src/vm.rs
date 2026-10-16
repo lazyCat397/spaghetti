@@ -7,7 +7,7 @@ use std::rc::Rc;
 use crate::builtins::call_builtin_on_stack;
 use crate::field_ops;
 use crate::index_ops;
-use crate::chunk::{Chunk, OpCode, Program};
+use crate::chunk::{Chunk, NativeKind, OpCode, Program};
 use crate::arith;
 use crate::error::RuntimeError;
 use crate::value::{Closure, Value};
@@ -64,6 +64,8 @@ pub struct Vm<'p> {
     /// frames that did not fit in `trace` (a very deep recursion keeps only
     /// its innermost frames; the count says how many were left out)
     trace_omitted: usize,
+    /// optional native backend, consulted before running an `int` function
+    native: Option<Box<dyn NativeCalls>>,
     /// how many frames are running right now (every spg call is one native recursion)
     depth: usize,
 }
@@ -72,6 +74,16 @@ pub struct Vm<'p> {
 /// which holds well over this many frames; the limit turns an endless recursion
 /// into a catchable error with a trace instead of a process abort
 pub const MAX_CALL_DEPTH: usize = 100_000;
+
+/// A native implementation of some `int`-only functions (see the spg-jit crate).
+/// `call` returns `None` when the native code cannot answer for sure (overflow,
+/// division by zero, too deep, a callee that gave up...): the VM then runs the
+/// function itself, which is always correct because those functions are pure.
+pub trait NativeCalls {
+    /// whether this function has native code at all (checked before any argument work)
+    fn has(&self, func_index: usize) -> bool;
+    fn call(&self, func_index: usize, args: &[i64]) -> Option<i64>;
+}
 
 /// how many frames a stack trace keeps before it starts counting instead
 const TRACE_LIMIT: usize = 50;
@@ -102,6 +114,72 @@ impl<'p> Vm<'p> {
             trace: Vec::new(),
             trace_omitted: 0,
             depth: 0,
+            native: None,
+        }
+    }
+
+    /// installs a native backend; calls to `int` functions try it first
+    pub fn set_native(&mut self, native: Box<dyn NativeCalls>) {
+        self.native = Some(native);
+    }
+
+    /// tries the native backend for a call whose arguments are on the stack.
+    /// On success the arguments are replaced by the result and `true` is returned.
+    fn try_native(&self, frame: &mut CallFrame<'p, '_>, func_index: usize, argc: usize) -> bool {
+        let Some(native) = self.native.as_ref() else { return false };
+        if !native.has(func_index) || argc > 4 {
+            return false;
+        }
+        let Some((params, ret)) = self.program.functions.get(func_index).and_then(|c| c.native_sig.as_ref()) else {
+            return false;
+        };
+        let at = frame.value_stack.len() - argc;
+        // check every kind before converting anything: a string argument hands
+        // native code a reference, which must not be left dangling on a mismatch
+        let fits = frame.value_stack[at..].iter().zip(params).all(|(v, k)| {
+            matches!(
+                (v, k),
+                (Value::Int(_), NativeKind::Int)
+                    | (Value::Bool(_), NativeKind::Bool)
+                    | (Value::Float(_), NativeKind::Float)
+                    | (Value::String(_), NativeKind::String)
+                    | (Value::Array(_), NativeKind::Array(_))
+            )
+        });
+        if !fits {
+            return false;
+        }
+        // native code takes every value as its 64-bit pattern: floats as their
+        // bits, strings as an owned pointer (one extra reference, released by native code)
+        let mut buf = [0i64; 4];
+        for (i, v) in frame.value_stack[at..].iter().enumerate() {
+            buf[i] = match v {
+                Value::Int(n) => *n,
+                Value::Bool(b) => *b as i64,
+                Value::Float(f) => f.to_bits() as i64,
+                Value::String(s) => Rc::into_raw(s.clone()) as i64,
+                Value::Array(a) => Rc::into_raw(a.clone()) as i64,
+                _ => unreachable!("kinds were checked above"),
+            };
+        }
+        match native.call(func_index, &buf[..argc]) {
+            Some(r) => {
+                frame.value_stack.truncate(at);
+                frame.push(match ret {
+                    NativeKind::Int => Value::Int(r),
+                    NativeKind::Bool => Value::Bool(r != 0),
+                    NativeKind::Float => Value::Float(f64::from_bits(r as u64)),
+                    // arrays never come back from native code (native_sig rejects array returns)
+                    NativeKind::Array(_) => return false,
+                    NativeKind::String if r != 0 => {
+                        // SAFETY: native code returns an owned reference made by Rc::into_raw
+                        Value::String(unsafe { Rc::from_raw(r as *const String) })
+                    }
+                    NativeKind::String => return false,
+                });
+                true
+            }
+            None => false,
         }
     }
 
@@ -517,6 +595,9 @@ impl<'p> Vm<'p> {
             }
 
             OpCode::Call { func_index, argc } => {
+                if self.try_native(frame, func_index, argc) {
+                    return Ok(None);
+                }
                 let callee =
                     self.program.functions.get(func_index).ok_or(RuntimeError::InvalidFunctionIndex(func_index))?;
                 let mut locals = self.pool.pop().unwrap_or_default();

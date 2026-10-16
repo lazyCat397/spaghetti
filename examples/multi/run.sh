@@ -3,7 +3,7 @@
 # a renaming bug usually gives a wrong result without crashing.
 # Usage (from spaghetti-skeleton/): bash examples/multi/run.sh
 cd "$(dirname "$0")"
-SPG=../../target/release/spg
+SPG=${SPG:-../../target/release/spg}
 # norm: makes a program's output independent of the platform's path style. Windows
 # prints `err\x.spg` and may add a `\\?\C:\...` prefix; the expectations use `err/x.spg`.
 # Only the directories before `err` or `ok` are touched, so `"a\nb"` printed by a program stays as it is.
@@ -34,8 +34,6 @@ err() {  # err <file> <fragment> [<fragment>...]  — ALL must appear
 
 ok basic.spg            '42\n6.28\n0\n7\n42'
 ok newline_statements.spg '1\n5\n1'
-ok float_display.spg           '3.0\n2.0\n4.0\n-0.0\n0.5'
-ok multiline_expr.spg      '3\n10'
 ok diamond.spg          '120\n120'
 ok same_name.spg        '10'
 ok structs.spg           '11\n21\n4\n6\n77\n40'
@@ -49,7 +47,6 @@ ok reexport_mista.spg       '0\n100\n5'
 ok reexport_privada_homonima.spg '999'
 ok ns_modulo.spg         '5.0\nHI\ntrue'
 ok ns_all.spg          '5\nSPG\ntrue\n2\ntrue\n2\n4\na+b+c\n9\n2.5\n3\n42true\n5.0\n5\n124\nfalse\ntrue\ntrue\ntrue\n20\nT\ntrue'
-ok ns_campos.spg         '7\nx'
 ok ns_free_names.spg   '6\n6\n4.0\nT'
 ok ns_into.spg           '42\n5\n-5\n42\n7\n3.0\n3.5\n42true1.5\n3.0'
 ok ns_pi_e.spg           '3.1416\n3.0\n3.1\n3.14\n3.14\n3.141592653589793\n3.141592653589793\n2.718\n2.72\n3.0\n3.14159'
@@ -69,6 +66,15 @@ lines() {  # lines <file> <number of lines> <last line> — nothing may be lost 
     if [ "$code" = 0 ] && [ "$n" = "$2" ] && [ "$last" = "$3" ]; then pass=$((pass+1)); else
         fail=$((fail+1)); echo "FAIL ok/$1 (exit=$code, lines=$n, last=$last)"; fi
 }
+ok enum_scope.spg  '7\nGreen\n1\n2\nRed'
+ok float_display.spg           '3.0\n2.0\n4.0\n-0.0\n0.5'
+ok interpolation.spg         'hi Ana, I am 30 years old\nsum 31 and 3 items\nnested: xAnay / 1\nraw ${name} and $5 and 6\n1.5|true|[1, 2, 3]\n3'
+ok dir_wrap_default.spg         'wrap\n-9223372036854775808\n0'
+ok json_set.spg    '{\n    "version": "0.15.0",\n    "items": [\n        1,\n        2,\n        3\n    ],\n    "author": "ana"\n}\n{"a":2}\n{"a":1,"tags":["x","y"]}\n3'
+ok map_keysof.spg '[Eggs, Résumé]\n[Butter] []\n[1, 3] 2\n[Milk]\n[]'
+ok multiline_expr.spg      '3\n10'
+ok ns_campos.spg         '7\nx'
+ok ns_str_pop.spg  '[007] [   ab] [abxyx] [ab   ]\nlong x ··é\n3 -1 3 1\n[hi  ] [  hi] [hi]\n3 2 [1] 1\n[[], [1]] [[1], []]'
 ok print_order.spg       'a\nE1\nb\nE2\nc'
 lines print_big.spg 30000 29999
 exact1 print_before_error.spg 'a\nE1\nb\nruntime error: division by zero\n  at <main> (err/print_before_error.spg:5)'
@@ -256,7 +262,6 @@ ok enum_basic.spg  'Green\ncolor: Green Green\ntrue false false\nRed hot\nGreen 
 ok enum_forms.spg  '101 10\n1 10 100\ntrue false\nGreen Red true\ntrue false\ntrue false\ntrue\nfalse Red\nSignal { now: Green, ticks: 1 } true\n[Yellow, Red, Yellow] 1 -1\n2'
 ok match_basic.spg  'moving down\n210\nhorizontal vertical\none few many\nelif ok\nnot up'
 ok enum_multi.spg  '0 Red\n1 Green\n2 Blue\n3 Red\ntrue\nRed\nGreen\nBlue\nMagenta'
-ok enum_scope.spg  '7\nGreen\n1\n2\nRed'
 err enum_bad_variant.spg    "enum 'Color' has no variant 'Purple' (variants: Red, Green)" "line 2"
 err enum_bare_name.spg      "'Color' is an enum, not a value" "for x in Color"
 err enum_lt.spg             "operator Lt not supported for Color and Color"
@@ -287,7 +292,6 @@ err install_no_ext.spg        "must end in '.spg'"
 ok map_basic.spg  '[ana: 31, bia: 26, caio: 41]\n31 3 true false\n-1 26\n[ana, bia, caio] [31, 26, 41]\ntrue false\n[ana: 31, caio: 41] 72\n[ana, caio, bia]\n[:] 0 0\n[1: c, 2: b]'
 ok map_forms.spg  'g\n[1: [1, 2], 2: [99]]\n6\n4\n2\n3.0\n[5: 2, 10: 7]\ntrue'
 ok map_multi.spg  '3 axe 2\n2\n9'
-ok map_keysof.spg '[Eggs, Résumé]\n[Butter] []\n[1, 3] 2\n[Milk]\n[]'
 ok into_any.spg       '[a, b]\n[1, 2, 3]\n[ana: 1]\nP { x: 1, y: 2 }\nGreen\ntrue 3 2.5\ntext!\n6'
 ok into_methods.spg   '[a, b] 42 2.5 true Green\n18 7.0 10.5\nP { x: 1, y: 2 } 1'
 err map_float_key.spg       "map keys must be int, string, bool or an enum, found float" "line 2, column 8"
@@ -329,7 +333,6 @@ err array_fill_negative.spg    "@array.fill needs a count of 0 or more, got -1"
 err math_clamp_bounds.spg      "the lower bound (5) is greater than the upper bound (2)"
 
 # ---- full @str (pad, lastIndexOf, trimStart/End), empty pop, homogeneous array literal ----
-ok ns_str_pop.spg  '[007] [   ab] [abxyx] [ab   ]\nlong x ··é\n3 -1 3 1\n[hi  ] [  hi] [hi]\n3 2 [1] 1\n[[], [1]] [[1], []]'
 err array_pop_empty.spg       "@array.pop on an empty array"
 err array_lit_mixed_num.spg   "all items of an array must have the same type: expected int, found float" "line 1, column 9"
 err array_lit_mixed_type.spg  "expected string, found int"
@@ -393,7 +396,6 @@ exit124() {  # exit124 <file> <expected output before the cut> — the engine IT
         fail=$((fail+1)); echo "FAIL err/$1 (exit=$code)"; echo "  got: $(echo "$got" | tr '\n' '|')"; fi
 }
 ok dir_strict_overflow_try.spg  'caught'
-ok dir_wrap_default.spg         'wrap\n-9223372036854775808\n0'
 ok dir_timeout_ok.spg           'rapido'
 ok dir_strict_siblings.spg        '4'
 ok dir_strict_return_if.spg     '1'
@@ -414,13 +416,11 @@ exit124 dir_timeout_sleep.spg   ''
 # ---- @json ----
 ok json_basic.spg  'spg\n3\ntrue\nb\n1.5\nnull\n["a","b"]\narray\nnull\ntrue\nfalse\n2\n5\n[x, z]\ntrue\nfalse\n4\nno q'
 ok json_make.spg   '{"name":"lamp","qty":2,"price":9.5,"kind":"Toy","tags":["a","b"]}\n{"a":1,"b":2}\n[1,2,3]\n"hi"\n1.0\n{\n  "name": "lamp",\n  "qty": 2,\n  "price": 9.5,\n  "kind": "Toy",\n  "tags": [\n    "a",\n    "b"\n  ]\n}'
-ok json_set.spg    '{\n    "version": "0.15.0",\n    "items": [\n        1,\n        2,\n        3\n    ],\n    "author": "ana"\n}\n{"a":2}\n{"a":1,"tags":["x","y"]}\n3'
 ok methods_numeric.spg '7\n2.5\n3\n9\n2.5\n9.5\nNaN\n4.0\n3\n1.0\n0.7853981633974483\n1\n9\n-1\n-7.0\n-2\n-7\n-2.5\ntrue\n5\nNAÏVE\n3\n6\na-b'
 err json_missing.spg  "@json.get: path not found: 'b'" "has no key 'b'"
 err json_invalid.spg  'invalid JSON: expected a string key' 'line 1, column'
 err json_friendly.spg 'Oops! @json.get: path not found'
 
-ok interpolation.spg         'hi Ana, I am 30 years old\nsum 31 and 3 items\nnested: xAnay / 1\nraw ${name} and $5 and 6\n1.5|true|[1, 2, 3]\n3'
 err interp_vazia.spg     'empty interpolation' 'line 1, column 7'
 err interp_tipo.spg     'Add not supported for int and string'
 

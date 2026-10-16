@@ -20,4 +20,4 @@ pub use arith::set_strict;
 pub use powershell::set_safe_party;
 pub use error::RuntimeError;
 pub use value::{ArrayRef, EnumDef, Value};
-pub use vm::{TraceFrame, Vm};
+pub use vm::{NativeCalls, TraceFrame, Vm, MAX_CALL_DEPTH};

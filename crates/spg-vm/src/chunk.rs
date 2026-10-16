@@ -398,6 +398,9 @@ pub struct Chunk {
     /// allocated up front per call frame
     pub num_locals: usize,
     pub arity: usize,
+    /// parameter and return kinds, when all of them are `int`, `float` or `bool`
+    /// (set by the compiler). Only these functions can run as native code (spg-jit).
+    pub native_sig: Option<(Vec<NativeKind>, NativeKind)>,
 }
 
 impl Chunk {
@@ -410,6 +413,7 @@ impl Chunk {
             constants: Vec::new(),
             num_locals: 0,
             arity: 0,
+            native_sig: None,
         }
     }
 
@@ -462,4 +466,37 @@ pub struct Program {
     pub enum_defs: Vec<Rc<crate::value::EnumDef>>,
     /// how many global slots the VM must allocate before running `main`
     pub num_globals: usize,
+}
+
+/// a value kind the native backend understands
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NativeKind {
+    Int,
+    Float,
+    Bool,
+    /// a reference-counted string; native code owns one reference per value it holds
+    String,
+    /// an array whose elements are all of this kind (arrays are reference counted too)
+    Array(ElemKind),
+}
+
+/// element kinds an array can have in native code (nested arrays are not supported)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ElemKind {
+    Int,
+    Float,
+    Bool,
+    String,
+}
+
+impl ElemKind {
+    /// the kind of one element, as a value on the native stack
+    pub fn value_kind(self) -> NativeKind {
+        match self {
+            ElemKind::Int => NativeKind::Int,
+            ElemKind::Float => NativeKind::Float,
+            ElemKind::Bool => NativeKind::Bool,
+            ElemKind::String => NativeKind::String,
+        }
+    }
 }

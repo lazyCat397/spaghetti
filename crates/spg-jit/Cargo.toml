@@ -1,0 +1,13 @@
+[package]
+name = "spg-jit"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+spg-vm = { path = "../spg-vm" }
+spg-typecheck = { path = "../spg-typecheck" }
+cranelift-codegen = "=0.100.0"
+cranelift-frontend = "=0.100.0"
+cranelift-jit = "=0.100.0"
+cranelift-module = "=0.100.0"
+cranelift-native = "=0.100.0"
