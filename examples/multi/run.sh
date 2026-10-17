@@ -496,6 +496,9 @@ ok async_all.spg "b done\nc done\na done\n[a, b, c]\n3\n[]"
 ok async_lambda.spg "say: oi\ndepois\n[11, 12]"
 ok async_unwaited.spg "nobody waits on t\nwarning: a task failed and nobody called .wait() on it: unhandled exception: boom\n  at bad (ok/async_unwaited.spg:3)"
 err async_all_error.spg "unhandled exception: boom" "at bad ("
+ok pipe_basic.spg "6\n6\n13\n6\n7\n106"
+err pipe_no_call.spg "expected a function call after the pipe"
+ok logic_words.spg "true\ntrue\nfalse"
 
 echo "multi-file: $pass ok, $fail failed"
 [ "$fail" = 0 ]

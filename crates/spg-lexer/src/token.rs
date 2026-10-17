@@ -63,6 +63,8 @@ pub enum TokenKind {
     GtEq,
     AndAnd,
     OrOr,
+    /// `|>`: the pipe. `x |> f()` is `f(x)`. same as `then`.
+    PipeArrow,
     /// `?`: marks an optional type (`int?`). a question mark with a job.
     Question,
     /// `??`: the default-value operator (`x ?? 0`). the fallback.
@@ -124,6 +126,10 @@ pub fn lookup_keyword(word: &str) -> Option<TokenKind> {
         "continue" => Some(TokenKind::Continue),
         "when" => Some(TokenKind::When),
         "elif" => Some(TokenKind::Elif),
+        "then" => Some(TokenKind::PipeArrow), // verbose spelling of `|>`
+        "and" => Some(TokenKind::AndAnd),
+        "or" => Some(TokenKind::OrOr),
+        "not" => Some(TokenKind::Not),
         "import" => Some(TokenKind::Import),
         "install" => Some(TokenKind::Install),
         "export" => Some(TokenKind::Export),

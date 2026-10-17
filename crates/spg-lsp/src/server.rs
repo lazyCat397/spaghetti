@@ -288,6 +288,10 @@ impl<W: Write> Server<W> {
         let version = doc.version;
         let items: Vec<Json> = match &doc.path {
             None => Vec::new(),
+            // `// [ShowErrors-Off]` on its own line: the editor stops drawing
+            // error squiggles for this file. editor-only; `spg run`/`check`
+            // still report everything. for sketching code that is wrong on purpose.
+            Some(_) if hides_errors(&doc.text) => Vec::new(),
             Some(path) => {
                 let diags = diag::analyze(path, &self.overlay);
                 diags.iter().map(|d| self.to_lsp(d, path, &doc.text)).collect()
@@ -496,7 +500,7 @@ impl<W: Write> Server<W> {
         }
         const KEYWORDS: &[&str] = &[
             "let", "const", "function", "return", "if", "else", "while", "for", "in", "try", "catch", "throw", "break",
-            "continue", "when", "elif", "import", "export", "from", "install", "struct", "enum", "true", "false", "none",
+            "continue", "when", "elif", "import", "export", "from", "install", "struct", "enum", "true", "false", "none", "then", "and", "or", "not",
         ];
         const TYPES: &[&str] = &["int", "float", "bool", "string", "void", "array", "map", "task"];
         let edit_range = self.namespace_edit_range(uri, pos);
@@ -1010,6 +1014,13 @@ enum DotContext {
     Other,
 }
 
+/// true when some line of the buffer is exactly the `// [ShowErrors-Off]`
+/// marker (surrounding spaces ignored, case ignored). whole-line only, so the
+/// text can't trigger it by accident inside a string.
+fn hides_errors(text: &str) -> bool {
+    text.lines().any(|l| l.trim().eq_ignore_ascii_case("// [ShowErrors-Off]"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1123,6 +1134,21 @@ mod tests {
             .map(|m| m.get("params").unwrap().get("diagnostics").unwrap().as_array().unwrap().len())
             .collect();
         assert_eq!(pubs, vec![1, 0, 0], "error, then fixed, then cleared on close");
+    }
+
+    #[test]
+    fn show_errors_off_marker_hides_diagnostics() {
+        let bad = "let a: int = \"oops\"\n";
+        let (_f, uri) = tmp_file("marker", bad);
+        let buffer = format!("// [showerrors-off]\n{}", bad);
+        let (_, out) = session(vec![
+            note("textDocument/didOpen", Json::obj(vec![(
+                "textDocument", Json::obj(vec![("uri", Json::str(&uri)), ("text", Json::str(&buffer)), ("version", Json::int(1))]))])),
+            note("exit", Json::Null),
+        ]);
+        assert!(diagnostics_of(&out, &uri).is_empty(), "marker must hide every error");
+        assert!(hides_errors("x\n  // [ShowErrors-Off]  \ny"));
+        assert!(!hides_errors("let s = \"// [ShowErrors-Off]\""));
     }
 
     #[test]

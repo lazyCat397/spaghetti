@@ -1046,7 +1046,37 @@ impl Parser {
         if self.check(&TokenKind::If) {
             return self.parse_if_expr();
         }
-        self.parse_coalesce()
+        self.parse_pipe()
+    }
+
+    /// `x |> f(a)` and `x then f(a)`: the pipe. loosest of all the binary
+    /// forms, left-associative. the left value becomes the FIRST argument,
+    /// so `x |> f(a)` is `f(x, a)` and `a + b |> f()` is `f(a + b)`. both
+    /// spellings build the same call node, so nothing downstream knows
+    /// the difference. the right side must be a call: `x |> f` alone is
+    /// rejected, since there is nothing to apply.
+    fn parse_pipe(&mut self) -> Result<Expr, ParseError> {
+        let mut left = self.parse_coalesce()?;
+        while self.check(&TokenKind::PipeArrow) {
+            self.advance();
+            let rhs = self.peek().clone();
+            let right = self.parse_coalesce()?;
+            match right {
+                Expr::Call { callee, mut args, pos } => {
+                    args.insert(0, left);
+                    left = Expr::Call { callee, args, pos };
+                }
+                _ => {
+                    return Err(ParseError::Unexpected {
+                        expected: "a function call after the pipe, like `f()`".to_string(),
+                        found: rhs.kind,
+                        line: rhs.line,
+                        col: rhs.col,
+                    });
+                }
+            }
+        }
+        Ok(left)
     }
 
     /// `a ?? b ?? c`: the loosest binary operator, right-associative

@@ -775,6 +775,10 @@ impl<'a> Lexer<'a> {
                 self.advance();
                 TokenKind::OrOr
             }
+            '|' if self.peek() == Some('>') => {
+                self.advance();
+                TokenKind::PipeArrow
+            }
             ':' => TokenKind::Colon,
             ',' => TokenKind::Comma,
             '.' => {

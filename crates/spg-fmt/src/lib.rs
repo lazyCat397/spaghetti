@@ -47,7 +47,7 @@ const KEYWORDS: &[&str] = &[
 /// but a call `f(x)` and a lambda or type `function(x)` take none
 const SPACED_PAREN_KEYWORDS: &[&str] = &["if", "elif", "while", "for", "return", "catch", "when", "else", "in", "try", "throw"];
 
-const TWO_CHAR: &[&str] = &["==", "!=", "<=", ">=", "->", "+=", "-=", "*=", "/=", "**", "..", "&&", "||", "??"];
+const TWO_CHAR: &[&str] = &["==", "!=", "<=", ">=", "->", "+=", "-=", "*=", "/=", "**", "..", "&&", "||", "??", "|>"];
 
 /// the end (exclusive) of the `"..."` string that starts at `i`
 fn scan_double_quoted(c: &[char], mut i: usize) -> usize {
@@ -175,6 +175,19 @@ fn scan(src: &str) -> Vec<Piece> {
                 i += 1;
             }
             let text: String = c[start..i].iter().collect();
+            // verbose spellings of the operators are canonicalized to their
+            // symbols: `and`->`&&`, `or`->`||`, `not`->`!`, `then`->`|>`
+            let symbol = match text.as_str() {
+                "and" => Some("&&"),
+                "or" => Some("||"),
+                "not" => Some("!"),
+                "then" => Some("|>"),
+                _ => None,
+            };
+            if let Some(sym) = symbol {
+                out.push(Piece::Atom(Atom { text: sym.to_string(), class: Class::Punct }));
+                continue;
+            }
             let class = if KEYWORDS.contains(&text.as_str()) { Class::Keyword } else { Class::Ident };
             out.push(Piece::Atom(Atom { text, class }));
             continue;

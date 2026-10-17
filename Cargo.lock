@@ -302,7 +302,7 @@ checksum = "5b3dc8af474f516a851ff4bd12db780f948b9250ad37211e4eec0bccea54e01b"
 
 [[package]]
 name = "spg-cli"
-version = "1.28.0"
+version = "1.29.0"
 dependencies = [
  "spg-compiler",
  "spg-fmt",
@@ -317,7 +317,7 @@ dependencies = [
 
 [[package]]
 name = "spg-compiler"
-version = "1.28.0"
+version = "1.29.0"
 dependencies = [
  "spg-lexer",
  "spg-parser",
@@ -327,14 +327,14 @@ dependencies = [
 
 [[package]]
 name = "spg-fmt"
-version = "1.28.0"
+version = "1.29.0"
 dependencies = [
  "spg-lexer",
 ]
 
 [[package]]
 name = "spg-jit"
-version = "1.28.0"
+version = "1.29.0"
 dependencies = [
  "cranelift-codegen",
  "cranelift-frontend",
@@ -347,11 +347,11 @@ dependencies = [
 
 [[package]]
 name = "spg-lexer"
-version = "1.28.0"
+version = "1.29.0"
 
 [[package]]
 name = "spg-lsp"
-version = "1.28.0"
+version = "1.29.0"
 dependencies = [
  "spg-compiler",
  "spg-fmt",
@@ -363,7 +363,7 @@ dependencies = [
 
 [[package]]
 name = "spg-modules"
-version = "1.28.0"
+version = "1.29.0"
 dependencies = [
  "spg-lexer",
  "spg-parser",
@@ -371,14 +371,14 @@ dependencies = [
 
 [[package]]
 name = "spg-parser"
-version = "1.28.0"
+version = "1.29.0"
 dependencies = [
  "spg-lexer",
 ]
 
 [[package]]
 name = "spg-typecheck"
-version = "1.28.0"
+version = "1.29.0"
 dependencies = [
  "spg-lexer",
  "spg-parser",
@@ -386,7 +386,7 @@ dependencies = [
 
 [[package]]
 name = "spg-vm"
-version = "1.28.0"
+version = "1.29.0"
 dependencies = [
  "spg-lexer",
  "spg-typecheck",

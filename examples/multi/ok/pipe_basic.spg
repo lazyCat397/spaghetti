@@ -1,0 +1,9 @@
+function dobra(x: int) -> int { return x * 2 }
+function soma(a: int, b: int) -> int { return a + b }
+let a = 3
+print(a |> dobra())
+print(a then dobra())
+print(a |> soma(10))
+print(1 + 2 |> dobra())
+print(a |> dobra() |> soma(1))
+print(a then dobra() then soma(100))
