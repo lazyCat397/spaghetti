@@ -1,18 +1,18 @@
-//! Rewrites symbol names across a whole module's AST.
+//! rewrites symbol names across a whole module's AST. the name shuffler.
 //!
-//! Every top-level symbol of a module gets a globally unique "mangled"
-//! name, and every USE of a symbol — inside that module or, via an
-//! import, inside another one — is rewritten to that mangled name. After
+//! every top-level symbol of a module gets a globally unique "mangled"
+//! name, and every USE of a symbol (inside that module or, via an
+//! import, inside another one) gets rewritten to that mangled name. after
 //! this pass runs on every module, the merged program has no name
 //! collisions, so the typechecker/compiler never need to know files
-//! existed.
+//! existed. blissful, again.
 //!
-//! The one subtlety is shadowing: a function parameter or a `let` inside
+//! the one subtlety is shadowing: a function param or a `let` inside
 //! a block can legitimately reuse a name that ALSO exists at module
-//! level. Renaming that use would silently retarget it at the wrong
-//! variable, so the walk tracks which names are currently shadowed by a
-//! local and leaves those alone. This mirrors the typechecker's own
-//! block-scoping rule exactly.
+//! level. renaming that use would silently retarget it at the wrong
+//! variable, so the walk tracks which names are shadowed by a
+//! local and leaves those alone. mirrors the typechecker's own
+//! block-scoping rule exactly. the sneaky part, handled.
 
 use std::collections::{HashMap, HashSet};
 
@@ -24,11 +24,11 @@ pub type NameMap = HashMap<String, String>;
 
 pub struct Renamer<'a> {
     map: &'a NameMap,
-    /// names that two `install`s provide with DIFFERENT meanings: harmless
-    /// until something uses them, so a use is recorded in `hits`
+    /// names that two `install`s provide with DIFFERENT meanings. harmless
+    /// until something uses them, so a use gets recorded in `hits`
     ambiguous: HashSet<String>,
     hits: std::cell::RefCell<Vec<String>>,
-    /// one set per open block; a name in ANY of them is a local that
+    /// one set per open block. a name in ANY of them is a local that
     /// shadows the module-level symbol of the same name
     shadowed: Vec<HashSet<String>>,
 }
@@ -67,7 +67,7 @@ impl<'a> Renamer<'a> {
         }
     }
 
-    /// resolves a VALUE-position name (variable/function): shadowed
+    /// resolves a VALUE-position name (variable/function). shadowed
     /// locals keep their own name, module-level symbols get mangled
     fn value_name(&self, name: &str) -> String {
         if self.is_shadowed(name) {
@@ -77,15 +77,15 @@ impl<'a> Renamer<'a> {
         self.map.get(name).cloned().unwrap_or_else(|| name.to_string())
     }
 
-    /// resolves a TYPE-position name. Types live in their own namespace
+    /// resolves a TYPE-position name. types live in their own namespace
     /// (a local variable can never shadow a struct name), so no shadow
-    /// check here.
+    /// check here. nothing to check. relax.
     fn type_name(&self, name: &str) -> String {
         self.note_use(name);
         self.map.get(name).cloned().unwrap_or_else(|| name.to_string())
     }
 
-    // ---- types ----
+    // ---- types (the name game, round two) ----
 
     pub fn rename_type(&self, ty: &mut TypeExpr) {
         match ty {
@@ -112,15 +112,15 @@ impl<'a> Renamer<'a> {
         }
     }
 
-    // ---- statements ----
+    // ---- statements (the bulk) ----
 
-    /// Renames a whole module body. Top-level declarations' OWN names are
+    /// renames a whole module body. top-level declarations' OWN names are
     /// renamed too (they're in `map` by construction), so a declaration
-    /// and every use of it stay in sync.
+    /// and every use of it stay in sync. like a good choir.
     pub fn rename_program(&mut self, stmts: &mut [Stmt]) {
-        // top-level is the module's outermost block: locals declared
+        // top-level is the module's outermost block. locals declared
         // here are module-level symbols (already in `map`), NOT shadows,
-        // so no shadow frame is pushed for it
+        // so no shadow frame gets pushed for it
         for stmt in stmts {
             self.rename_stmt(stmt, true);
         }
@@ -138,7 +138,7 @@ impl<'a> Renamer<'a> {
         match stmt {
             Stmt::Let { name, type_ann, value, .. } | Stmt::Const { name, type_ann, value, .. } => {
                 // the initializer is evaluated BEFORE the new name comes
-                // into scope, so `let x = x + 1` reads the outer `x`
+                // into scope, so `let x = x + 1` reads the outer `x`. sneaky!
                 self.rename_expr(value);
                 if let Some(t) = type_ann {
                     self.rename_type(t);
@@ -245,7 +245,7 @@ impl<'a> Renamer<'a> {
                 if let Some(rt) = return_type {
                     self.rename_type(rt);
                 }
-                // parameters shadow module-level names inside the body
+                // params shadow module-level names inside the body
                 self.shadowed.push(HashSet::new());
                 for p in params.iter() {
                     self.shadow(&p.name);
@@ -259,12 +259,12 @@ impl<'a> Renamer<'a> {
                 self.rename_params(fields);
             }
 
-            // the enum's own name is mangled like a struct's; its variants are
+            // the enum's own name is mangled like a struct's. its variants are
             // only ever reached as `Enum.Variant`, so they never need renaming
             Stmt::EnumDecl { name, .. } => *name = self.type_name(name),
 
-            // imports are consumed by the resolver before renaming; by
-            // the time a module body reaches this pass they're gone
+            // imports get eaten by the resolver before renaming. by
+            // the time a module body gets here, they're gone
             Stmt::Import { .. } | Stmt::ReExport { .. } | Stmt::Install { .. } => {}
 
             Stmt::Break { .. } | Stmt::Continue { .. } => {}
@@ -274,7 +274,7 @@ impl<'a> Renamer<'a> {
         }
     }
 
-    // ---- expressions ----
+    // ---- expressions (where the names go to die) ----
 
     fn rename_expr(&mut self, expr: &mut Expr) {
         match expr {
@@ -295,8 +295,8 @@ impl<'a> Renamer<'a> {
 
             Expr::Ident(name, _) => *name = self.value_name(name),
 
-            // a lambda's parameters shadow module-level names inside its body,
-            // exactly like a function declaration's do
+            // a lambda's params shadow module-level names inside its body,
+            // exactly like a function declaration's do. consistent.
             Expr::Lambda { params, return_type, body, .. } => {
                 self.rename_params(params);
                 if let Some(rt) = return_type {

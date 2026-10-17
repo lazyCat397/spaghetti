@@ -1,7 +1,7 @@
-//! Fatal type errors. The checker collects ALL of these in one pass
-//! instead of stopping at the first one — matches the language's rigid,
-//! no-silent-fallback philosophy, but still gives the user everything
-//! wrong in one shot instead of a fix-rerun-fix loop.
+//! Fatal type errors. the checker collects ALL of them in one pass
+//! instead of stopping at the first one. matches the language's rigid,
+//! no-silent-fallback philosophy, but still dumps every mistake at once
+//! instead of a fix-rerun-fix loop. you're welcome, user.
 
 use spg_parser::ast::{display_name, Pos};
 use crate::typed_ast::Ty;
@@ -9,179 +9,179 @@ use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeError {
-    /// `let x: int = "text"` — annotation and value disagree
+    /// `let x: int = "text"`. the annotation and the value disagree. classic.
     AnnotationMismatch { expected: Ty, found: Ty, pos: Pos },
 
-    /// function declared `-> int` but a `return` gives back something else
+    /// function says `-> int` but a `return` hands back something else. liar.
     ReturnTypeMismatch { expected: Ty, found: Ty, pos: Pos },
 
-    /// a code path in a non-void function has no `return` at all
+    /// a path through a non-void function has no `return`. the function just gives up.
     MissingReturn { function_name: String, expected: Ty, pos: Pos },
 
-    /// the two branches of an if-EXPRESSION disagree in type
+    /// the two branches of an if-EXPRESSION disagree. pick a type, any type.
     IfExprBranchMismatch { then_ty: Ty, else_ty: Ty, pos: Pos },
 
-    /// `when (x)` where `x` is not an int, a string or an enum
+    /// `when (x)` where `x` isn't an int, a string or an enum. not matchable, sorry.
     MatchSubjectType { found: Ty, pos: Pos },
-    /// a case value whose type differs from the matched value's
+    /// a case value whose type doesn't match the matched value's
     MatchCaseType { expected: Ty, found: Ty, pos: Pos },
-    /// an enum match without `else` that leaves some variants out
+    /// an enum match that skips variants and has no `else`. we noticed.
     MatchNonExhaustive { missing: Vec<String>, pos: Pos },
     MatchDuplicateCase { value: String, pos: Pos },
 
-    /// identifier used but never declared in any visible scope
+    /// identifier used but never declared anywhere you can see. ghost variable.
     UndefinedVariable { name: String, pos: Pos },
 
-    /// callee is not a function (or not defined at all)
+    /// callee isn't a function (or isn't defined at all)
     UndefinedFunction { name: String, pos: Pos },
 
-    /// a pre-namespace builtin name (`sqrt`, `toUpper`, `clock`, ...) that
-    /// now lives under a namespace; `replacement` is the new qualified name
+    /// an old builtin name (`sqrt`, `toUpper`, `clock`, ...) from before
+    /// namespaces. `replacement` is the new name. we moved stuff around.
     RemovedBuiltin { name: String, replacement: String, pos: Pos },
 
-    /// `math.sqrt(...)`, `list.push(...)`, `transform.toInt(...)`, `time.run()`:
-    /// the namespace spelling used before namespaces got their `@`.
-    /// `replacement` is the current name when one exists.
+    /// `math.sqrt(...)`, `list.push(...)`, `transform.toInt(...)`, `time.run()`.
+    /// the namespace spelling from before the `@` days. nostalgia not included.
+    /// `replacement` is the current name, when there is one.
     OldNamespace { name: String, replacement: Option<String>, pos: Pos },
 
-    /// a call whose callee is not a plain function name (`p.x()`, `f()()`,
-    /// `(a + b)()`): only named functions and builtins can be called
+    /// a call whose callee isn't a plain function name (`p.x()`, `f()()`,
+    /// `(a + b)()`). only named functions and builtins can be called. don't get fancy.
     NotCallable { pos: Pos },
 
-    /// a lambda assigns a variable of the function it was written in: captured values are copies
+    /// a lambda assigns a variable of the function it lives in. captured values are copies, so this does nothing useful. watch out.
     CaptureAssign { name: String, pos: Pos },
 
-    /// wrong number of arguments in a call
+    /// wrong number of args. count your fingers.
     ArityMismatch { function_name: String, expected: usize, found: usize, pos: Pos },
 
-    /// argument type doesn't match the parameter's declared type
+    /// arg type doesn't match the parameter. read the signature, man.
     ArgTypeMismatch { function_name: String, param_index: usize, expected: Ty, found: Ty, pos: Pos },
 
-    /// operator used with types it doesn't support (e.g. "a" - 1)
+    /// operator used on types it doesn't support (e.g. "a" - 1). strings don't subtract.
     InvalidOperandTypes { op: String, left: Ty, right: Ty, pos: Pos },
 
-    /// `for x in y` where `y` isn't an array
+    /// `for x in y` where `y` isn't an array. nothing to loop over.
     NotIterable { found: Ty, pos: Pos },
 
     /// `for i in a..b step s` where `a`, `b` or `s` isn't an int
     RangeNotInt { which: &'static str, found: Ty, pos: Pos },
 
-    /// `for i in a..b step 0`: a literal zero step can never finish
+    /// `for i in a..b step 0`: a literal zero step never finishes. infinite loop, caught.
     RangeZeroStep { pos: Pos },
 
-    /// re-declaring a name already bound in the same scope
+    /// re-declaring a name already taken in the same scope. pick a new name.
     DuplicateDeclaration { name: String, pos: Pos },
-    /// `#> strict`: a name that hides another one from an outer scope
+    /// `#> strict`: a name hiding another one from an outer scope. shadowing, but grumpy.
     ShadowedDeclaration { name: String, pos: Pos },
-    /// `#> strict`: code after `return` / `break` / `continue` / `throw`
+    /// `#> strict`: code after `return` / `break` / `continue` / `throw`. dead code. bye.
     UnreachableCode { keyword: &'static str, pos: Pos },
 
-    /// an `if`/`while` condition isn't Bool
+    /// an `if`/`while` condition isn't Bool. no truthy nonsense here.
     NonBoolCondition { found: Ty, pos: Pos },
 
-    /// `x = valor` where `x` was declared with `const`
+    /// `x = valor` where `x` was declared `const`. read the keyword, friend.
     AssignToConst { name: String, pos: Pos },
 
-    /// `x = valor` where the value's type disagrees with `x`'s declared type
+    /// `x = valor` where the value's type disagrees with `x`'s type
     AssignTypeMismatch { name: String, expected: Ty, found: Ty, pos: Pos },
 
-    /// `break`/`continue` used outside of any enclosing while/for-in loop
+    /// `break`/`continue` outside any loop. nothing to break out of.
     LoopControlOutsideLoop { keyword: String, pos: Pos },
 
-    /// no trailing `-> Type` was given and the function's `return`
-    /// statements disagree on type, so nothing could be inferred —
-    /// unlike ReturnTypeMismatch (which compares against a type the
-    /// user DID declare), this fires when there was nothing to compare
-    /// against in the first place
+    /// no trailing `-> Type` given, and the function's `return`
+    /// statements disagree on type, so nothing could be inferred.
+    /// unlike ReturnTypeMismatch (which compares to a type the
+    /// user DID declare), this one fires when there was nothing to compare
+    /// against in the first place. the function is undecided. so are we.
     CannotInferReturnType { function_name: String, found_types: Vec<Ty>, pos: Pos },
 
     /// `expr[index]` or `expr[index] = ...` where `expr` isn't an array
     NotIndexable { found: Ty, pos: Pos },
 
-    /// an array index expression isn't `int` (e.g. `arr["x"]`)
+    /// an array index that isn't `int` (e.g. `arr["x"]`). no string indexes, sorry.
     IndexTypeMismatch { found: Ty, pos: Pos },
 
-    /// a map key type that cannot be hashed: only int, string, bool and enums
+    /// a map key type that can't be hashed. only int, string, bool and enums.
     MapKeyType { found: Ty, pos: Pos },
 
-    /// `m[k]` / `@map.has(m, k)` / a literal entry whose key is not the map's key type
+    /// `m[k]` / `@map.has(m, k)` / a literal entry with a key of the wrong type
     MapKeyMismatch { expected: Ty, found: Ty, pos: Pos },
 
-    /// a value that is not the map's value type (`m[k] = v`, literal entry, `@map.get` fallback)
+    /// a value of the wrong type for the map (`m[k] = v`, literal entry, `@map.get` fallback)
     MapValueMismatch { expected: Ty, found: Ty, pos: Pos },
 
-    /// `[1, 2.5]`: every item of an array literal has the first item's type
+    /// `[1, 2.5]`: every item must match the first item's type. no mixing.
     ArrayItemMismatch { expected: Ty, found: Ty, pos: Pos },
 
-    /// `@array.fill(n, x)` with an `x` that is not int, float, bool or string
+    /// `@array.fill(n, x)` with an `x` that isn't int, float, bool or string
     ArrayFillType { found: Ty, pos: Pos },
 
-    /// `let m = [:]` with nothing to say what the map holds
+    /// `let m = [:]` with nothing saying what the map holds. the map is a mystery.
     EmptyMapNeedsType { pos: Pos },
 
-    /// `let x = none`: nothing says which optional type this is
+    /// `let x = none`: nothing says which optional type this is. none of your business, apparently. it is.
     NoneNeedsType { pos: Pos },
 
-    /// `a ?? b` where `a` is not an optional
+    /// `a ?? b` where `a` isn't an optional. nothing to default.
     CoalesceNeedsOptional { found: Ty, pos: Pos },
 
-    /// `let x = <expr>` / `const` where the value has type void (e.g. an `if`
-    /// whose branches only call print): there is no value to store
+    /// `let x = <expr>` / `const` where the value is void (e.g. an `if`
+    /// whose branches only call print). nothing to store. shoutout to print.
     VoidValue { pos: Pos },
 
     /// `arr[i] = value` where `value`'s type disagrees with the array's
-    /// element type
+    /// element type. same story, different array.
     IndexAssignTypeMismatch { expected: Ty, found: Ty, pos: Pos },
 
-    /// `Name { .. }` where `Name` was never declared with `struct`
+    /// `Name { .. }` where `Name` was never declared with `struct`. made-up structs, no.
     UndefinedStruct { name: String, pos: Pos },
 
-    /// a struct literal is missing one or more of its declared fields
+    /// a struct literal missing some of its fields. fill in the blanks.
     MissingFields { struct_name: String, missing: Vec<String>, pos: Pos },
 
-    /// a struct literal names a field the struct doesn't declare
+    /// a struct literal names a field the struct doesn't have. invented fields, no.
     UnknownField { struct_name: String, field: String, pos: Pos },
 
     /// a struct literal field's value doesn't match that field's
-    /// declared type
+    /// declared type. same song.
     StructFieldTypeMismatch { struct_name: String, field: String, expected: Ty, found: Ty, pos: Pos },
 
-    /// `expr.field` where `expr` isn't a struct at all
+    /// `expr.field` where `expr` isn't a struct at all. fields need structs.
     NotAStruct { found: Ty, pos: Pos },
 
-    /// `Color.Purple` where enum `Color` has no such variant
+    /// `Color.Purple` where enum `Color` has no such variant. purple isn't a color here.
     NoSuchVariant { enum_name: String, variant: String, variants: Vec<String>, pos: Pos },
 
-    /// the bare name of an enum used as a value (`let x = Color`)
+    /// the bare enum name used as a value (`let x = Color`). the enum isn't a value, silly.
     EnumAsValue { name: String, pos: Pos },
 
-    /// `expr.field` where `expr` IS a struct but doesn't declare `field`
+    /// `expr.field` where `expr` IS a struct but doesn't have `field`
     NoSuchField { struct_name: String, field: String, pos: Pos },
 
     /// `p.f()` where struct `P` has no method `f`. `is_field` is true when
-    /// `f` IS a field of `P` (so the hint can say fields are not callable)
+    /// `f` IS a field of `P` (so the hint can say fields aren't callable)
     NoSuchMethod { struct_name: String, method: String, is_field: bool, pos: Pos },
 
-    /// `x.f()` where `x` is not a struct at all (an int, a string, an array...)
+    /// `x.f()` where `x` isn't a struct at all (an int, a string, an array...)
     NoMethodsOnType { found: Ty, method: String, pos: Pos },
 
-    /// `throw 5`: exceptions carry a string
+    /// `throw 5`: exceptions carry a string. not a number. not a struct. a string.
     ThrowNotString { found: Ty, pos: Pos },
-    /// `catch (e: Point)`: what `catch` receives is the thrown string
+    /// `catch (e: Point)`: what `catch` gets is the thrown string. Point is not a string.
     CatchNotString { found: Ty, pos: Pos },
-    /// `s.nope()` / `xs.nope()` / `m.nope()`: no builtin of `@str`/`@array`/`@map` by that
-    /// name takes the value first
+    /// `s.nope()` / `xs.nope()` / `m.nope()`: no builtin of `@str`/`@array`/`@map` with that
+    /// name takes the value first. nope.
     NoSuchNativeMethod { found: Ty, method: String, pos: Pos },
 
-    /// `p.f` (no call) where `f` is a METHOD of the struct, not a field
+    /// `p.f` (no call) where `f` is a METHOD, not a field. add the parentheses.
     MethodNotCalled { struct_name: String, method: String, pos: Pos },
 }
 
 impl TypeError {
-    /// the `Pos` carried by whichever variant this is — one place that
+    /// the `Pos` carried by whichever variant this is. one place that
     /// knows every variant has exactly one `pos` field, so `Display`
     /// below doesn't need its own copy of this same 25-arm match just
-    /// to find the file/line/col to print.
+    /// to find the file/line/col to print. yes, 25 arms. it hurts.
     pub fn pos(&self) -> &Pos {
         match self {
             TypeError::AnnotationMismatch { pos, .. }
@@ -243,15 +243,15 @@ impl TypeError {
 
     /// the full `"type error ...: "` prefix every message below starts
     /// with. spg-modules stamps a `Pos.file` on every statement of every
-    /// program it resolves — single-file ones included — so in
-    /// practice `file` is always `Some` here and every error names its
-    /// file, not just its line/column. The `None` arm only exists for
-    /// `Pos` values built directly by something other than spg-modules
-    /// (a hand-built `Program` in a test, say); it falls back to the
-    /// old line/column-only wording rather than printing a placeholder.
+    /// program it resolves (single-file ones too), so in
+    /// practice `file` is always `Some` here, so every error names its
+    /// file, not just its line/column. the `None` arm only exists for
+    /// `Pos` values built by something other than spg-modules
+    /// (a hand-built `Program` in a test, say). it falls back to the
+    /// old line/column-only wording instead of printing a placeholder. good.
     /// the message alone, without the `type error in <file> at line X,
-    /// column Y: ` prefix — for consumers (the language server) that carry
-    /// the position separately
+    /// column Y: ` prefix. for consumers (the language server) that carry
+    /// the position separately. the LSP has its own opinions.
     pub fn message(&self) -> String {
         let full = self.to_string();
         match full.strip_prefix(&self.location()) {
@@ -272,7 +272,7 @@ impl TypeError {
 impl fmt::Display for TypeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.fmt_base(f)?;
-        // an optional where a plain value was needed: say how to get out of it
+        // an optional where a plain value was needed. say how to get out of it.
         let optional = |t: &Ty| matches!(t, Ty::Optional(_));
         let involved = match self {
             TypeError::InvalidOperandTypes { left, right, .. } => optional(left) || optional(right),
@@ -350,7 +350,7 @@ impl TypeError {
                 self.location(), display_name(name)
             ),
             TypeError::UndefinedFunction { name, .. } => match name.split_once('.') {
-                // `@math.foo`: the namespace exists, the member doesn't
+                // `@math.foo`: the namespace exists, the member doesn't. sad.
                 Some((ns, member)) => write!(
                     f, "{}namespace '{}' has no member '{}'",
                     self.location(), ns, member
@@ -552,7 +552,7 @@ impl TypeError {
 }
 
 impl TypeError {
-    /// the same fact in the friendly tone (`#> friendly-terminal`)
+    /// the same fact, friendly tone (`#> friendly-terminal`). the nice version.
     pub fn friendly(&self) -> String {
         let hint = match self {
             TypeError::ShadowedDeclaration { .. } => spg_lexer::HINT_SHADOW,

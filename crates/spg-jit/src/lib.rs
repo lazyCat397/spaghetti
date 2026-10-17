@@ -1,29 +1,29 @@
-//! spg-jit: native code (Cranelift, in-process) for functions whose parameters
+//! spg-jit: native code (Cranelift, in-process) for functions whose params
 //! and return type are `int`, `float`, `bool`, `string`, or an array of one of
-//! the first three or of strings (arrays may be parameters, not results).
+//! the first three or of strings (arrays may be params, not results).
 //!
-//! Correctness rule: a native function never produces an error itself. Any case
-//! it cannot answer exactly (integer overflow, integer division or modulo by 0
+//! correctness rule: a native function never produces an error itself. any case
+//! it can't answer exactly (integer overflow, int division or modulo by 0
 //! or -1, an index out of range, call depth over the VM's limit, a callee that
-//! gave up) sets a failure flag and returns; the VM then runs that call itself,
-//! which yields the exact same value or the exact same runtime error and stack
-//! trace. This is safe because these functions are pure: they never write to
-//! an array, and they have no printing, globals or effectful builtins.
-//! Float operations never fail in the VM (IEEE results), so they need no guard.
+//! gave up) sets a failure flag and returns. the VM then runs that call itself,
+//! which gives the exact same value, or the exact same error and stack
+//! trace. this is safe because these functions are pure. they never write to
+//! an array, and they have no printing, globals or effectful builtins. boring = safe.
+//! float ops never fail in the VM (IEEE results), so no guard needed. floats, being floats.
 //!
-//! Strings and arrays are reference counted, like the VM's `Rc`s. Native code
-//! owns one reference for every heap value it holds (a local, a temporary or an
-//! argument), and releases it when the value is consumed: on pop, on return,
-//! when an operator consumes its operands, and on every failure path. The VM
-//! hands over an owned reference for each heap argument and takes ownership of
-//! the returned string.
+//! strings and arrays are reference counted, like the VM's `Rc`s. native code
+//! owns one reference for every heap value it holds (a local, a temp or an
+//! arg), and releases it when the value gets consumed: on pop, on return,
+//! when an operator eats its operands, and on every failure path. the VM
+//! hands over an owned reference for each heap arg, and takes ownership of
+//! the returned string. the paperwork is done.
 //!
-//! It is fed the unoptimized bytecode (the CLI compiles a second, plain copy
+//! it gets fed the unoptimized bytecode (the CLI compiles a second, plain copy
 //! for this when `--jit` is given), so the instruction set here stays small.
-//! The VM itself keeps running the optimized program.
+//! the VM itself keeps running the optimized program. not my problem.
 //!
-//! ABI: every native function is `(ctx, depth, args...) -> i64`. Floats travel
-//! as their 64-bit patterns and heap values as `Rc::into_raw` pointers.
+//! ABI: every native function is `(ctx, depth, args...) -> i64`. floats travel
+//! as their 64-bit patterns, heap values as `Rc::into_raw` pointers. fun.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, HashMap};
@@ -47,15 +47,15 @@ use spg_vm::{NativeCalls, MAX_CALL_DEPTH};
 
 /// offset of the "failed" flag in the context block: [failed, unused]
 const CTX_FAILED: i32 = 0;
-/// arguments up to this count are supported (keeps the Rust call shim small)
+/// args up to this count are supported (keeps the Rust call shim small)
 const MAX_ARITY: usize = 4;
 
-// ---- runtime helpers, called from native code ------------------------------
-// These run the same Rust operations as the VM, so the results match exactly.
-// Heap values are `Rc` references handed over as `i64`; 0 means "none".
-// Helpers never panic (a panic cannot unwind through native frames).
+// ---- runtime helpers, called from native code (the Rust side of the deal) ------
+// these run the same Rust ops as the VM, so the results match exactly.
+// heap values are `Rc` references handed over as `i64`. 0 means "none".
+// helpers never panic. a panic can't unwind through native frames. please, no panics.
 
-/// float remainder and power, as the VM computes them
+/// float remainder and power, the way the VM computes them
 extern "C" fn spg_fmod(a: f64, b: f64) -> f64 {
     a % b
 }
@@ -73,7 +73,7 @@ extern "C" fn spg_str_retain(p: i64) {
 
 extern "C" fn spg_str_release(p: i64) {
     if p != 0 {
-        // SAFETY: this consumes the reference we hold
+        // SAFETY: this consumes the reference we hold. one-way ticket.
         unsafe { drop(Rc::from_raw(p as *const String)) }
     }
 }
@@ -82,7 +82,7 @@ extern "C" fn spg_str_release(p: i64) {
 extern "C" fn spg_str_concat(a: i64, b: i64) -> i64 {
     // SAFETY: both are owned references from Rc::into_raw; consumed here
     let (a, b) = unsafe { (Rc::from_raw(a as *const String), Rc::from_raw(b as *const String)) };
-    // one allocation of the exact size, then two copies; format! would go through the formatter
+    // one allocation of the exact size, then two copies. format! would go through the formatter, and that's slow.
     let mut joined = String::with_capacity(a.len() + b.len());
     joined.push_str(&a);
     joined.push_str(&b);
@@ -96,7 +96,7 @@ extern "C" fn spg_str_eq(a: i64, b: i64) -> i64 {
     (*a == *b) as i64
 }
 
-/// `len(s)`: character count, as the VM's `Len` builtin. Consumes `p`.
+/// `len(s)`: character count, like the VM's `Len` builtin. consumes `p`.
 extern "C" fn spg_str_len(p: i64) -> i64 {
     // SAFETY: an owned reference from Rc::into_raw, consumed here
     let s = unsafe { Rc::from_raw(p as *const String) };
@@ -130,15 +130,15 @@ extern "C" fn spg_arr_release(p: i64) {
     }
 }
 
-/// borrows the array (does not consume `p`) and returns its length
+/// borrows the array (doesn't consume `p`) and returns its length
 extern "C" fn spg_arr_len(p: i64) -> i64 {
-    // SAFETY: `p` is alive while native code holds it; we only borrow it
+    // SAFETY: `p` is alive while native code holds it. we only borrow it.
     let arr = unsafe { &*(p as *const RefCell<Vec<Value>>) };
     arr.try_borrow().map(|v| v.len() as i64).unwrap_or(0)
 }
 
-/// element getters borrow the array; the index was checked by native code.
-/// A mismatched element cannot happen (arrays are statically typed); it reads as 0.
+/// element getters borrow the array. native code already checked the index.
+/// a mismatched element can't happen (arrays are statically typed). it reads as 0.
 extern "C" fn spg_arr_get_int(p: i64, i: i64) -> i64 {
     // SAFETY: as in spg_arr_len
     let arr = unsafe { &*(p as *const RefCell<Vec<Value>>) };
@@ -180,13 +180,13 @@ extern "C" fn spg_arr_get_str(p: i64, i: i64) -> i64 {
     }
 }
 
-// Undo log for native stores (array elements and struct fields), so a failed native
-// call can be rerun by the VM from the state it started in. Stores are logged one by
-// one. When the log passes a limit it is compacted into a snapshot of each touched
-// object's original contents, so memory grows with the objects, not the writes.
+// undo log for native stores (array elements and struct fields), so a failed native
+// call can be rerun by the VM from the state it started in. stores get logged one by
+// one. when the log passes a limit it gets compacted into a snapshot of each touched
+// object's original contents. memory grows with the objects, not the writes. clever.
 const MIN_LOG: usize = 4096;
 
-/// a heap object whose slots native code can store into: an array, or a struct's fields
+/// a heap object native code can store into: an array, or a struct's fields
 #[derive(Clone)]
 enum Obj {
     Arr(Rc<RefCell<Vec<Value>>>),
@@ -201,7 +201,7 @@ impl Obj {
         }
     }
 
-    /// the slots, mutably borrowed; None when something else holds a borrow
+    /// the slots, mutably borrowed. None when something else holds a borrow
     fn slots(&self) -> Option<std::cell::RefMut<'_, Vec<Value>>> {
         match self {
             Obj::Arr(r) => r.try_borrow_mut().ok(),
@@ -210,7 +210,7 @@ impl Obj {
     }
 }
 
-/// hasher for object addresses: one multiply, instead of SipHash on every store
+/// hasher for object addresses: one multiply, instead of SipHash on every store. fast hashing, no crypto needed.
 #[derive(Default)]
 struct AddrHasher(u64);
 
@@ -238,7 +238,7 @@ struct Undo {
     snaps: Vec<(Obj, Vec<Value>)>,
     /// the addresses of the objects in `snaps`
     snap_ids: AddrSet,
-    /// log size that triggers the next compaction (0 when there is none yet)
+    /// log size that triggers the next compaction (0 when there's none yet)
     limit: usize,
 }
 
@@ -294,8 +294,8 @@ impl Undo {
     }
 }
 
-/// stores `new` at slot `i` of `o`, logging the value it replaces. Returns 1 when the
-/// store cannot be done (bad index, or a borrow is active); `new` is dropped then.
+/// stores `new` at slot `i` of `o`, logging the value it replaces. returns 1 when the
+/// store can't be done (bad index, or a borrow is active). `new` gets dropped then.
 fn store(o: Obj, i: i64, new: Value) -> i64 {
     let old = o.slots().and_then(|mut slots| {
         let slot = slots.get_mut(i as usize)?;
@@ -303,8 +303,8 @@ fn store(o: Obj, i: i64, new: Value) -> i64 {
     });
     match old {
         Some(old) => {
-            // an object already snapshotted in this call is restored from its snapshot,
-            // so its later stores need no entry of their own
+            // an object already snapshotted in this call gets restored from its snapshot,
+            // so its later stores need no entry of their own. efficient, like a lazy genius.
             UNDO.with(|u| {
                 let mut u = u.borrow_mut();
                 if u.snap_ids.contains(&o.addr()) {
@@ -321,7 +321,7 @@ fn store(o: Obj, i: i64, new: Value) -> i64 {
     }
 }
 
-/// a store's value, from the 64-bit pattern native code passes: a string is an owned
+/// a store's value, from the 64-bit pattern native code passes. a string is an owned
 /// `Rc::into_raw` pointer, which the value takes over
 fn value_of(bits: i64, tag: i64) -> Value {
     match tag {
@@ -333,33 +333,33 @@ fn value_of(bits: i64, tag: i64) -> Value {
     }
 }
 
-/// a new reference to the array behind `p` (the caller's reference is left alone)
+/// a new reference to the array behind `p` (the caller's ref is left alone)
 unsafe fn arr_ref(p: i64) -> Rc<RefCell<Vec<Value>>> {
     Rc::increment_strong_count(p as *const RefCell<Vec<Value>>);
     Rc::from_raw(p as *const RefCell<Vec<Value>>)
 }
 
-/// a new reference to the struct behind `p` (the caller's reference is left alone)
+/// a new reference to the struct behind `p` (the caller's ref is left alone)
 unsafe fn rec_ref(p: i64) -> spg_vm::value::StructRef {
     Rc::increment_strong_count(p as *const RefCell<(Rc<spg_vm::value::StructDef>, Vec<Value>)>);
     Rc::from_raw(p as *const RefCell<(Rc<spg_vm::value::StructDef>, Vec<Value>)>)
 }
 
-/// Stores into `p[i]`. `tag` is the element kind (0 int, 1 bool, 2 float, 3 string).
-/// Returns 1 when the store could not be done.
+/// stores into `p[i]`. `tag` is the element kind (0 int, 1 bool, 2 float, 3 string).
+/// returns 1 when the store couldn't be done.
 extern "C" fn spg_arr_set(p: i64, i: i64, bits: i64, tag: i64) -> i64 {
     // SAFETY: as in spg_arr_len
     store(Obj::Arr(unsafe { arr_ref(p) }), i, value_of(bits, tag))
 }
 
-/// Stores into field `i` of the struct behind `p`; same contract as spg_arr_set.
+/// stores into field `i` of the struct behind `p`. same contract as spg_arr_set.
 extern "C" fn spg_struct_set(p: i64, i: i64, bits: i64, tag: i64) -> i64 {
     // SAFETY: as in spg_arr_len
     store(Obj::Rec(unsafe { rec_ref(p) }), i, value_of(bits, tag))
 }
 
-/// reads field `i` of the struct behind `p` (borrowed); a string comes back as an
-/// owned reference. The kinds are checked by native code, so a mismatch reads as 0.
+/// reads field `i` of the struct behind `p` (borrowed). a string comes back as an
+/// owned reference. native code checks the kinds, so a mismatch reads as 0.
 extern "C" fn spg_struct_get(p: i64, i: i64, tag: i64) -> i64 {
     // SAFETY: as in spg_arr_len
     let rec = unsafe { &*(p as *const RefCell<(Rc<spg_vm::value::StructDef>, Vec<Value>)>) };
@@ -387,7 +387,7 @@ extern "C" fn spg_struct_release(p: i64) {
     }
 }
 
-/// the ownership a native-call argument carries, so a bail-out can release it
+/// the ownership a native-call arg carries, so a bail-out can release it
 #[derive(Clone, Copy, PartialEq)]
 enum Owned {
     No,
@@ -408,16 +408,16 @@ fn owned_of(k: K) -> Owned {
 /// `Some(ptr, arity)` for every function that has native code
 pub struct NativeTable {
     _module: JITModule,
-    /// keeps the string constants baked into the code alive
+    /// keeps the string constants baked into the code alive. don't let them die.
     _keep: Vec<Rc<String>>,
     entries: Vec<Option<(usize, usize)>>,
-    /// per function, the ownership of each parameter (released on bail-out)
+    /// per function, the ownership of each param (released on bail-out)
     arg_owned: Vec<Vec<Owned>>,
-    /// set after a call to the function gave up. The VM takes over for the rest
-    /// of the run: a call that failed deep in a recursion would otherwise be
-    /// retried natively at every level the VM re-enters, which is quadratic.
+    /// set after a call to the function gave up. the VM takes over for the rest
+    /// of the run. a call that failed deep in a recursion would otherwise be
+    /// retried natively at every level the VM re-enters. quadratic. no thanks.
     disabled: Vec<Cell<bool>>,
-    /// how many functions were compiled natively (for --time style reporting)
+    /// how many functions got compiled natively (for --time reporting)
     pub compiled: usize,
 }
 
@@ -430,7 +430,7 @@ impl NativeCalls for NativeTable {
         let (ptr, arity) = (*self.entries.get(func_index)?)?;
         let owned = &self.arg_owned[func_index];
         if args.len() != arity || self.disabled[func_index].get() {
-            // we were handed references the native code will never see: give them back
+            // we were handed references the native code will never see. give them back.
             for (a, o) in args.iter().zip(owned) {
                 match o {
                     Owned::Str => spg_str_release(*a),
@@ -443,7 +443,7 @@ impl NativeCalls for NativeTable {
         }
         let mut ctx = [0i64; 2];
         let cp = ctx.as_mut_ptr() as i64;
-        // every native function takes (ctx, depth, args...); the top call starts at depth 0
+        // every native function takes (ctx, depth, args...). the top call starts at depth 0
         let r = unsafe {
             match arity {
                 0 => std::mem::transmute::<usize, extern "C" fn(i64, i64) -> i64>(ptr)(cp, 0),
@@ -456,7 +456,7 @@ impl NativeCalls for NativeTable {
             }
         };
         // on failure the native code has already released everything it owned,
-        // arguments included
+        // args included. tidy.
         if ctx[0] != 0 {
             // the VM reruns this call, so the stores made before the failure must go
             UNDO.with(|u| u.borrow_mut().finish(false));
@@ -493,25 +493,25 @@ fn leaders(chunk: &Chunk) -> BTreeSet<usize> {
     set
 }
 
-/// whether a value of this kind is reference counted
+/// whether a value of this kind is reference counted. heap stuff.
 fn is_heap(k: K) -> bool {
     matches!(k, K::String | K::Array(_) | K::Struct(_))
 }
 
-/// Type-checks the unoptimized bytecode of one function against the signatures
-/// of its callees, and returns the kind of every local slot. Returns `None` for
-/// anything the native backend does not support: unsupported opcodes or
+/// type-checks the unoptimized bytecode of one function against the signatures
+/// of its callees, and returns the kind of every local slot. returns `None` for
+/// anything the native backend doesn't support: unsupported opcodes or
 /// constants, operands of the wrong kind, a local read before its kind is known,
 /// a local that changes kind, values left on the stack across a jump, or a
-/// return of the wrong kind.
+/// return of the wrong kind. the bouncer, basically.
 fn check(chunk: &Chunk, own: &Sig, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::value::StructDef>]) -> Option<Vec<K>> {
     let code = &chunk.code;
     if code.is_empty() || !matches!(code.last(), Some(OpCode::Return) | Some(OpCode::Jump(_))) {
         return None;
     }
-    // a jump may land one past the end: that is the "after the function" label. Such a jump
-    // only sits in dead code (the `else` of an if whose branches both return), and if it is
-    // ever taken, the native call fails and the VM runs the function. Anything further out is refused.
+    // a jump may land one past the end: that's the "after the function" label. such a jump
+    // only sits in dead code (the `else` of an if whose branches both return). if it's
+    // ever taken, the native call fails and the VM runs the function. anything further out gets refused.
     for (i, op) in code.iter().enumerate() {
         match op {
             OpCode::Jump(t) if *t > code.len() => return None,
@@ -589,7 +589,7 @@ fn check(chunk: &Chunk, own: &Sig, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::v
                 }
             }
             OpCode::IndexSet => {
-                // stack: array, index, value; the value must have the element's kind
+                // stack: array, index, value. the value must have the element's kind
                 let v = st.pop()?;
                 pop(&mut st, K::Int)?;
                 match st.pop()? {
@@ -645,13 +645,13 @@ fn check(chunk: &Chunk, own: &Sig, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::v
                 st.push(*r);
             }
             OpCode::CallBuiltin { id, argc } => {
-                // only pure builtins; everything else stays in the VM
+                // only pure builtins. everything else stays in the VM. the rest is not our problem.
                 let (args, out): (&[K], K) = match id {
                     BuiltinId::Len => (&[K::String], K::Int),
                     BuiltinId::IntToString => (&[K::Int], K::String),
                     BuiltinId::FloatToString => (&[K::Float], K::String),
                     BuiltinId::BoolToString => (&[K::Bool], K::String),
-                    // exact conversions: `as` in Rust, which saturates and maps NaN to 0
+                    // exact conversions: `as` in Rust, which saturates and maps NaN to 0. math is weird.
                     BuiltinId::IntToFloat => (&[K::Int], K::Float),
                     BuiltinId::FloatToInt => (&[K::Float], K::Int),
                     BuiltinId::ArrayLenBuiltin => {
@@ -674,16 +674,16 @@ fn check(chunk: &Chunk, own: &Sig, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::v
                 pop(&mut st, own.1)?;
                 st.clear();
             }
-            // globals, maps, structs, the rest of the builtins: still in the VM
+            // globals, maps, the rest of the builtins: still in the VM
             _ => return None,
         }
     }
-    // a local that is never written is never read either; give it a kind anyway
+    // a local that's never written is never read either. give it a kind anyway.
     Some(slots.into_iter().map(|k| k.unwrap_or(K::Int)).collect())
 }
 
 /// which functions get native code: a fixpoint over the call graph, so a
-/// function that calls a non-native function is not native either
+/// function that calls a non-native function isn't native either. guilt by association.
 fn eligible(program: &Program) -> (Vec<bool>, Vec<Option<Vec<K>>>) {
     let n = program.functions.len();
     let mut elig: Vec<bool> = program
@@ -782,7 +782,7 @@ fn heap_temps(stack: &[(CV, K)]) -> Vec<(CV, K)> {
 }
 
 /// jumps to `fail` when `bad` is non-zero, otherwise continues in a new block.
-/// `temps` are released on the way out.
+/// `temps` get released on the way out.
 fn guard(b: &mut FunctionBuilder, h: Helpers, bad: CV, fail: Block, temps: Vec<(CV, K)>) {
     let cont = b.create_block();
     if temps.is_empty() {
@@ -800,7 +800,7 @@ fn guard(b: &mut FunctionBuilder, h: Helpers, bad: CV, fail: Block, temps: Vec<(
 }
 
 /// emits the "fail the whole native call" exit: release the heap locals, set
-/// the flag, return 0
+/// the flag, return 0. bye.
 fn fail_block(b: &mut FunctionBuilder, h: Helpers, ctx: CV, fail: Block, heap_vars: &[(Variable, K)]) {
     b.switch_to_block(fail);
     for (v, k) in heap_vars {
@@ -859,7 +859,7 @@ fn lower(
     let params: Vec<CV> = b.block_params(entry).to_vec();
     let ctx = params[0];
     let depth = params[1];
-    // parameters arrive owned; the other locals start empty (null / zero)
+    // params arrive owned. the other locals start empty (null / zero)
     for (i, (v, k)) in vars.iter().zip(slot_kinds).enumerate() {
         let raw = if i < chunk.arity {
             params[i + 2]
@@ -870,8 +870,8 @@ fn lower(
         b.def_var(*v, val);
     }
 
-    // depth limit, like the VM's MAX_CALL_DEPTH: deeper calls fall back to the VM.
-    // The depth travels in an argument register, not in memory.
+    // depth limit, like the VM's MAX_CALL_DEPTH. deeper calls fall back to the VM.
+    // the depth travels in an arg register, not in memory. fast.
     let limit = b.ins().iconst(I64, MAX_CALL_DEPTH as i64);
     let too_deep = b.ins().icmp(IntCC::SignedGreaterThanOrEqual, depth, limit);
     let body = b.create_block();
@@ -879,8 +879,8 @@ fn lower(
     b.switch_to_block(body);
     let deeper = b.ins().iadd_imm(depth, 1);
 
-    // one Cranelift block per leader. Instruction 0 gets its own block because a
-    // loop may jump back to it.
+    // one Cranelift block per leader. instruction 0 gets its own block, because a
+    // loop may jump back to it. loops, always loops.
     let start = b.create_block();
     b.ins().jump(start, &[]);
     b.switch_to_block(start);
@@ -908,7 +908,7 @@ fn lower(
                     Value::Bool(t) => (b.ins().iconst(I64, *t as i64), K::Bool),
                     Value::Float(f) => (b.ins().f64const(Ieee64::with_bits(f.to_bits())), K::Float),
                     Value::String(rc) => {
-                        // the constant lives on in the NativeTable; the stack gets its own reference
+                        // the constant lives on in the NativeTable. the stack gets its own reference
                         let p = b.ins().iconst(I64, Rc::as_ptr(rc) as usize as i64);
                         h.retain(b, K::String, p);
                         (p, K::String)
@@ -941,7 +941,7 @@ fn lower(
                 let (y, _) = stack.pop().unwrap();
                 let (x, _) = stack.pop().unwrap();
                 let (r, bad) = if matches!(op, OpCode::AddInt) {
-                    // signed add overflows iff both operands share a sign the result lacks
+                    // signed add overflows iff both operands share a sign the result doesn't have
                     let r = b.ins().iadd(x, y);
                     let x1 = b.ins().bxor(x, r);
                     let x2 = b.ins().bxor(y, r);
@@ -963,7 +963,7 @@ fn lower(
             OpCode::MulInt => {
                 let (y, _) = stack.pop().unwrap();
                 let (x, _) = stack.pop().unwrap();
-                // widen to 128 bits: the product fits iff sign-extending its low half gives it back
+                // widen to 128 bits. the product fits iff sign-extending its low half gives it back
                 let x128 = b.ins().sextend(I128, x);
                 let y128 = b.ins().sextend(I128, y);
                 let p = b.ins().imul(x128, y128);
@@ -976,7 +976,7 @@ fn lower(
             OpCode::DivInt | OpCode::ModInt => {
                 let (y, _) = stack.pop().unwrap();
                 let (x, _) = stack.pop().unwrap();
-                // by zero, and by -1 (where MIN / -1 overflows): let the VM decide
+                // by zero, and by -1 (where MIN / -1 overflows). let the VM decide
                 let zero = b.ins().iconst(I64, 0);
                 let minus1 = b.ins().iconst(I64, -1);
                 let z = b.ins().icmp(IntCC::Equal, y, zero);
@@ -1019,7 +1019,7 @@ fn lower(
             OpCode::ConcatString => {
                 let (y, _) = stack.pop().unwrap();
                 let (x, _) = stack.pop().unwrap();
-                // the helper consumes both operands
+                // the helper eats both operands
                 let inst = b.ins().call(h.concat, &[x, y]);
                 stack.push((b.inst_results(inst)[0], K::String));
             }
@@ -1038,7 +1038,7 @@ fn lower(
                     K::Array(e) => e,
                     _ => unreachable!("check() ensures an array"),
                 };
-                // unsigned compare: a negative index is out of range too
+                // unsigned compare: a negative index is out of range too. sneaky, good.
                 let len = b.ins().call(h.arr_len, &[arr]);
                 let len = b.inst_results(len)[0];
                 let bad = b.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, idx, len);
@@ -1064,12 +1064,12 @@ fn lower(
                         (b.inst_results(inst)[0], K::String)
                     }
                 };
-                // the element was read by borrow (or cloned for strings); the array reference is spent
+                // the element was read by borrow (or cloned for strings). the array ref is spent
                 h.release(b, ak, arr);
                 stack.push((val, k));
             }
             OpCode::IndexSet => {
-                // stack: array, index, value. A string value's reference moves into the array.
+                // stack: array, index, value. a string value's ref moves into the array
                 let (val, vk) = stack.pop().unwrap();
                 let (idx, _) = stack.pop().unwrap();
                 let (arr, ak) = stack.pop().unwrap();
@@ -1095,14 +1095,14 @@ fn lower(
                 let tag = b.ins().iconst(I64, tag);
                 let inst = b.ins().call(h.arr_set, &[arr, idx, bits, tag]);
                 let status = b.inst_results(inst)[0];
-                // the store consumed a string value either way; only a borrow clash lands here
+                // the store ate a string value either way. only a borrow clash lands here
                 let mut temps = heap_temps(&stack);
                 temps.push((arr, ak));
                 guard(b, h, status, fail, temps);
                 h.release(b, ak, arr);
             }
             OpCode::Dup2 => {
-                // the top two values again; heap ones get their own reference
+                // the top two values again. heap ones get their own ref
                 let n = stack.len();
                 let (a, ak) = stack[n - 2];
                 let (c, ck) = stack[n - 1];
@@ -1115,7 +1115,7 @@ fn lower(
                 stack.push((c, ck));
             }
             OpCode::FieldGet { field_index } => {
-                // stack: struct. The struct reference is ours: released after the read.
+                // stack: struct. the struct ref is ours, released after the read.
                 let (s, sk) = stack.pop().unwrap();
                 let d = match sk {
                     K::Struct(d) => d,
@@ -1131,7 +1131,7 @@ fn lower(
                 stack.push((v, fk));
             }
             OpCode::FieldSet { field_index } => {
-                // stack: struct, value. A string value's reference moves into the struct.
+                // stack: struct, value. a string value's ref moves into the struct
                 let (val, _) = stack.pop().unwrap();
                 let (s, sk) = stack.pop().unwrap();
                 let d = match sk {
@@ -1144,7 +1144,7 @@ fn lower(
                 let tag = b.ins().iconst(I64, struct_tag(fk));
                 let inst = b.ins().call(h.struct_set, &[s, fi, bits, tag]);
                 let status = b.inst_results(inst)[0];
-                // the store consumed a string value either way; only a borrow clash lands here
+                // the store ate a string value either way. only a borrow clash lands here
                 let mut temps = heap_temps(&stack);
                 temps.push((s, sk));
                 guard(b, h, status, fail, temps);
@@ -1175,8 +1175,8 @@ fn lower(
             | OpCode::NotEqFloat => {
                 let (y, _) = stack.pop().unwrap();
                 let (x, _) = stack.pop().unwrap();
-                // IEEE comparisons, as in the VM: NaN is unequal to everything, so `!=`
-                // is true for it. FloatCC::NotEqual is "unordered or not equal".
+                // IEEE comparisons, like the VM: NaN is unequal to everything, so `!=`
+                // is true for it. FloatCC::NotEqual is "unordered or not equal". nan is weird.
                 let cc = match op {
                     OpCode::LtFloat => FloatCC::LessThan,
                     OpCode::GtFloat => FloatCC::GreaterThan,
@@ -1210,7 +1210,7 @@ fn lower(
                 let at = stack.len() - argc;
                 let args: Vec<(CV, K)> = stack.drain(at..).collect();
                 let (callee_ps, callee_r) = sigs[*func_index].clone().unwrap();
-                // callees take every argument as its 64-bit pattern; the arguments are consumed
+                // callees take every arg as its 64-bit pattern. the args get eaten
                 let mut call_args = vec![ctx, deeper];
                 for ((v, _), k) in args.iter().zip(callee_ps) {
                     call_args.push(if k == K::Float { b.ins().bitcast(I64, MemFlags::new(), *v) } else { *v });
@@ -1218,7 +1218,7 @@ fn lower(
                 let fref = refs[func_index];
                 let inst = b.ins().call(fref, &call_args);
                 let raw = b.inst_results(inst)[0];
-                // a callee that failed left its flag set; its result is meaningless
+                // a callee that failed left its flag set. its result is meaningless. ignore it.
                 let failed = b.ins().load(I64, MemFlags::trusted(), ctx, CTX_FAILED);
                 guard(b, h, failed, fail, heap_temps(&stack));
                 let val = if callee_r == K::Float { b.ins().bitcast(F64, MemFlags::new(), raw) } else { raw };
@@ -1242,7 +1242,7 @@ fn lower(
                     BuiltinId::FloatToString => (h.float_str, K::String),
                     BuiltinId::BoolToString => (h.bool_str, K::String),
                     _ => {
-                        // ArrayLenBuiltin: count, then the array reference is spent
+                        // ArrayLenBuiltin: count, then the array ref is spent
                         let inst = b.ins().call(h.arr_len, &[x]);
                         let n = b.inst_results(inst)[0];
                         h.release(b, args[0].1, x);
@@ -1255,7 +1255,7 @@ fn lower(
             }
             OpCode::Return => {
                 let (v, _) = stack.pop().unwrap();
-                // the value is handed to the caller; everything else we still own goes
+                // the value gets handed to the caller. everything else we still own goes
                 for (var, k) in &heap_vars {
                     let x = b.use_var(*var);
                     h.release(b, *k, x);
@@ -1274,15 +1274,15 @@ fn lower(
     b.seal_all_blocks();
 }
 
-/// Compiles every eligible function of `program`. Errors only if Cranelift
-/// refuses the code; the VM then keeps running everything.
+/// compiles every eligible function of `program`. errors only if Cranelift
+/// refuses the code. the VM then keeps running everything.
 pub fn build(program: &Program) -> Result<NativeTable, String> {
     let (elig, slots) = eligible(program);
     let sigs: Vec<Option<Sig>> = (0..program.functions.len())
         .map(|i| if elig[i] { program.functions[i].native_sig.clone() } else { None })
         .collect();
 
-    // string constants are baked into the code by address: keep them alive
+    // string constants get baked into the code by address. keep them alive
     let mut keep: Vec<Rc<String>> = Vec::new();
     for c in &program.functions {
         for v in &c.constants {
@@ -1298,8 +1298,8 @@ pub fn build(program: &Program) -> Result<NativeTable, String> {
         .map_err(|e| e.to_string())?
         .finish(settings::Flags::new(flags))
         .map_err(|e| e.to_string())?;
-    // the platform's C calling convention: SysV on Linux, Windows x64 on Windows. It must match
-    // the Rust `extern "C"` helpers and the `extern "C"` entry point we call native code through.
+    // the platform's C calling convention: SysV on Linux, Windows x64 on Windows. must match
+    // the Rust `extern "C"` helpers and the `extern "C"` entry point we call native through.
     let call_conv = isa.default_call_conv();
     let mut jb = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
     let symbols: &[(&str, *const u8)] = &[

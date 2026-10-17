@@ -1,44 +1,44 @@
-//! Superinstruction pass: folds common instruction sequences of a compiled
-//! `Chunk` into single fused opcodes. Same behavior, fewer dispatches for
-//! the VM — the dispatch (not the work inside an op) is what dominates an
+//! superinstruction pass: folds common instruction sequences of a compiled
+//! `Chunk` into single fused opcodes. same behavior, fewer dispatches for
+//! the VM. the dispatch (not the work inside an op) is what eats the time in an
 //! interpreter loop, so cutting a loop body from ~24 ops to ~9 is worth
-//! ~3x. I keep this separate from `compiler.rs` so normal emission stays
-//! simple and this file is the only place touched when tuning performance.
+//! ~3x. kept separate from `compiler.rs` so normal emission stays
+//! simple. this file is the only place to touch when tuning speed. the goblin's den.
 //!
-//! What is fused (see `match_at` for the exact patterns, in priority order):
+//! what gets fused (see `match_at` for the exact patterns, in priority order):
 //! - `SetLocal; Pop` (every assignment) -> `StoreLocal`, same for globals
 //! - local-with-constant arithmetic/compares (`i + 1`, `x % 3`, `n < 10`)
-//!   and the in-place increment `i += k` (`IncLocal`)
+//!   and the in-place increment `i += k` (`IncLocal`). 
 //! - every int compare followed by `JumpIfFalse` (stack / two locals /
 //!   local-vs-const / stack-vs-const forms) -> one `JumpUnless*` op
 //! - `GetLocal; GetLocal; <op>` for arithmetic, compares and 2-arg calls,
-//!   plus the call shapes `f(a)` and `f(n - 1)`
-//! - arithmetic whose result is stored straight into a local (`x = a op b`)
+//!   plus the call shapes `f(a)` and `f(n - 1)`. fib lives here too.
+//! - arithmetic whose result goes straight into a local (`x = a op b`)
 //! - array/struct reads straight from a local (`a[i]`, `s.f`) and the
 //!   `s.f OP= v` prefix
 //! - loop inversion: the back-edge `Jump(head)` becomes the NEGATED head
-//!   compare aimed at the loop body, saving one dispatch per iteration
+//!   compare aimed at the loop body. one dispatch saved per iteration. free lunch.
 //!
-//! Two invariants make this safe:
-//! 1. An instruction that is the TARGET of a jump may only be the FIRST
+//! two invariants keep this from blowing up:
+//! 1. an instruction that is the TARGET of a jump may only be the FIRST
 //!    instruction of a fused op, never swallowed into the middle of one
 //!    (`(if (c) { a } else { b }) < d` has a jump landing on the second
-//!    `GetLocal` of a fusable triple — the pre-fix pass miscompiled it).
-//! 2. Every jump target is remapped through the old->new index table.
+//!    `GetLocal` of a fusable triple. the pre-fix pass miscompiled it. oops.
+//! 2. every jump target is remapped through the old->new index table.
 //!
-//! Fusions chain, so passes repeat until a pass changes nothing. Every
-//! fusion was measured in isolation and the ones that did not help were
-//! dropped (`GetLocal; JumpIfFalse`, for one, measured slower).
-//! `spg --no-opt` disables the whole pass and is the reference the fused
-//! bytecode must match.
+//! fusions chain, so passes repeat until one changes nothing. every
+//! fusion was measured alone, and the ones that didn't help got
+//! dropped (`GetLocal; JumpIfFalse`, for one, was slower. rip.).
+//! `spg --no-opt` turns the whole pass off, and it's the reference the fused
+//! bytecode must match. the truth source.
 
 use spg_typecheck::BuiltinId;
 use spg_vm::chunk::{Chunk, OpCode};
 use spg_vm::value::Value;
 
 /// maps the opcode that follows `GetLocal(a); GetLocal(b);` to its
-/// fused form, if one exists. `None` means I don't fuse this shape, so
-/// the loop below just copies the instructions as-is.
+/// fused form, if one exists. `None` means we don't fuse this shape, so
+/// the loop below just copies the instructions as-is. boring, honest.
 fn fused_replacement(op: OpCode, a: usize, b: usize) -> Option<OpCode> {
     match op {
         OpCode::AddInt => Some(OpCode::AddLocals(a, b)),
@@ -53,8 +53,8 @@ fn fused_replacement(op: OpCode, a: usize, b: usize) -> Option<OpCode> {
         OpCode::EqInt => Some(OpCode::EqIntLocals(a, b)),
         OpCode::NotEqInt => Some(OpCode::NotEqIntLocals(a, b)),
 
-        // float/string/bool, mirroring exactly the int set (Add + the
-        // 6 comparisons where the type supports them)
+        // float/string/bool, mirroring the int set exactly (Add + the
+        // 6 comparisons where the type supports them. copy paste with feelings.
         OpCode::AddFloat => Some(OpCode::AddFloatLocals(a, b)),
         OpCode::SubFloat => Some(OpCode::SubFloatLocals(a, b)),
         OpCode::MulFloat => Some(OpCode::MulFloatLocals(a, b)),
@@ -72,7 +72,7 @@ fn fused_replacement(op: OpCode, a: usize, b: usize) -> Option<OpCode> {
         OpCode::EqBool => Some(OpCode::EqBoolLocals(a, b)),
         OpCode::NotEqBool => Some(OpCode::NotEqBoolLocals(a, b)),
 
-        // a 2-arg call where both args are bare locals
+        // a 2-arg call where both args are bare locals. fancy.
         OpCode::Call { func_index, argc: 2 } => Some(OpCode::CallLocals2 { func_index, a, b }),
         _ => None,
     }
@@ -145,12 +145,12 @@ fn const_cmp_jump(op: OpCode, k: i64, t: usize) -> Option<OpCode> {
 }
 
 
-/// Loop inversion. A `while`/`for` back-edge is `Jump(head)` where `head` is
+/// loop inversion. a `while`/`for` back-edge is `Jump(head)` where `head` is
 /// a single fused compare `JumpUnless<rel>(.., exit)` and `exit` is the
-/// instruction right after the back-edge. Replace the back-edge with the
-/// NEGATED compare aimed at the first body instruction: it jumps into the
-/// body while the condition still holds and falls through to `exit`
-/// otherwise — the same behaviour with one dispatch less per iteration.
+/// instruction right after the back-edge. replace the back-edge with the
+/// NEGATED compare aimed at the first body instruction. it jumps into the
+/// body while the condition holds, and falls through to `exit`
+/// otherwise. same behaviour, one dispatch less per iteration. (the classic trick.)
 fn invert_loops(chunk: &mut Chunk) {
     for i in 0..chunk.code.len() {
         let OpCode::Jump(head) = chunk.code[i] else { continue };
@@ -177,15 +177,15 @@ fn invert_loops(chunk: &mut Chunk) {
     }
 }
 
-/// Tries every fusion pattern starting at `code[i]` and returns the fused op
-/// plus how many instructions it replaces. Priority is top to bottom (longest
-/// patterns first); the order matters and was validated by differential
-/// fuzzing against the unfused bytecode. `limit` is the largest span allowed:
-/// a pattern may not swallow an instruction that is the target of a jump
-/// (only its FIRST instruction may be one), because control arriving from the
-/// jump would land on the fused op and skip the instructions folded into it.
-/// Patterns are written over the output of earlier passes too (e.g.
-/// `AddLocalConst; StoreLocal` only exists once both halves were fused).
+/// tries every fusion pattern starting at `code[i]` and returns the fused op
+/// plus how many instructions it replaces. priority is top to bottom (longest
+/// patterns first). the order matters. validated by differential
+/// fuzzing against the unfused bytecode. `limit` is the biggest span allowed:
+/// a pattern may not swallow an instruction that's a jump target
+/// (only its FIRST instruction may be one), because control coming from the
+/// jump would land on the fused op and skip the folded instructions. chaos averted.
+/// patterns are written over the output of earlier passes too (e.g.
+/// `AddLocalConst; StoreLocal` only exists once both halves got fused).
 fn match_at(code: &[OpCode], consts: &[Value], i: usize, limit: usize, late: bool) -> Option<(OpCode, usize)> {
     let at = |k: usize| code.get(i + k).copied();
     let int_const = |op: OpCode| match op {
@@ -201,7 +201,7 @@ fn match_at(code: &[OpCode], consts: &[Value], i: usize, limit: usize, late: boo
         return Some((OpCode::ArrayLen, 1));
     }
 
-    // ---- 4 instructions ----
+    // ---- 4 instructions (the big ones) ----
     if limit >= 4 {
         // `arr[i] = v` / `arr[i] = <constant>`: the whole statement
         if let (OpCode::GetLocal(arr), Some(OpCode::GetLocal(idx)), Some(val), Some(OpCode::IndexSet)) = (code[i], at(1), at(2), at(3)) {
@@ -253,7 +253,7 @@ fn match_at(code: &[OpCode], consts: &[Value], i: usize, limit: usize, late: boo
         {
             return Some((OpCode::IndexGetDupLocals(arr, idx), 4));
         }
-        // `fib(n - 1)`
+        // `fib(n - 1)`. the poster child.
         if let (OpCode::GetLocal(a), Some(c), Some(OpCode::SubInt), Some(OpCode::Call { func_index, argc: 1 })) =
             (code[i], at(1), at(2), at(3))
         {
@@ -263,7 +263,7 @@ fn match_at(code: &[OpCode], consts: &[Value], i: usize, limit: usize, late: boo
         }
     }
 
-    // ---- 2 instructions that build on fused forms ----
+    // ---- 2 instructions that build on fused forms (fused on fused, yo) ----
     if limit >= 2 {
         // `x += k` in place
         if let (OpCode::AddLocalConst(a, k), Some(OpCode::StoreLocal(b))) = (code[i], at(1)) {
@@ -287,7 +287,7 @@ fn match_at(code: &[OpCode], consts: &[Value], i: usize, limit: usize, late: boo
                     OpCode::AddInt => Some(OpCode::AddLocalConst(a, k)),
                     OpCode::SubInt => Some(OpCode::AddLocalConst(a, k.wrapping_neg())),
                     OpCode::MulInt => Some(OpCode::MulLocalConst(a, k)),
-                    // a zero divisor must keep failing at run time: not fused
+                    // a zero divisor must keep failing at runtime. not fused. no shortcuts.
                     OpCode::DivInt if k != 0 => Some(OpCode::DivLocalConst(a, k)),
                     OpCode::ModInt if k != 0 => Some(OpCode::ModLocalConst(a, k)),
                     other => local_const_cmp(other, a, k),
@@ -312,7 +312,7 @@ fn match_at(code: &[OpCode], consts: &[Value], i: usize, limit: usize, late: boo
         }
     }
 
-    // ---- 2 instructions ----
+    // ---- 2 instructions (the small fry) ----
     if limit >= 2 {
         if let (OpCode::GetLocal(a), Some(OpCode::Call { func_index, argc: 1 })) = (code[i], at(1)) {
             return Some((OpCode::CallLocal1 { func_index, a }, 2));
@@ -372,7 +372,7 @@ fn match_at(code: &[OpCode], consts: &[Value], i: usize, limit: usize, late: boo
         }
 
         match (code[i], at(1)) {
-            // assignment statements: set + discard
+            // assignment statements: set + discard. the usual dance.
             (OpCode::SetLocal(a), Some(OpCode::Pop)) => return Some((OpCode::StoreLocal(a), 2)),
             (OpCode::SetGlobal(a), Some(OpCode::Pop)) => return Some((OpCode::StoreGlobal(a), 2)),
             (OpCode::GetLocal(a), Some(OpCode::Return)) => return Some((OpCode::ReturnLocal(a), 2)),
@@ -400,7 +400,7 @@ fn match_at(code: &[OpCode], consts: &[Value], i: usize, limit: usize, late: boo
     }
 
     // a bare `GetLocal; GetLocal` pair only runs last, so it can't steal an
-    // operand from one of the bigger patterns above
+    // operand from one of the bigger patterns above. manners.
     if late && limit >= 2 {
         if let (OpCode::GetLocal(a), Some(OpCode::GetLocal(b))) = (code[i], at(1)) {
             return Some((OpCode::GetLocal2(a, b), 2));
@@ -411,8 +411,8 @@ fn match_at(code: &[OpCode], consts: &[Value], i: usize, limit: usize, late: boo
 }
 
 pub fn fuse_superinstructions(chunk: &mut Chunk) {
-    // fused ops can themselves be part of a bigger pattern, so keep going
-    // until a whole pass finds nothing left to fold
+    // fused ops can be part of a bigger pattern too, so keep going
+    // until a whole pass finds nothing left to fold. wait for it.
     while fuse_pass(chunk, false) {}
     // low-value patterns that could steal operands from bigger ones (a bare
     // `GetLocal; GetLocal` pair) only run once everything else has settled
@@ -437,14 +437,14 @@ fn fuse_pass(chunk: &mut Chunk, late: bool) -> bool {
     let mut new_code = Vec::with_capacity(n);
     // a fused op reports the location of its first instruction
     let mut new_locs = Vec::with_capacity(n);
-    // old index -> index in `new_code`; jumps are rewritten through this
+    // old index -> index in `new_code`. jumps get rewritten through this
     let mut map = vec![0usize; n + 1];
     let mut changed = false;
 
     let mut i = 0;
     while i < n {
-        // span of instructions starting at `i` that contains no jump
-        // target except possibly `i` itself
+        // span of instructions starting at `i` that has no jump
+        // target, except maybe `i` itself
         let mut limit = 1;
         while i + limit < n && !is_target[i + limit] {
             limit += 1;
@@ -464,7 +464,7 @@ fn fuse_pass(chunk: &mut Chunk, late: bool) -> bool {
         new_locs.push(old_locs[i].clone());
         i += len;
     }
-    // a jump may target one-past-the-end (exit point after a loop or if)
+    // a jump may target one-past-the-end (exit point after a loop or if). the exit door.
     map[n] = new_code.len();
 
     for op in &mut new_code {

@@ -1,30 +1,30 @@
-//! `@json.*`: JSON text <-> values, written by hand (no external crate).
+//! `@json.*`: JSON text <-> values. written by hand, no crate. we did it.
 //!
-//! The language has no dynamic "json" type, so READING works on the text: a
+//! spg has no dynamic "json" type, so READING works on the text: a
 //! query by path (`get`, `has`, `type`, `len`, `keys`) parses the text, walks
-//! the path and answers with a string, a bool or an int. WRITING (`stringify`,
-//! `pretty`, `set`) takes any value and serializes it by what it is.
+//! the path, answers with a string, bool or int. WRITING (`stringify`,
+//! `pretty`, `set`) takes any value and serializes it by what it is. simple.
 //!
-//! Paths are segments joined by `.`; a numeric segment indexes an array (on an
-//! object it is just a key name). A literal dot or backslash inside a key is
-//! written `\.` / `\\`. The empty path is the whole document.
+//! paths are segments joined by `.`. a number indexes an array (on an
+//! object it's just a key name). a literal dot or backslash in a key is
+//! written `\.` / `\\`. empty path = the whole document. 
 
 use crate::value::Value;
 
-/// deepest nesting accepted when parsing and when serializing a value (the
-/// latter also stops a struct that contains itself)
+/// deepest nesting accepted when parsing or serializing (the
+/// latter also stops a struct that contains itself. no infinite loops, please.
 const MAX_DEPTH: usize = 512;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Json {
     Null,
     Bool(bool),
-    /// the number exactly as written (`1.50`, `1e5`), so editing a file does
-    /// not rewrite its numbers
+    /// the number exactly as written (`1.50`, `1e5`), so editing a file doesn't
+    /// rewrite its numbers. respect the user's `1.50`.
     Number(String),
     Str(String),
     Array(Vec<Json>),
-    /// keys keep the order they were written in
+    /// keys keep the order they were written in. order matters, apparently.
     Object(Vec<(String, Json)>),
 }
 
@@ -39,7 +39,7 @@ fn type_name(j: &Json) -> &'static str {
     }
 }
 
-// ---------------------------------------------------------------- parsing --
+// ---------------------------------------------------------------- parsing (the fun part) --
 
 struct Parser<'a> {
     src: &'a str,
@@ -250,7 +250,7 @@ impl<'a> Parser<'a> {
             self.pos += 1;
             self.skip_ws();
             let value = self.value(depth + 1)?;
-            // a repeated key keeps its first position and takes the last value
+            // a repeated key keeps its first position and takes the last value. classic.
             match entries.iter().position(|(k, _)| *k == key) {
                 Some(i) => entries[i].1 = value,
                 None => entries.push((key, value)),
@@ -268,7 +268,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-// ----------------------------------------------------------- serializing --
+// ----------------------------------------------------------- serializing (lots of quotes) --
 
 fn write_str(s: &str, out: &mut String) {
     out.push('"');
@@ -297,7 +297,7 @@ fn newline(out: &mut String, indent: Option<&str>, level: usize) {
     }
 }
 
-/// `indent` None = compact; Some(unit) = one item per line, `unit` per level
+/// `indent` None = compact. Some(unit) = one item per line, `unit` per level.
 fn write_json(j: &Json, out: &mut String, indent: Option<&str>, level: usize) {
     match j {
         Json::Null => out.push_str("null"),
@@ -362,7 +362,7 @@ fn from_value(v: &Value, depth: usize) -> Result<Json, String> {
             if !x.is_finite() {
                 return Err(format!("{} has no JSON form (JSON has no NaN or infinity)", x));
             }
-            // `{:?}` keeps `1.0` a float (`{}` would write `1`)
+            // `{:?}` keeps `1.0` a float (`{}` would write `1`, which is a lie)
             Json::Number(format!("{:?}", x))
         }
         Value::Bool(b) => Json::Bool(*b),
@@ -379,7 +379,7 @@ fn from_value(v: &Value, depth: usize) -> Result<Json, String> {
             let m = m.borrow();
             let mut entries = Vec::new();
             for (k, val) in m.entries().iter() {
-                // JSON keys are strings: an int/bool/enum key is written as its text
+                // JSON keys are strings. an int/bool/enum key gets written as its text.
                 let key = match k {
                     Value::String(s) => s.to_string(),
                     other => other.to_string(),
@@ -409,7 +409,7 @@ pub(crate) fn stringify(v: &Value, pretty: bool) -> Result<String, String> {
     Ok(out)
 }
 
-// ------------------------------------------------------------------ paths --
+// ------------------------------------------------------------------ paths (ugh) --
 
 fn split_path(path: &str) -> Result<Vec<String>, String> {
     if path.is_empty() {
@@ -493,7 +493,7 @@ fn lookup<'a>(root: &'a Json, segs: &[String]) -> Result<&'a Json, String> {
     Ok(cur)
 }
 
-// ------------------------------------------------------------- the builtins --
+// ------------------------------------------------------------- the builtins (finally) --
 
 pub(crate) fn valid(text: &str) -> bool {
     parse(text).is_ok()
@@ -505,9 +505,9 @@ fn at(text: &str, path: &str) -> Result<Json, String> {
     lookup(&root, &segs).cloned()
 }
 
-/// strings come back decoded, numbers and bools as their text, `null` as
-/// `null`; an object or an array comes back as compact JSON (so it can be
-/// queried again)
+/// strings come back decoded, numbers and bools as text, `null` as
+/// `null`. an object or array comes back as compact JSON (so it can be
+/// queried again. turtles all the way down.)
 pub(crate) fn get(text: &str, path: &str) -> Result<String, String> {
     Ok(match at(text, path)? {
         Json::Str(s) => s,
@@ -518,8 +518,8 @@ pub(crate) fn get(text: &str, path: &str) -> Result<String, String> {
     })
 }
 
-/// a path that leads nowhere is `false`; an invalid text or a malformed path
-/// is still an error
+/// a path that leads nowhere is `false`. an invalid text or malformed path
+/// is still an error. no free passes.
 pub(crate) fn has(text: &str, path: &str) -> Result<bool, String> {
     let root = parse(text)?;
     let segs = split_path(path)?;
@@ -620,7 +620,7 @@ fn assign(node: &mut Json, segs: &[String], new: Json, walked: &[String]) -> Res
     }
 }
 
-/// the indentation the file already uses (first indented line), 2 spaces if none
+/// the indentation the file already uses (first indented line). 2 spaces if none.
 fn detect_indent(text: &str) -> String {
     for line in text.lines().skip(1) {
         let ws: String = line.chars().take_while(|c| *c == ' ' || *c == '\t').collect();
@@ -631,9 +631,9 @@ fn detect_indent(text: &str) -> String {
     "  ".to_string()
 }
 
-/// the document is written back in the style it came in: compact if it was on
-/// one line, otherwise one item per line with the same indentation; a final
-/// newline and `\r\n` line ends are kept
+/// the doc is written back in the style it came in: compact if it was on
+/// one line, otherwise one item per line, same indentation. a final
+/// newline and `\r\n` line endings are kept. we respect your files.
 fn render_like(original: &str, j: &Json) -> String {
     let multiline = original.trim_end().contains('\n');
     let mut out = String::new();
@@ -652,10 +652,10 @@ fn render_like(original: &str, j: &Json) -> String {
     out
 }
 
-/// returns the whole document with `value` written at `path`. Only the LAST
-/// step of the path may be new (a key is added; one past the end of an array
-/// appends). The document is re-written, so insignificant spacing and `\uXXXX`
-/// escapes are normalized
+/// returns the whole doc with `value` written at `path`. only the LAST
+/// step of the path may be new (a key gets added. one past the end of an array
+/// appends). the doc gets rewritten, so spacing and `\uXXXX`
+/// escapes get normalized. (blame the rewrite, not me.)
 pub(crate) fn set(text: &str, path: &str, value: &Value) -> Result<String, String> {
     let mut root = parse(text)?;
     let new = from_value(value, 0)?;
@@ -784,19 +784,19 @@ mod tests {
 
     #[test]
     fn set_replaces_adds_and_appends_in_the_documents_own_style() {
-        // compact stays compact
+        // compact stays compact. good boy.
         assert_eq!(set(r#"{"a":1}"#, "a", &Value::Int(2)).unwrap(), r#"{"a":2}"#);
         assert_eq!(set(r#"{"a":1}"#, "b", &s("x")).unwrap(), r#"{"a":1,"b":"x"}"#);
         assert_eq!(set(r#"{"a":[1]}"#, "a.1", &Value::Int(2)).unwrap(), r#"{"a":[1,2]}"#);
         assert_eq!(set(r#"{"a":[1,2]}"#, "a.0", &Value::Int(9)).unwrap(), r#"{"a":[9,2]}"#);
         assert_eq!(set("1", "", &Value::Int(2)).unwrap(), "2");
-        // 4 spaces, final newline and CRLF are kept
+        // 4 spaces, final newline and CRLF are kept. the file is safe.
         assert_eq!(set("{\n    \"a\": 1\n}\n", "a", &Value::Int(2)).unwrap(), "{\n    \"a\": 2\n}\n");
         assert_eq!(set("{\n\t\"a\": 1\n}", "a", &Value::Int(2)).unwrap(), "{\n\t\"a\": 2\n}");
         assert_eq!(set("{\r\n  \"a\": 1\r\n}", "a", &Value::Int(2)).unwrap(), "{\r\n  \"a\": 2\r\n}");
-        // a one-line file with a final newline is not "multi-line"
+        // a one-line file with a final newline is not "multi-line". rules are rules.
         assert_eq!(set("{\"a\":1}\n", "a", &Value::Int(2)).unwrap(), "{\"a\":2}\n");
-        // numbers elsewhere are untouched
+        // numbers elsewhere are untouched. not my business.
         assert_eq!(set(r#"{"a":1.50,"b":0}"#, "b", &Value::Int(1)).unwrap(), r#"{"a":1.50,"b":1}"#);
     }
 

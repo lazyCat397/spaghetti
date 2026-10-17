@@ -1,9 +1,9 @@
-//! Runtime implementation of every builtin. `Vm::step` pops `argc` values
-//! for a `CallBuiltin { id, .. }` and hands them to `call_builtin`, which
-//! is the single match over every `BuiltinId` — the counterpart to
+//! Runtime side of every builtin. `Vm::step` pops `argc` values
+//! for a `CallBuiltin { id, .. }` and gives them to `call_builtin`, which
+//! is one giant match over every `BuiltinId`. the counterpart to
 //! `spg_typecheck::builtins::builtin_signatures` on the compile-time side.
-//! Keeping both keyed off the same `BuiltinId` enum is what lets adding a
-//! builtin stay a two-table change instead of a new opcode each time.
+//! both keyed off the same `BuiltinId` enum, so adding a builtin is two
+//! table edits and zero new opcodes. the way it should be.
 
 use std::io::{BufWriter, Write};
 use std::rc::Rc;
@@ -15,19 +15,19 @@ use spg_typecheck::BuiltinId;
 use crate::error::RuntimeError;
 use crate::value::Value;
 
-// ---- buffered stdout ----
+// ---- buffered stdout (because println is a crime) ----
 //
-// `println!` costs one write syscall per line (1M prints: ~330 ms to /dev/null,
-// ~1 s to a pipe; ~1.2 us per line into a terminal). `print` therefore writes
-// into one shared 64 KB `BufWriter`, for terminals and pipes alike.
+// `println!` does one write syscall per line. 1M prints: ~330 ms to /dev/null,
+// ~1 s to a pipe, ~1.2 us per line in a terminal. so `print` writes
+// into one shared 64 KB `BufWriter`. terminals and pipes get the same deal.
 //
-// Output must still show up promptly when the program goes quiet to compute
-// (print "starting...", then crunch for 10 s), so a small flusher thread wakes
-// every `FLUSH_EVERY` and flushes whatever is pending: nothing is ever held
-// back longer than that. The buffer is also flushed synchronously before
-// anything that could interleave with it or wait on the outside world
+// output still has to show up when the program goes quiet to compute
+// (print "starting...", then crunch for 10 s). so a tiny flusher thread wakes
+// every `FLUSH_EVERY` and flushes whatever is pending. nothing waits longer than
+// that. the buffer also gets flushed synchronously before
+// anything that could mix with it or wait on the outside world
 // (`readLine`, `printError`, `@time.sleep`), when `Vm::run` ends (ok or
-// error), and from the CLI's panic hook (`flush_stdout_in_panic`).
+// error), and from the CLI's panic hook (`flush_stdout_in_panic`). crashes flush too. classy.
 
 const FLUSH_EVERY: Duration = Duration::from_millis(10);
 
@@ -35,14 +35,14 @@ static OUT: Mutex<Option<BufWriter<std::io::Stdout>>> = Mutex::new(None);
 static FLUSHER: Once = Once::new();
 
 fn lock_out() -> MutexGuard<'static, Option<BufWriter<std::io::Stdout>>> {
-    // a poisoned lock only means some thread panicked while printing; the
-    // buffer itself is still fine
+    // a poisoned lock just means some thread panicked while printing. the
+    // buffer itself is still fine. probably. don't poke it.
     OUT.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 fn start_flusher() {
-    // if the thread cannot be spawned we just lose the "prompt while computing"
-    // guarantee; output is still flushed at every synchronous point
+    // if the thread can't spawn we lose the "prompt while computing"
+    // guarantee. output still gets flushed at every synchronous point.
     let _ = std::thread::Builder::new().name("spg-flush".into()).spawn(|| loop {
         std::thread::sleep(FLUSH_EVERY);
         if let Some(w) = lock_out().as_mut() {
@@ -51,8 +51,8 @@ fn start_flusher() {
     });
 }
 
-/// `print(a, b, c)` -> `a b c` + newline: values joined by ONE space (like
-/// Python), and `print()` is just the newline. One argument keeps the original
+/// `print(a, b, c)` -> `a b c` + newline. values joined by ONE space (like
+/// Python). `print()` is just a newline. one arg keeps the original
 /// single `writeln!`, so the common case costs exactly what it did before.
 fn write_joined<W: Write>(w: &mut W, vs: &[Value]) -> std::io::Result<()> {
     match vs {
@@ -69,7 +69,7 @@ fn write_joined<W: Write>(w: &mut W, vs: &[Value]) -> std::io::Result<()> {
     }
 }
 
-/// writes text to the same buffered stdout as `print`, WITHOUT a line break (a prompt)
+/// writes text to the same buffered stdout as `print`, WITHOUT a newline (for prompts)
 fn write_out_text(text: &str) -> Result<(), RuntimeError> {
     let mut guard = lock_out();
     let w = guard.get_or_insert_with(|| BufWriter::with_capacity(64 * 1024, std::io::stdout()));
@@ -79,9 +79,9 @@ fn write_out_text(text: &str) -> Result<(), RuntimeError> {
     Ok(())
 }
 
-/// one line from stdin without its line break. Shared by `readLine` and
-/// `@sys.readLine`: flushes stdout first (a prompt must be visible while we
-/// wait), and `EndOfInput` when stdin is already at its end.
+/// one line from stdin, no newline. shared by `readLine` and
+/// `@sys.readLine`. flushes stdout first (the prompt has to be visible while we
+/// wait). `EndOfInput` when stdin is already done. 
 fn read_stdin_line(function: &'static str) -> Result<String, RuntimeError> {
     flush_stdout();
     let mut line = String::new();
@@ -102,19 +102,19 @@ fn print_values(vs: &[Value]) {
         write_joined(w, vs)
     };
     FLUSHER.call_once(start_flusher);
-    // panic AFTER the lock above is released. Same message `println!` uses, so
-    // the CLI's "Broken pipe" check keeps working.
+    // panic AFTER the lock above is released. same message `println!` uses, so
+    // the CLI's "Broken pipe" check keeps working. don't break it.
     if let Err(e) = result {
         panic!("failed printing to stdout: {}", e);
     }
 }
 
-/// Flushes the buffered stdout (no-op before the first `print`). Errors are
-/// ignored: a closed pipe at this point is not our bug. Waits for the lock, so
-/// when it returns everything printed before it has reached the OS (even if
-/// the flusher thread was in the middle of a flush).
-/// Windows consoles ignore ANSI escapes until VT processing is switched on.
-/// Done once, quietly; a no-op everywhere else. No external crate: direct kernel32 calls.
+/// flushes the buffered stdout (no-op before the first `print`). errors get
+/// ignored: a closed pipe here isn't our bug. waits for the lock, so
+/// when it returns, everything printed before has reached the OS (even if
+/// the flusher thread was mid-flush). good.
+/// Windows consoles ignore ANSI escapes until VT processing is switched on. thanks, windows.
+/// done once, quietly. a no-op everywhere else. no crate: direct kernel32 calls, sorry.
 #[cfg(windows)]
 fn enable_ansi_once() {
     use std::ffi::c_void;
@@ -149,9 +149,9 @@ pub fn flush_stdout() {
     }
 }
 
-/// Same, for the panic hook: the hook runs BEFORE unwinding, so the panicking
-/// thread may still be holding the lock. Never block: if somebody holds it, they
-/// are printing or flushing and the data is on its way.
+/// same, for the panic hook. the hook runs BEFORE unwinding, so the panicking
+/// thread may still hold the lock. never block: if someone has it, they're
+/// printing or flushing and the data is on its way. chill.
 pub fn flush_stdout_in_panic() {
     if let Ok(mut guard) = OUT.try_lock() {
         if let Some(w) = guard.as_mut() {
@@ -160,10 +160,10 @@ pub fn flush_stdout_in_panic() {
     }
 }
 
-// ---- argument extraction ----
-// small helpers so each arm reads as "the shape I expect", panicking only on a
-// genuine compiler/checker bug (wrong Value variant reaching a builtin that
-// the typechecker already constrained)
+// ---- argument extraction (trust the checker, mostly) ----
+// tiny helpers so each arm reads as "the shape I expect". they panic only on a
+// real compiler/checker bug (wrong Value variant reaching a builtin that
+// the typechecker already constrained). if this fires, blame the checker. or me.
 #[inline(always)]
 fn as_string(v: Value) -> Rc<String> {
     match v {
@@ -200,13 +200,13 @@ fn as_array(v: Value) -> crate::value::ArrayRef {
     }
 }
 
-/// `CallBuiltin { id, argc }` straight on the operand stack. The hot, simple
-/// builtins are done here with no argument `Vec` and without entering
-/// `call_builtin`, whose giant `match` made even `@array.len` cost ~48 ns.
-/// Everything else (and every builtin that can fail in a way that needs
-/// context) goes through `call_builtin` exactly as before. Each arm is the
-/// same expression as its `call_builtin` twin, with the operands popped in
-/// reverse (last argument first).
+/// `CallBuiltin { id, argc }` straight on the operand stack. the hot, simple
+/// builtins live here, no argument `Vec`, no entering
+/// `call_builtin`, whose giant `match` made even `@array.len` cost ~48 ns. ouch.
+/// everything else (and every builtin that can fail in a way that needs
+/// context) still goes through `call_builtin`. each arm is the
+/// same expression as its `call_builtin` twin, operands popped in
+/// reverse (last arg first). yes, this is a copy paste. yes, it's fine.
 #[inline(never)]
 pub(crate) fn call_builtin_on_stack(stack: &mut Vec<Value>, id: BuiltinId, argc: usize) -> Result<(), RuntimeError> {
     use BuiltinId::*;
@@ -288,7 +288,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
     use BuiltinId::*;
 
     Ok(match id {
-        // ---- I/O ----
+        // ---- I/O (the part that touches the outside world, scary) ----
         Print => {
             print_values(&args);
             Value::Void
@@ -302,12 +302,12 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
         }
         ReadLine => Value::String(Rc::new(read_stdin_line("readLine")?)),
         ReadLinePrompt => {
-            // the prompt goes out without a line break, so the typed text lands right after it
+            // the prompt goes out with no newline, so the typed text lands right after it
             write_out_text(&as_string(args.remove(0)))?;
             Value::String(Rc::new(read_stdin_line("readLine")?))
         }
 
-        // ---- strings ----
+        // ---- strings (utf-8 is a whole mood) ----
         Len => Value::Int(as_string(args.remove(0)).chars().count() as i64),
         ToUpper => Value::String(Rc::new(as_string(args.remove(0)).to_uppercase())),
         ToLower => Value::String(Rc::new(as_string(args.remove(0)).to_lowercase())),
@@ -326,7 +326,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             let s = as_string(args.remove(0));
             let start = as_int(args.remove(0));
             let end = as_int(args.remove(0));
-            // ASCII: char index == byte index, so no per-char walk and no Vec<char>
+            // ASCII: char index == byte index. no per-char walk, no Vec<char>. pure joy.
             let ascii = s.is_ascii();
             let len = if ascii { s.len() } else { s.chars().count() };
             if start < 0 || end < start || end > len as i64 {
@@ -345,8 +345,8 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             let idx = as_int(args.remove(0));
             if idx >= 0 {
                 let u = idx as usize;
-                // if every byte up to and including `u` is ASCII, char `u` is byte `u`
-                // (the old version collected the whole string into a Vec<char> per call)
+                // if every byte up to and including `u` is ASCII, char `u` is byte `u`.
+                // (the old version built a whole Vec<char> per call. embarrassing.)
                 if let Some(prefix) = s.as_bytes().get(..=u) {
                     if prefix.is_ascii() {
                         return Ok(Value::String(Rc::new((prefix[u] as char).to_string())));
@@ -390,7 +390,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
                 .unwrap_or(-1);
             Value::Int(idx)
         }
-        // ---- @json ----
+        // ---- @json (see json.rs, it's a whole thing) ----
         JsonStringify | JsonPretty => {
             let name = if id == JsonStringify { "@json.stringify" } else { "@json.pretty" };
             let v = args.remove(0);
@@ -432,7 +432,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             let r = crate::json::set(&t, &p, &v).map_err(|m| RuntimeError::Json { function: "@json.set", message: m })?;
             Value::String(Rc::new(r))
         }
-        // ---- @file ----
+        // ---- @file (the disk, the disk, the disk) ----
         FileRead => {
             let p = as_string(args.remove(0));
             let text = std::fs::read_to_string(p.as_str()).map_err(|e| io_error("@file.read", &p, e))?;
@@ -477,7 +477,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             std::fs::create_dir_all(p.as_str()).map_err(|e| io_error("@file.mkdir", &p, e))?;
             Value::Void
         }
-        // a file, or an EMPTY directory; never recursive
+        // a file, or an EMPTY directory. never recursive. no thanks.
         FileDelete => {
             let p = as_string(args.remove(0));
             let path = std::path::Path::new(p.as_str());
@@ -497,7 +497,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             std::fs::rename(from.as_str(), to.as_str()).map_err(|e| io_error("@file.rename", &from, e))?;
             Value::Void
         }
-        // a file or a whole directory tree; refuses a filesystem root
+        // a file or a whole directory tree. refuses a filesystem root. we're not monsters.
         FileDeleteAll => {
             let p = as_string(args.remove(0));
             let path = std::path::Path::new(p.as_str());
@@ -546,7 +546,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             let mut bytes: Vec<u8> = Vec::new();
             for (index, v) in items.borrow().iter().enumerate() {
                 let value = as_int(v.clone());
-                // checked BEFORE touching the disk: a bad item must not leave a half-written file
+                // checked BEFORE touching the disk. a bad item must not leave a half-written file
                 match u8::try_from(value) {
                     Ok(b) => bytes.push(b),
                     Err(_) => return Err(RuntimeError::InvalidByte { index, value }),
@@ -561,7 +561,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             Value::String(Rc::new(std::path::Path::new(a.as_str()).join(b.as_str()).to_string_lossy().into_owned()))
         }
 
-        // ---- @sys ----
+        // ---- @sys (the OS is not our friend) ----
         SysArgs => string_array(PROGRAM_ARGS.get().cloned().unwrap_or_default().into_iter()),
         SysExit => return Err(RuntimeError::Exit { code: i32::try_from(as_int(args.remove(0))).unwrap_or(1) }),
         SysEnv => {
@@ -579,13 +579,13 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
         }
         SysClear => {
             enable_ansi_once();
-            // clear screen, clear scrollback, cursor home (buffered stdout, flushed right after)
+            // clear screen, clear scrollback, cursor home. (buffered stdout, flushed right after)
             write_out_text("\x1b[2J\x1b[3J\x1b[H")?;
             flush_stdout();
             Value::Void
         }
         SysReadLine => Value::String(Rc::new(read_stdin_line("@sys.readLine")?)),
-        // ps.run / ps.runFile build a PsResult, which needs the program: the VM handles them
+        // ps.run / ps.runFile build a PsResult, which needs the program. the VM does those.
         PsRun | PsRunFile => {
             return Err(RuntimeError::Process { function: "ps.run", reason: "internal: ps.run is run by the VM".to_string() })
         }
@@ -628,7 +628,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
         }
         IntToString => Value::String(Rc::new(as_int(args.remove(0)).to_string())),
         FloatToString => Value::String(Rc::new(crate::value::format_float(as_float(args.remove(0))))),
-        // the variant's name (`Value`'s Display prints exactly that)
+        // the variant's name (`Value`'s Display prints that, so the name is the name)
         EnumToString => Value::String(Rc::new(args.remove(0).to_string())),
         AnyToString => Value::String(Rc::new(args.remove(0).to_string())),
         BoolToString => Value::String(Rc::new(match args.remove(0) {
@@ -636,7 +636,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             other => panic!("VM bug: builtin expected bool, got {}", other.type_name()),
         })),
 
-        // ---- arrays ----
+        // ---- arrays (the big one) ----
         ArrayLenBuiltin => Value::Int(as_array(args.remove(0)).borrow().len() as i64),
         ArrayPush => {
             let arr = as_array(args.remove(0));
@@ -644,7 +644,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             arr.borrow_mut().push(item);
             Value::Void
         }
-        // ---- maps ----
+        // ---- maps (hashmaps: we're proud, a little) ----
         MapHas => {
             let map = as_map(args.remove(0));
             let found = map.borrow().contains(&args[0]);
@@ -691,7 +691,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
                 None => return Err(RuntimeError::EmptyArray { function: "@array.pop" }),
             }
         }
-        // ---- more @array ----
+        // ---- more @array (it never ends) ----
         ArrayInsert => {
             let arr = as_array(args.remove(0));
             let at = as_int(args.remove(0));
@@ -807,7 +807,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             Value::String(Rc::new(joined))
         }
 
-        // ---- math ----
+        // ---- math (floats, the untrustworthy kind) ----
         Abs => Value::Int(crate::arith::abs(as_int(args.remove(0)))?),
         AbsFloat => Value::Float(as_float(args.remove(0)).abs()),
         Floor => Value::Int(as_float(args.remove(0)).floor() as i64),
@@ -824,7 +824,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
         MinFloat => Value::Float(as_float(args.remove(0)).min(as_float(args.remove(0)))),
         MaxFloat => Value::Float(as_float(args.remove(0)).max(as_float(args.remove(0)))),
         Random => Value::Float(pseudo_random()),
-        // ---- more @math ----
+        // ---- more @math (we're so back) ----
         Sin => Value::Float(as_float(args.remove(0)).sin()),
         Cos => Value::Float(as_float(args.remove(0)).cos()),
         Tan => Value::Float(as_float(args.remove(0)).tan()),
@@ -863,7 +863,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             if low > high {
                 return Err(RuntimeError::ClampBounds { low: low.to_string(), high: high.to_string() });
             }
-            // written out (not `f64::clamp`, which panics on a NaN bound)
+            // written out (not `f64::clamp`, which panics on a NaN bound. thanks rust).
             Value::Float(if x < low { low } else if x > high { high } else { x })
         }
         TauDecimals => Value::Float(round_decimals(std::f64::consts::TAU, as_int(args.remove(0)), "@math.tau")?),
@@ -873,7 +873,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
         PiDefault => Value::Float(round_decimals(std::f64::consts::PI, DEFAULT_DECIMALS, "@math.pi")?),
         EDefault => Value::Float(round_decimals(std::f64::consts::E, DEFAULT_DECIMALS, "@math.e")?),
 
-        // ---- @into ----
+        // ---- @into (conversions, which are always a lie) ----
         IntToFloat => Value::Float(as_int(args.remove(0)) as f64),
         FloatToInt => Value::Int(as_float(args.remove(0)) as i64),
         ParseInt => {
@@ -891,16 +891,16 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             })?
         }
 
-        // ---- time ----
-        // @time.now(): current UTC date-time as an ISO-8601 string
+        // ---- time (the clock lies too) ----
+        // @time.now(): current UTC date-time, ISO-8601 string. the format nobody remembers.
         TimeNow => Value::String(Rc::new(iso_utc(unix_millis() / 1000))),
-        // @time.unix(): whole milliseconds since 1970-01-01 UTC (wall clock)
+        // @time.unix(): whole ms since 1970-01-01 UTC. wall clock, so it can jump around.
         TimeUnix => Value::Int(unix_millis()),
         // @time.elapsed(): time since the program started (monotonic clock),
-        // already formatted in whole units that adapt to the size: "45ms",
-        // "3s 250ms", "1h 2m"
+        // already formatted in whole units that adapt to size: "45ms",
+        // "3s 250ms", "1h 2m". 
         TimeElapsed => Value::String(Rc::new(format_duration(program_start().elapsed().as_nanos()))),
-        // @time.sleep(ms): blocks the script at this point, like a wait()
+        // @time.sleep(ms): blocks the script right here. like a wait(), but worse.
         TimeSleep => {
             let ms = as_int(args.remove(0));
             if ms < 0 {
@@ -913,12 +913,12 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
     })
 }
 
-/// `nanos` as whole-number units that adapt to the magnitude, like Rust's own
-/// `Duration` output but integer-only: the largest unit that fits at least once,
-/// plus the next smaller unit when it is not zero (that is the whole precision
-/// shown, so a 2h 3m 4s span reads `2h 3m`). Units: h m s ms µs ns. `ps` is
-/// absent on purpose: the monotonic clock ticks in nanoseconds, so it would
-/// always be 0.
+/// `nanos` as whole-number units that adapt to the size. like Rust's own
+/// `Duration` output, but integer-only. the largest unit that fits at least once,
+/// plus the next smaller unit if it's not zero (that's the whole precision
+/// shown, so 2h 3m 4s reads `2h 3m`). units: h m s ms µs ns. no `ps`, because
+/// the monotonic clock ticks in ns, so ps would always be 0. don't add it.
+/// (it would always be 0. I checked. twice.)
 fn format_duration(nanos: u128) -> String {
     const UNITS: [(u128, &str); 6] = [
         (3_600_000_000_000, "h"),
@@ -943,19 +943,19 @@ fn format_duration(nanos: u128) -> String {
     "0ns".to_string()
 }
 
-/// decimals `@math.pi()` / `@math.e()` use when called without an argument
+/// decimals `@math.pi()` / `@math.e()` use with no argument. magic number,
 const DEFAULT_DECIMALS: i64 = 2;
-/// an f64 carries ~15-17 significant digits, so asking for more decimals than
-/// this cannot add precision; larger requests are clamped to it
+/// an f64 holds ~15-17 significant digits, so more decimals than that
+/// adds nothing real. bigger requests get clamped. honesty first.
 const MAX_DECIMALS: i64 = 15;
 
-/// Most elements `@array.range` will build. A bigger request is a runtime
-/// error instead of an out-of-memory abort (which nothing could catch).
+/// max elements `@array.range` will build. bigger = runtime error, not an
+/// OOM abort (which nothing could catch). crash politely.
 pub const MAX_RANGE_LEN: usize = 20_000_000;
 
 /// `@array.range(start, end, step)`: `start, start+step, ...` while strictly
-/// before `end` (after it, for a negative step). `end` is EXCLUSIVE. Works in
-/// `i128`, so the extremes of `i64` cannot overflow while counting.
+/// before `end` (after it, for a negative step). `end` is EXCLUSIVE. works in
+/// `i128`, so the i64 extremes can't overflow while counting. math is hard.
 fn range_array(start: i64, end: i64, step: i64) -> Result<Value, RuntimeError> {
     if step == 0 {
         return Err(RuntimeError::ZeroRangeStep);
@@ -975,10 +975,10 @@ fn range_array(start: i64, end: i64, step: i64) -> Result<Value, RuntimeError> {
     Ok(Value::Array(Rc::new(std::cell::RefCell::new(items))))
 }
 
-/// `value` rounded (half away from zero on the decimal expansion) to
-/// `decimals` places, e.g. `pi` with 4 → 3.1416. Goes through the decimal
-/// formatter instead of `(x * 10^n).round() / 10^n`, so no float error from
-/// the scaling sneaks into the result.
+/// `value` rounded (half away from zero, on the decimal) to
+/// `decimals` places, e.g. `pi` with 4 → 3.1416. goes through the decimal
+/// formatter instead of `(x * 10^n).round() / 10^n`, so no float error
+/// sneaks in from the scaling. floats are liars.
 fn round_decimals(value: f64, decimals: i64, function: &'static str) -> Result<f64, RuntimeError> {
     if decimals < 0 {
         return Err(RuntimeError::NegativeDecimals { function, decimals });
@@ -989,8 +989,8 @@ fn round_decimals(value: f64, decimals: i64, function: &'static str) -> Result<f
 
 static PROGRAM_ARGS: OnceLock<Vec<String>> = OnceLock::new();
 
-/// The arguments `@sys.args()` returns (what follows `--` on the command line).
-/// Set once, before the program runs; later calls are no-ops.
+/// the args `@sys.args()` returns (what comes after `--` on the command line).
+/// set once, before the program runs. later calls do nothing.
 pub fn set_program_args(args: Vec<String>) {
     let _ = PROGRAM_ARGS.set(args);
 }
@@ -1014,9 +1014,9 @@ fn string_array(items: impl Iterator<Item = String>) -> Value {
 
 static PROGRAM_START: OnceLock<Instant> = OnceLock::new();
 
-/// Fixes the instant `@time.elapsed()` counts from. `Vm::new` calls this so the
-/// clock starts when the program does (not at the first `@time.elapsed()` call);
-/// later calls are no-ops.
+/// fixes the instant `@time.elapsed()` counts from. `Vm::new` calls this so the
+/// clock starts when the program does (not at the first elapsed call).
+/// later calls do nothing.
 pub fn mark_program_start() {
     PROGRAM_START.get_or_init(Instant::now);
 }
@@ -1025,8 +1025,8 @@ fn program_start() -> Instant {
     *PROGRAM_START.get_or_init(Instant::now)
 }
 
-/// whole milliseconds since the Unix epoch. A system clock set before 1970
-/// yields a negative value instead of panicking.
+/// whole ms since the Unix epoch. if the system clock is set before 1970,
+/// you get a negative number instead of a panic. nice of it.
 fn unix_millis() -> i64 {
     match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(d) => d.as_millis() as i64,
@@ -1034,8 +1034,8 @@ fn unix_millis() -> i64 {
     }
 }
 
-/// `secs` since the Unix epoch → `YYYY-MM-DDTHH:MM:SSZ` (UTC). Uses
-/// Howard Hinnant's days-to-civil algorithm, so no date crate is needed.
+/// `secs` since the Unix epoch → `YYYY-MM-DDTHH:MM:SSZ` (UTC). uses
+/// Howard Hinnant's days-to-civil algorithm. no date crate. respect.
 fn iso_utc(secs: i64) -> String {
     let days = secs.div_euclid(86_400);
     let rem = secs.rem_euclid(86_400);
@@ -1054,11 +1054,11 @@ fn iso_utc(secs: i64) -> String {
     format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", y, m, d, h, mi, s)
 }
 
-/// Ordering for `sort` — spg has no user-defined comparators yet, so this
-/// covers exactly the element types array builtins accept: numbers
-/// compare numerically, strings lexicographically, bools false-before-true.
-/// Mixed-type arrays can't exist post-typecheck (arrays are homogeneous),
-/// so every comparison here is between same-variant values.
+/// ordering for `sort`. spg has no user comparators yet, so this
+/// covers exactly what array builtins accept: numbers
+/// compare as numbers, strings lexicographically, bools false-before-true.
+/// mixed-type arrays can't exist after typecheck (arrays are homogeneous),
+/// so every comparison here is same-variant. no weird cases. (please.)
 fn compare_values(a: &Value, b: &Value) -> std::cmp::Ordering {
     match (a, b) {
         (Value::Int(x), Value::Int(y)) => x.cmp(y),
@@ -1069,12 +1069,12 @@ fn compare_values(a: &Value, b: &Value) -> std::cmp::Ordering {
     }
 }
 
-/// A tiny xorshift PRNG seeded from the system clock — no external crate,
+/// a tiny xorshift PRNG seeded from the system clock. no crate,
 /// re-seeded on every call (spg has no global VM state to stash a seed in
-/// yet), which is fine for `random()`'s actual use case (game jitter, not
-/// cryptography or statistically rigorous simulation) but means calls
-/// made within the same nanosecond-resolution tick could in principle
-/// repeat; acceptable for v1.0, revisit if that ever becomes visible.
+/// yet). fine for `random()`'s real job (game jitter, not
+/// crypto or serious simulation), but calls
+/// in the same ns tick could in theory repeat. acceptable for v1.0.
+/// revisit if anyone ever notices. nobody will. probably.
 fn pseudo_random() -> f64 {
     let seed = SystemTime::now().duration_since(UNIX_EPOCH).expect("system clock is before the Unix epoch").as_nanos()
         as u64;
@@ -1099,7 +1099,7 @@ mod tests {
         assert_eq!(fd(3_000_000_000), "3s");
         assert_eq!(fd(60_000_000_000), "1m");
         assert_eq!(fd(3_600_000_000_000), "1h");
-        // far beyond a day stays in hours (there is no "d")
+        // far beyond a day stays in hours (there is no "d". don't ask for days.)
         assert_eq!(fd(1_700_000_000_000 * 1_000_000), "472222h 13m");
     }
 
@@ -1110,7 +1110,7 @@ mod tests {
         assert_eq!(fd(3_250_000_000), "3s 250ms");
         assert_eq!(fd(90_000_000_000), "1m 30s");
         assert_eq!(fd(3_725_000_000_000), "1h 2m");
-        // two units only: seconds are dropped from 2h 3m 4s
+        // two units only: seconds get dropped. 2h 3m 4s becomes 2h 3m. sorry seconds.
         assert_eq!(fd(7_384_000_000_000), "2h 3m");
         assert_eq!(fd(3_605_000_000_000), "1h"); // 1h 0m 5s
     }

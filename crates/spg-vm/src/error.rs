@@ -1,94 +1,94 @@
-//! Runtime errors the VM can raise. Distinct from `spg_typecheck::TypeError`
-//! (compile-time) — everything here should be UNREACHABLE for a program
-//! that passed type-checking and compiled successfully; these exist as a
-//! defensive last line, not as user-facing diagnostics for normal
-//! programs. The one exception is `UnhandledException`, which is a real
-//! runtime condition (an exception raised with no active `try/catch`
-//! covering it) rather than a VM bug.
+//! Runtime errors the VM can raise. not the same as `spg_typecheck::TypeError`
+//! (compile-time). almost everything here should be UNREACHABLE for a program
+//! that passed the checker and compiled. these exist as a
+//! defensive last line, not user-facing errors for normal
+//! programs. the one exception is `UnhandledException`, a real
+//! runtime condition (an exception thrown with no active `try/catch`
+//! covering it). not a VM bug. the program's own fault.
 
 use std::fmt;
 
 #[derive(Debug, Clone)]
 pub enum RuntimeError {
     /// an OpCode expected a certain Value variant on the stack (e.g.
-    /// AddInt expects two Ints) and found something else — should be
-    /// impossible post-typecheck; the type name found is kept for
-    /// whatever debugging is still useful if this ever fires
+    /// AddInt expects two Ints) and found something else. should be
+    /// impossible after typecheck. the type name found is kept for
+    /// debugging, in case this ever fires. (it will. someday.)
     TypeMismatch { expected: &'static str, found: &'static str },
-    /// popped an empty operand stack — compiler bug (stack imbalance)
+    /// popped an empty operand stack. compiler bug (stack imbalance). blame the compiler.
     StackUnderflow,
     /// array index out of bounds at runtime (arrays are dynamically
-    /// sized — this is NOT a type error, it's a real runtime condition
-    /// even in a fully well-typed program, e.g. `arr[i]` where `i` came
-    /// from user input or a computed offset)
+    /// sized. NOT a type error, it's a real runtime condition
+    /// even in a perfectly typed program, e.g. `arr[i]` where `i` came
+    /// from user input or a computed offset. life is unfair.
     IndexOutOfBounds { index: i64, len: usize },
-    /// `@sys.exit(code)`: end the program now. Never catchable; the CLI turns it into the process exit code.
+    /// `@sys.exit(code)`: end the program now. never catchable. the CLI turns it into the exit code.
     Exit { code: i32 },
-    /// a failed `@file.*` / `@sys.*` operation (missing file, no permission...); catchable
+    /// a failed `@file.*` / `@sys.*` op (missing file, no permission...). catchable.
     Io { function: &'static str, path: String, reason: String },
-    /// `readLine()` / `@sys.readLine()` with nothing left on stdin; `function` names the caller
+    /// `readLine()` / `@sys.readLine()` with nothing left on stdin. `function` names the caller.
     EndOfInput { function: &'static str },
-    /// `@file.writeBytes(p, [..., 300])`: a byte goes from 0 to 255
+    /// `@file.writeBytes(p, [..., 300])`: bytes go from 0 to 255. 300 is not a byte. shocking.
     InvalidByte { index: usize, value: i64 },
-    /// `@array.pop` on an empty array
+    /// `@array.pop` on an empty array. pop nothing, get an error. fair.
     EmptyArray { function: &'static str },
-    /// `@array.fill(n, x)` with a negative `n`
+    /// `@array.fill(n, x)` with a negative `n`. you can't fill -3 things.
     NegativeCount { function: &'static str, count: i64 },
-    /// `@math.clamp(x, low, high)` with `low > high`
+    /// `@math.clamp(x, low, high)` with `low > high`. flipped, bro.
     ClampBounds { low: String, high: String },
-    /// `m[k]` (or `m[k] += v`) with a key the map does not have; `key` is how the
-    /// key prints (strings quoted). `@map.has` / `@map.get(m, k, fallback)` avoid it.
+    /// `m[k]` (or `m[k] += v`) with a key the map doesn't have. `key` is how the
+    /// key prints (strings quoted). `@map.has` / `@map.get(m, k, fallback)` dodge it.
     KeyNotFound { key: String },
-    /// division or modulo by zero — same category as index-out-of-bounds:
-    /// a real runtime condition, not a typechecker-catchable bug
+    /// division or modulo by zero. same family as index-out-of-bounds:
+    /// real runtime condition, not something the checker could catch
     DivisionByZero,
-    /// an exception was thrown (via the `Throw` opcode) with no active
-    /// `try/catch` handler anywhere in the call stack to catch it —
-    /// this is a genuine "the program's own logic failed" condition,
-    /// not a VM bug
+    /// an exception was thrown (`Throw` opcode) with no active
+    /// `try/catch` handler anywhere up the call stack. nobody caught it.
+    /// a genuine "the program's own logic failed" condition.
+    /// not a VM bug. (it's the program. it's always the program.)
     UnhandledException(String),
-    /// called a function index that doesn't exist in the program —
-    /// compiler bug, should be impossible post-typecheck
+    /// called a function index that doesn't exist in the program.
+    /// compiler bug, should be impossible post-typecheck. yet here we are.
     InvalidFunctionIndex(usize),
-    /// `@into.int`/`@into.float` on a string that isn't valid syntax for
-    /// the target type — a real runtime condition (the string is user or
-    /// external data, its contents aren't known at compile time), not a
-    /// VM bug
+    /// `@into.int`/`@into.float` on a string that isn't valid for
+    /// the target type. a real runtime condition (the string is user or
+    /// external data, we can't know it at compile time), not a
+    /// VM bug. users typing garbage is not my fault.
     InvalidNumberFormat { input: String, target_type: &'static str },
-    /// `@time.sleep(ms)` with a negative duration — a real runtime condition
-    /// (the argument can be computed), not a VM bug
+    /// `@time.sleep(ms)` with a negative duration. a real runtime condition
+    /// (the arg can be computed at runtime), not a VM bug. sleep backwards? no.
     NegativeSleep(i64),
-    /// `@math.pi(n)` / `@math.e(n)` with a negative number of decimals
+    /// `@math.pi(n)` / `@math.e(n)` with negative decimals. -2 decimals of pi? nope.
     NegativeDecimals { function: &'static str, decimals: i64 },
     /// a range with step 0 (`@array.range(1, 4, 0)`, or `for i in 1..4 step n`
-    /// with `n == 0`): it could never reach its end
+    /// with `n == 0`). it would never reach its end. infinite loop detected, lol.
     ZeroRangeStep,
-    /// `@array.range` asked to build more elements than `MAX_RANGE_LEN`
+    /// `@array.range` asked to build more elements than `MAX_RANGE_LEN`. too greedy.
     RangeTooLarge { len: u128, max: usize },
-    /// `#> strict`: an int operation whose result does not fit in 64 bits
+    /// `#> strict`: an int op whose result doesn't fit in 64 bits. you asked for it.
     IntegerOverflow { op: &'static str },
-    /// more nested calls than `vm::MAX_CALL_DEPTH` (usually an infinite recursion)
+    /// more nested calls than `vm::MAX_CALL_DEPTH` (usually infinite recursion. classic.)
     StackOverflow { limit: usize },
-    /// `@json.*`: invalid JSON text, a path that leads nowhere, a value with no JSON form
+    /// `@json.*`: invalid JSON text, a path to nowhere, a value with no JSON form
     Json { function: &'static str, message: String },
-    /// `ps.*`: PowerShell is missing or could not be started (catchable)
+    /// `ps.*`: PowerShell is missing or wouldn't start. catchable. good luck on Linux.
     Process { function: &'static str, reason: String },
 }
 
 impl RuntimeError {
-    /// The text a `catch (e)` receives for this error, or `None` when it is not
-    /// catchable: a `throw` gives its message, a runtime condition of the program
-    /// (division by zero, index out of bounds, missing key, bad number text...)
-    /// gives its usual message, and a VM/compiler bug is never caught.
+    /// the text a `catch (e)` receives for this error, or `None` if it's not
+    /// catchable. a `throw` gives its message, a runtime condition of the program
+    /// (div by zero, index out of bounds, missing key, bad number text...)
+    /// gives its usual message. a VM/compiler bug is never caught. never. don't even try.
     pub fn catchable_message(&self) -> Option<String> {
         match self {
             RuntimeError::UnhandledException(message) => Some(message.clone()),
-            // a `none` where a value was needed is a program error a `catch` can handle
+            // a `none` where a value was needed is a program error a `catch` can handle. fair.
             RuntimeError::TypeMismatch { found: "none", .. } => Some(self.to_string()),
             RuntimeError::TypeMismatch { .. }
             | RuntimeError::StackUnderflow
             | RuntimeError::InvalidFunctionIndex(_)
-            // `@sys.exit` is not an error: no `try` may swallow it
+            // `@sys.exit` is not an error. no `try` gets to swallow it. exit means exit.
             | RuntimeError::Exit { .. } => None,
             other => Some(other.to_string()),
         }
@@ -167,7 +167,7 @@ impl fmt::Display for RuntimeError {
 impl std::error::Error for RuntimeError {}
 
 impl RuntimeError {
-    /// the same fact in the friendly tone (`#> friendly-terminal`)
+    /// the same fact, in the friendly tone (`#> friendly-terminal`). the nice version.
     pub fn friendly(&self) -> String {
         let hint = match self {
             RuntimeError::IntegerOverflow { .. } => spg_lexer::HINT_OVERFLOW,

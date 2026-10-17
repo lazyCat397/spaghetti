@@ -1,13 +1,13 @@
-//! The typechecker itself. Walks the parser's AST, resolves scope via a
-//! stack of symbol tables, checks types, and either produces a fully
-//! typed AST or collects every TypeError found along the way.
+//! the typechecker itself. walks the parser's AST, resolves scope with a
+//! stack of symbol tables, checks types, and either spits out a fully
+//! typed AST or collects every TypeError it finds on the way. thorough.
 //!
-//! Scope model: one HashMap<String, Ty> per active block, pushed/popped
-//! as blocks are entered/left (function body, if/while/for/try bodies).
-//! A variable is visible in its own block and any nested block — the
-//! same as C/Rust/JS block scoping. Function and struct names live in
-//! a separate, single global table (no nested function declarations in
-//! v0.1 — keeps the resolver simple).
+//! scope model: one HashMap<String, Ty> per active block, pushed and popped
+//! as blocks get entered and left (function bodies, if/while/for/try bodies).
+//! a variable is visible in its own block and any nested block. same as
+//! C/Rust/JS. function and struct names live in
+//! one separate global table (no nested function declarations in
+//! v0.1, keeps the resolver sane).
 
 use std::collections::HashMap;
 
@@ -23,72 +23,72 @@ struct FunctionSig {
     return_type: Ty,
 }
 
-/// a lambda being checked: where its own scopes start, and the outer locals it uses
+/// a lambda being checked: where its own scopes start, and the outer locals it grabs
 struct LambdaFrame {
     base: usize,
     captures: Vec<(String, Ty)>,
 }
 
-/// what the scope stack tracks per declared name — type plus whether
-/// reassignment is allowed, so `const` can be enforced at the point of
-/// `x = ...` instead of only at declaration
+/// what the scope stack tracks per name: type, plus whether
+/// reassignment is allowed, so `const` gets enforced at the point of
+/// `x = ...`, not only at the declaration
 #[derive(Clone)]
 struct VarInfo {
     ty: Ty,
     mutable: bool,
     /// set once a successfully-checked `name = ...` resolves to THIS binding
-    /// (shadowing-exact, because it is the binding's own flag). A `for i in
-    /// a..b` reads it for its own variable so the compiler can skip a copy
-    /// when nobody reassigns `i`.
+    /// (shadowing-exact, because it's the binding's own flag). a `for i in
+    /// a..b` reads it for its own variable, so the compiler can skip a copy
+    /// when nobody touches `i`. lazy and smart.
     assigned: bool,
-    /// set on a type-narrowed entry (`x != none` proved an `int?` is an `int`): the
-    /// scope index of the real binding, so captures and assignments still see it
+    /// set on a narrowed entry (`x != none` proved an `int?` is an `int`): the
+    /// scope index of the real binding, so captures and assignments still find it
     origin: Option<usize>,
-    /// the type the variable has outside the narrowing (an assignment ends it)
+    /// the type the variable has outside the narrowing. an assignment ends it.
     narrowed_from: Option<Ty>,
 }
 
 pub struct Checker {
     functions: HashMap<String, FunctionSig>,
     /// struct name -> its fields in declaration order (order matters for
-    /// error messages and for a possible future positional-literal
-    /// syntax, even though today's `Name { field: value }` literal is
-    /// checked by name, not position)
+    /// error messages, and maybe a future positional-literal
+    /// syntax (even though today's `Name { field: value }` is
+    /// checked by name, not position). future problems, future us.
     struct_defs: HashMap<String, Vec<Param>>,
     /// enum name -> its variants in declaration order (a variant's position
-    /// is its identity at run time). An enum value's type is `Ty::Named(name)`;
-    /// this table is what tells it apart from a struct.
+    /// is its identity at runtime). an enum value's type is `Ty::Named(name)`;
+    /// this table is how it's told apart from a struct.
     enum_defs: HashMap<String, Vec<String>>,
     /// enum name -> the type of its variants' values (`c.value`)
     enum_value_tys: HashMap<String, Ty>,
     scopes: Vec<HashMap<String, VarInfo>>,
-    /// `#> strict` (set for the whole program: only the entry file has directives)
+    /// `#> strict` (set for the whole program. only the entry file has directives)
     strict: bool,
     errors: Vec<TypeError>,
-    /// how many while/for-in loops we're currently nested inside —
-    /// used to reject break/continue outside a loop. Saved/restored
-    /// around function bodies so a loop in an outer scope can never
-    /// "leak" into a function declared inside it (moot today since
-    /// v1.0 has no nested function declarations, but keeps the check
-    /// correct if that ever changes).
+    /// how many while/for-in loops we're nested inside right now.
+    /// used to reject break/continue outside a loop. saved and restored
+    /// around function bodies, so a loop outside can never
+    /// "leak" into a function declared inside it (moot today, since
+    /// v1.0 has no nested functions, but this keeps the check
+    /// correct if that ever changes. future-proofing, baby.
     loop_depth: usize,
     /// names of functions whose return type inference (collect_function_
     /// signatures, pass B) failed because their own returns disagreed.
     /// check_all_paths_return skips its normal return-type comparison
-    /// for these — the real problem was already reported as
-    /// CannotInferReturnType, and comparing bodies against the Void
-    /// placeholder infer_return_type falls back to would just produce
-    /// confusing, redundant ReturnTypeMismatch noise on top of it.
+    /// for these. the real problem was already reported as
+    /// CannotInferReturnType, and comparing bodies to the Void
+    /// placeholder infer_return_type falls back to would just make
+    /// confusing, redundant ReturnTypeMismatch noise on top. nobody needs that.
     uninferrable_functions: std::collections::HashSet<String>,
     /// enum matches with no `else` that name every variant, keyed by their
-    /// position. They always end in one of their arms, so the return-path
-    /// check may count them as returning.
+    /// position. they always end in one of their arms, so the return-path
+    /// check can count them as returning. trust the enum.
     exhaustive_matches: std::collections::HashSet<(Option<String>, usize, usize)>,
     /// declared/inferred return type of the function whose body is being
     /// checked RIGHT NOW (`None` at the root, outside any function).
     /// `Stmt::Return` compares against this in the same pass that checks
-    /// the returned expression — a second walk just to compare types
-    /// would re-run `check_expr` and re-emit every error inside it.
+    /// the returned expression. a second walk just to compare types
+    /// would re-run `check_expr` and re-print every error inside. no thanks.
     current_return: Option<Ty>,
     /// lambdas whose bodies are being checked, outermost first
     lambdas: Vec<LambdaFrame>,
@@ -98,8 +98,8 @@ pub fn type_check(program: p::Program) -> Result<TypedProgram, Vec<TypeError>> {
     type_check_with(program, false)
 }
 
-/// `strict` is the file's `#> strict`: it only HARDENS rules (hidden names and
-/// dead code become errors); the language accepted is the same
+/// `strict` is the file's `#> strict`. it only HARDENS the rules (hidden names and
+/// dead code become errors). the language accepted is the same
 pub fn type_check_with(program: p::Program, strict: bool) -> Result<TypedProgram, Vec<TypeError>> {
     let mut checker = Checker {
         functions: HashMap::new(),
@@ -139,23 +139,23 @@ pub fn type_check_with(program: p::Program, strict: bool) -> Result<TypedProgram
 }
 
 impl Checker {
-    // Setup: register every function's signature before checking
+    // setup: register every function's signature before checking
     // bodies, so forward calls (fn A calls fn B declared below it)
-    // resolve correctly.
+    // resolve correctly. the way it should be.
 
     fn collect_struct_signatures(&mut self, stmts: &[Stmt]) {
         // structs have no inference to do (every field is always
-        // explicitly typed, same as a function param) — one pass is
+        // explicitly typed, like a function param). one pass is
         // enough, unlike collect_function_signatures's two-pass dance
-        // for return-type inference. Order among struct declarations
-        // doesn't matter for the same reason `array<T>` doesn't care
-        // about declaration order: field types are only *names* here
-        // (Ty::Named) until something actually constructs or reads a
-        // field, at which point every struct is already registered.
+        // for return-type inference. order among structs doesn't matter
+        // for the same reason `array<T>` doesn't care
+        // about declaration order: field types are just *names* here
+        // (Ty::Named) until something actually builds or reads a
+        // field, and by then every struct is already registered.
         for stmt in stmts {
             match stmt {
-                // (a struct and an enum with the same name never get here: the
-                // module resolver already rejects a name declared twice)
+                // (a struct and an enum with the same name never get here. the
+                // module resolver already yells about duplicate names)
                 Stmt::StructDecl { name, fields, .. } => {
                     self.struct_defs.insert(name.clone(), fields.clone());
                 }
@@ -179,8 +179,8 @@ impl Checker {
         matches!(ty, Ty::Named(n) if self.enum_defs.contains_key(n))
     }
 
-    /// `name` read as an enum: only when no variable/parameter of that name
-    /// is in scope (a local called like the enum shadows it, as with any name)
+    /// `name` read as an enum. only when no variable/param of that name
+    /// is in scope (a local with the enum's name shadows it, like any name)
     fn enum_named(&self, name: &str) -> Option<&Vec<String>> {
         if self.lookup(name).is_some() {
             return None;
@@ -191,9 +191,9 @@ impl Checker {
     fn collect_function_signatures(&mut self, stmts: &[Stmt]) {
         // pass A: register every function that HAS an explicit `-> Type`
         // first, so inference for the un-annotated ones (pass B) can see
-        // every explicitly-typed function, not just the ones declared
-        // earlier in the file — matches the "forward calls work" guarantee
-        // explicit signatures already had.
+        // every explicitly typed function, not just the ones declared
+        // earlier in the file. matches the "forward calls work" promise.
+        // explicit signatures already had. consistency, friend.
         for stmt in stmts {
             if let Stmt::FunctionDecl { name, params, return_type: Some(rt), .. } = stmt {
                 self.functions.insert(
@@ -203,13 +203,12 @@ impl Checker {
             }
         }
 
-        // pass B: infer the rest by scanning each one's own return
-        // statements. Order among un-annotated functions doesn't matter
-        // UNLESS two of them call each other without either side having
-        // an explicit type — that mutual-inference case isn't supported
-        // (same limitation most languages with return-type inference
+        // pass B: infer the rest by scanning each one's own returns.
+        // order among un-annotated functions doesn't matter
+        // UNLESS two of them call each other, and neither has a type.
+        // that mutual case isn't supported. (most languages say the same.)
+        // the fix is on you: annotate one of the two. sorry.
         // have); the fix from the caller's side is just to annotate one
-        // of the two.
         for stmt in stmts {
             if let Stmt::FunctionDecl { name, params, return_type: None, body, pos, .. } = stmt {
                 let inferred = self.infer_return_type(name, params, body, pos);
@@ -218,25 +217,25 @@ impl Checker {
         }
     }
 
-    /// Determines a function's return type by scanning its own body for
-    /// `return` statements, WITHOUT emitting any errors of its own —
-    /// it snapshots and restores `self.errors` around the scan so any
-    /// errors check_expr raises while inferring are discarded; the real
-    /// check_stmt pass over the function body (which runs afterward) is
-    /// what actually surfaces genuine errors to the user. Parameters ARE
-    /// declared for real in this temporary scope (not left undefined),
-    /// since an expression like `return x + 1` needs `x`'s real type to
-    /// infer anything meaningful — a placeholder type here could easily
-    /// produce a wrong inferred return type, not just a wrong error.
+    /// figures out a function's return type by scanning its body for
+    /// `return` statements, WITHOUT emitting its own errors.
+    /// it snapshots and restores `self.errors` around the scan, so any
+    /// errors check_expr throws while inferring get discarded. the real
+    /// check_stmt pass over the body (which runs after) is
+    /// the one that actually shows real errors to the user. params ARE
+    /// declared for real in this temp scope (not left undefined),
+    /// since something like `return x + 1` needs `x`'s real type to
+    /// infer anything useful. a placeholder type here could easily
+    /// give a wrong return type, not just a wrong error. nasty.
     ///
-    /// No `return` anywhere -> Void (mirrors a function whose only
-    /// paths fall off the end). All `return`s agreeing -> that type.
-    /// Disagreeing -> CannotInferReturnType, and Void is used as a
-    /// placeholder so the rest of type-checking has *something* to work
-    /// with rather than panicking — the real error is what surfaces to
-    /// the user, this placeholder never reaches a successful Ok result.
+    /// no `return` anywhere -> Void (like a function that only
+    /// falls off the end). all `return`s agree -> that type.
+    /// they disagree -> CannotInferReturnType. Void is the placeholder,
+    /// so the rest of typechecking has *something* to chew on instead of
+    /// panicking. the real error is what the user sees. this placeholder
+    /// never reaches a successful Ok result. never. promise.
     fn infer_return_type(&mut self, name: &str, params: &[p::Param], body: &p::Block, pos: &p::Pos) -> Ty {
-        // errors of this probe pass are thrown away (the real pass reports them)
+        // errors of this probe pass get thrown away. the real pass reports them.
         let saved_errors = std::mem::take(&mut self.errors);
         self.push_scope();
         for param in params {
@@ -266,11 +265,11 @@ impl Checker {
         }
     }
 
-    /// Walks the body COLLECTING the type of every `return` found —
-    /// used only during return-type inference, before there's an
-    /// expected type to compare against. (The real comparison happens in
+    /// walks the body COLLECTING the type of every `return` it finds.
+    /// only used during return-type inference, before there's an
+    /// expected type to compare to. (the real comparison happens in
     /// `check_stmt`'s `Stmt::Return` arm, in the same pass that checks
-    /// the returned expression.)
+    /// the returned expression.) efficient, unlike my life choices.
     fn collect_return_types_in_stmts(&mut self, stmts: &[Stmt], found: &mut Vec<Ty>) {
         for stmt in stmts {
             match stmt {
@@ -307,7 +306,7 @@ impl Checker {
         }
     }
 
-    // Scope helpers
+    // scope helpers (the boring glue)
 
     fn push_scope(&mut self) {
         self.scopes.push(HashMap::new());
@@ -318,7 +317,7 @@ impl Checker {
     }
 
     fn declare(&mut self, name: &str, ty: Ty, mutable: bool, pos: &p::Pos) {
-        // `#> strict`: a name may not hide one from an outer scope (names that
+        // `#> strict`: a name can't hide one from an outer scope (names that
         // start with `_`, compiler-made names and a method's implicit `me` are exempt)
         if self.strict && name != "me" && name.chars().next().is_some_and(|c| c.is_alphabetic()) {
             let outer = &self.scopes[..self.scopes.len() - 1];
@@ -346,9 +345,9 @@ impl Checker {
         None
     }
 
-    /// a read of `name` as an expression. A local of an enclosing function, seen
+    /// a read of `name` as an expression. a local of an enclosing function, seen
     /// from inside a lambda, becomes a capture of every lambda it crosses (so the
-    /// nested ones pass it along). Globals (the root scope) are never captured.
+    /// nested ones pass it along). globals (root scope) are never captured. they're global.
     fn resolve_name(&mut self, name: &str) -> Option<Ty> {
         let (scope, ty) = self
             .scopes
@@ -367,7 +366,7 @@ impl Checker {
     }
 
     /// true when `name` is a local of an enclosing function that the innermost
-    /// lambda reaches across its boundary (assigning it would change only a copy)
+    /// lambda reaches across its border (assigning would only change a copy)
     fn assigns_capture(&self, name: &str) -> bool {
         let scope = self.scopes.iter().enumerate().rev().find_map(|(i, s)| s.get(name).map(|info| info.origin.unwrap_or(i)));
         match (scope, self.lambdas.last()) {
@@ -376,8 +375,8 @@ impl Checker {
         }
     }
 
-    /// same lookup, but returns the full VarInfo — used by Assign, which
-    /// (unlike every other read site) also needs to know mutability
+    /// same lookup, but returns the full VarInfo. used by Assign, which
+    /// (unlike every other read site) also needs to know about mutability
     fn lookup_var(&self, name: &str) -> Option<&VarInfo> {
         for scope in self.scopes.iter().rev() {
             if let Some(info) = scope.get(name) {
@@ -397,10 +396,10 @@ impl Checker {
         }
     }
 
-    /// inside the current scope, `names` (optionals a condition proved are not
-    /// `none`) have their inner type. The entry is a shadow of the real binding
-    /// (or replaces it when both live in this scope); either way a later
-    /// assignment ends it again (`unnarrow`)
+    /// inside the current scope, `names` (optionals a condition proved aren't
+    /// `none`) get their inner type. the entry is a shadow of the real binding
+    /// (or replaces it, when both live in this scope). either way, a later
+    /// assignment ends it again (`unnarrow`). the narrowing gets forgotten.
     fn narrow(&mut self, names: &[String]) {
         for name in names {
             let found = self.scopes.iter().enumerate().rev().find_map(|(i, s)| s.get(name).map(|info| (i, info.clone())));
@@ -418,7 +417,7 @@ impl Checker {
     }
 
     /// undoes `narrow` for `name`: the shadow disappears, or the real binding gets
-    /// its optional type back
+    /// its optional type back. welcome back, `?`.
     fn unnarrow(&mut self, name: &str) {
         let Some(idx) = self.scopes.iter().rposition(|s| s.contains_key(name)) else { return };
         let info = self.scopes[idx].get(name).cloned().expect("found just above");
@@ -456,20 +455,20 @@ impl Checker {
         Some(TypedExpr::Coalesce { left: Box::new(left), right: Box::new(right), ty })
     }
 
-    /// A call to a builtin (`@str.len(s)`, `print(...)`, ...) whose arguments
-    /// are already checked; `name` must be in the builtin table (callers test
-    /// `builtin_signatures().contains_key(..)` first).
+    /// a call to a builtin (`@str.len(s)`, `print(...)`, ...) whose args
+    /// are already checked. `name` must be in the builtin table (callers test
+    /// `builtin_signatures().contains_key(..)` first). check before you call.
     ///
-    /// Builtins are checked against a separate table so their params can use
-    /// `Ty::Any`/`Ty::AnyArray`/`Ty::AnyMap` without polluting FunctionSig. A
-    /// name may have several overloads; the first whose arity and argument
-    /// types both match wins.
+    /// builtins get checked against a separate table, so their params can use
+    /// `Ty::Any`/`Ty::AnyArray`/`Ty::AnyMap` without messing up FunctionSig. a
+    /// name can have several overloads. the first whose arity and arg
+    /// types both match wins. simple rule, no drama.
     fn check_builtin_call(&mut self, name: String, typed_args: Vec<TypedExpr>, pos: &p::Pos) -> Option<TypedExpr> {
         let builtins = builtin_signatures();
         let overloads = builtins.get(&name).expect("the caller checked that this is a builtin");
-        // `print` / `printError` take ANY number of arguments (zero
-        // included), each of any type: the table's single-`Any`
-        // signature is only their identity. They never fail on arity.
+        // `print` / `printError` take ANY number of args (zero
+        // included), each of any type. the table's single-`Any`
+        // signature is just their name tag. they never fail on arity. free speech.
         if let Some(first) = overloads.first() {
             if matches!(first.id, BuiltinId::Print | BuiltinId::PrintError) {
                 for (i, a) in typed_args.iter().enumerate() {
@@ -500,8 +499,8 @@ impl Checker {
                 builtin: Some(BuiltinId::EnumToString),
             });
         }
-        // `@into.string(x)` for any type with no overload of its own (array, map,
-        // struct, ...): the same text `print` shows
+        // `@into.string(x)` for any type without its own overload (array, map,
+        // struct, ...): the same text `print` shows. consistency, always.
         if name == "@into.string"
             && typed_args.len() == 1
             && !matches!(typed_args[0].ty(), Ty::Int | Ty::Float | Ty::Bool)
@@ -521,14 +520,14 @@ impl Checker {
 
         return match matched {
             Some(sig) => {
-                // a builtin declared to return AnyArray/Any
-                // (pop, sort, reverse, slice, ...) resolves its
-                // real return type from the matched argument
-                // instead of staying a wildcard — a wildcard
+                // a builtin that returns AnyArray/Any
+                // (pop, sort, reverse, slice, ...) figures out its
+                // real return type from the matched arg
+                // instead of staying a wildcard. a wildcard
                 // return type would fail every `let x: T = ...`
                 // at the call site, since T is never literally
-                // "AnyArray". The first AnyArray/Any parameter
-                // that matched an actual argument tells us T.
+                // "AnyArray". the first AnyArray/Any param
+                // that matched a real arg tells us what T is.
                 let resolved_return = if sig.id.is_map_builtin() {
                     self.check_map_call(sig.id, &name, &arg_types, pos)?
                 } else if sig.id.is_array_checked() {
@@ -544,10 +543,10 @@ impl Checker {
                 })
             }
             None => {
-                // no overload matched — report against the
-                // first overload's arity as the most useful
-                // single diagnostic (mirrors how a normal
-                // function reports ArityMismatch/ArgTypeMismatch)
+                // no overload matched. report against the
+                // first overload's arity, the most useful
+                // single diagnostic (like how a normal
+                // function reports ArityMismatch/ArgTypeMismatch). consistent, as always.
                 let first = &overloads[0];
                 if first.params.len() != arg_types.len() {
                     self.errors.push(TypeError::ArityMismatch {
@@ -574,11 +573,11 @@ impl Checker {
         };
     }
 
-    /// `recv.method(args)` where `recv` is a string, array or map: the same as
-    /// `@ns.method(recv, args)`, checked by the very same builtin rules (so
+    /// `recv.method(args)` where `recv` is a string, array or map. same as
+    /// `@ns.method(recv, args)`, checked by the same builtin rules (so
     /// every overload and type check of the plain call applies). `recv` is
-    /// argument #0 and is evaluated first and once. Arity and argument errors
-    /// count only the arguments the caller wrote, never the receiver.
+    /// arg #0, evaluated first and once. arity and arg errors
+    /// count only the args the caller wrote, never the receiver.
     fn check_native_method(
         &mut self,
         receiver: TypedExpr,
@@ -588,8 +587,8 @@ impl Checker {
         pos: &p::Pos,
     ) -> Option<TypedExpr> {
         let name = format!("@{}.{}", ns, method);
-        // only the builtins whose FIRST parameter takes the receiver are methods
-        // (`@array.range(a, b)` and `@str.repeat`'s friends that start with an int are not)
+        // only builtins whose FIRST param takes the receiver are methods
+        // (`@array.range(a, b)` and friends that start with an int are NOT methods. yes.)
         let takes_receiver = builtin_signatures()
             .get(&name)
             .map_or(false, |overloads| overloads.iter().any(|sig| sig.params.first().map_or(false, |p| ty_matches(p, receiver.ty()))));
@@ -622,16 +621,16 @@ impl Checker {
 
     /// `obj.method(args)` -> the plain call `Struct.method(obj, args)`.
     ///
-    /// A method is an ordinary function that the parser registered as
-    /// `<Struct>.<method>` with `me: Struct` as its first parameter, so the
-    /// whole feature is this lookup plus putting the receiver first: no new
-    /// typed node, no opcode. `obj` is evaluated first and exactly once (it is
-    /// just argument #0). Arity and argument errors count only the arguments the
-    /// caller wrote, never `me`.
+    /// a method is a normal function the parser registered as
+    /// `<Struct>.<method>` with `me: Struct` as its first param, so the
+    /// the whole feature is this lookup plus putting the receiver first. no new
+    /// typed node, no opcode. `obj` is evaluated first and exactly once (it's
+    /// just arg #0). arity and arg errors count only the args the
+    /// caller wrote, never `me`. `me` is free. it's always there.
     fn check_method_call(&mut self, object: &Expr, method: &str, args: &[Expr], pos: &p::Pos) -> Option<TypedExpr> {
         let typed_object = self.check_expr(object)?;
         // `x.string()`, `x.int()`, `x.float()`: shorthand for `@into.string(x)` etc. on
-        // any value; a struct's own method of the same name wins
+        // any value. a struct's own method with the same name wins
         if matches!(method, "string" | "int" | "float") && args.is_empty() {
             let user_method = match typed_object.ty() {
                 Ty::Named(n) => self.functions.contains_key(&format!("{}.{}", n, method)),
@@ -724,7 +723,7 @@ impl Checker {
                 });
             }
         }
-        // left-out arguments take the method's default values (same rule as functions)
+        // left-out args take the method's default values (same rule as functions)
         for i in given..expected_params.len() {
             let Some(default) = method_defaults[i].as_ref() else { break };
             let Some(typed_default) = self.check_expr(default) else { return None };
@@ -748,7 +747,7 @@ impl Checker {
         })
     }
 
-    // Statements
+    // statements (the bulk of it)
 
     fn check_stmt(&mut self, stmt: &Stmt) -> Option<TypedStmt> {
         match stmt {
@@ -818,7 +817,7 @@ impl Checker {
                 let typed_subject = self.check_expr(subject)?;
                 let subject_ty = typed_subject.ty().clone();
 
-                // enum subjects carry their variant names; int and string ones have none
+                // enum subjects carry their variant names. int and string ones have none. sad.
                 let variants: Option<Vec<String>> = match &subject_ty {
                     Ty::Named(n) => self.enum_named(n).cloned(),
                     _ => None,
@@ -836,7 +835,7 @@ impl Checker {
                     let mut values = Vec::new();
                     for value in &arm.values {
                         let typed_value = self.check_expr(value)?;
-                        // the first matching case wins, so a repeat can never run
+                        // the first matching case wins, so a repeat can never run. dead code, friend.
                         let key = match &typed_value {
                             TypedExpr::IntLit(n) => Some(format!("{}", n)),
                             TypedExpr::StringLit(st) => Some(format!("{:?}", st)),
@@ -877,7 +876,7 @@ impl Checker {
                     t
                 });
 
-                // an enum match without `else` must name every variant
+                // an enum match without `else` has to name every variant. no skipping.
                 if let (Some(names), None, false) = (&variants, &typed_else, bad_case) {
                     let missing: Vec<String> = names
                         .iter()
@@ -893,7 +892,7 @@ impl Checker {
                 }
 
                 // lowering: `let $match = subject;` then an if/elif chain comparing
-                // against it (enums compare as their int index, same as `==` on enums)
+                // against it (enums compare as their int index, like `==` does). sneaky.
                 let hidden = "$match".to_string();
                 let is_enum = variants.is_some();
                 let wrap = |e: TypedExpr| if is_enum { TypedExpr::AsInt(Box::new(e)) } else { e };
@@ -951,7 +950,7 @@ impl Checker {
                 });
 
                 // a branch that always leaves (return, throw, break, continue) means the
-                // OTHER side of the condition holds for everything after the `if`
+                // OTHER side of the condition holds for everything after the `if`. logic, babe.
                 let then_exits = block_exits(then_branch);
                 let else_exits = else_branch.as_ref().is_some_and(|b| block_exits(b));
                 if then_exits && !else_exits {
@@ -980,8 +979,8 @@ impl Checker {
 
             Stmt::ForIn { var_name, iterable, body, pos } => {
                 // `for c in Color { }`: the enum's name (not a variable) iterates
-                // its variants in declaration order. Lowered to a loop over an
-                // array literal of the variants, so nothing downstream changes.
+                // its variants in declaration order. lowered to a loop over an
+                // array literal of the variants. nothing downstream notices. good.
                 let typed_iterable = match iterable {
                     Expr::Ident(n, _) if self.enum_named(n).is_some() => {
                         let variants = self.enum_named(n).cloned().unwrap_or_default();
@@ -1020,8 +1019,8 @@ impl Checker {
 
             Stmt::ForRange { var_name, start, end, step, body, pos } => {
                 // all three are evaluated once, before the loop, in the
-                // enclosing scope. Each is checked even if an earlier one
-                // failed, so one run reports every bad part
+                // enclosing scope. each gets checked even if an earlier one
+                // failed, so one run reports every bad part. complaints, all at once.
                 let mut typed_start = self.check_expr(start);
                 let mut typed_end = self.check_expr(end);
                 let typed_step = step.as_ref().map(|s| self.check_expr(s));
@@ -1099,10 +1098,10 @@ impl Checker {
                     None => None,
                 };
                 // compared here, in the same pass that checked the
-                // expression (see `current_return`). Skipped when the
-                // function's inference already failed: that was reported
-                // as CannotInferReturnType, and comparing against the
-                // Void placeholder would only add redundant noise.
+                // expression (see `current_return`). skipped when the
+                // function's inference already failed. that was reported
+                // as CannotInferReturnType, and comparing to the
+                // Void placeholder would only add noise. redundant noise. ugh.
                 if let Some(expected) = self.current_return.clone() {
                     let found = typed_value.as_ref().map(|v| v.ty().clone()).unwrap_or(Ty::Void);
                     if !expected.accepts(&found) {
@@ -1130,8 +1129,8 @@ impl Checker {
                 let typed_try = self.check_block(try_block);
                 self.pop_scope();
 
-                // what a `catch` receives is the thrown STRING (the message of a
-                // `throw`, or the text of a runtime error such as a division by zero)
+                // what a `catch` gets is the thrown STRING (the message of a
+                // `throw`, or the text of a runtime error, like a div by zero)
                 let catch_ty = Ty::String;
                 if let Some(ann) = catch_type {
                     let declared = resolve_type_expr(ann);
@@ -1155,11 +1154,11 @@ impl Checker {
 
             Stmt::FunctionDecl { name, params, return_type, body, exported, pos } => {
                 // the real return type was already resolved during
-                // collect_function_signatures — for an explicit `-> Type`
-                // that's just resolve_type_expr; for an omitted one it's
-                // whatever infer_return_type decided. Reading it back
+                // collect_function_signatures. for an explicit `-> Type`
+                // that's just resolve_type_expr. for an omitted one it's
+                // whatever infer_return_type decided. reading it back
                 // from `self.functions` avoids inferring twice (and
-                // potentially disagreeing with itself if it did).
+                // possibly disagreeing with itself if it did). trust, but verify.
                 let expected_return = self
                     .functions
                     .get(name)
@@ -1210,8 +1209,8 @@ impl Checker {
                 Some(TypedStmt::Import { names: names.clone(), from: from.clone() })
             }
 
-            // consumed by spg-modules along with every `Import`; one
-            // reaching the checker means the resolver skipped it
+            // consumed by spg-modules along with every `Import`. one
+            // reaching the checker means the resolver skipped it. resolver, explain yourself.
             Stmt::ReExport { .. } => {
                 unreachable!("compiler bug: `export {{ .. }} from` reached the typechecker (spg-modules should have consumed it)")
             }
@@ -1237,7 +1236,7 @@ impl Checker {
                         None
                     }
                     Some(info) => {
-                        // while narrowed, the variable still may be given anything its real type allows
+                        // while narrowed, the variable can still get anything its real type allows
                         let expected = info.narrowed_from.clone().unwrap_or_else(|| info.ty.clone());
                         let narrowed = info.narrowed_from.is_some();
                         if !expected.accepts(&found_ty) {
@@ -1293,10 +1292,10 @@ impl Checker {
                 let elem_ty = self.index_target(typed_array.ty(), typed_index.ty(), pos)?;
 
                 // `elem OP value` must both typecheck as a binary
-                // operation (e.g. no string *= int) and produce back the
-                // element type — same rule an ordinary `x OP= value`
+                // operation (e.g. no string *= int) and give back the
+                // element type. same rule an ordinary `x OP= value`
                 // enforces for a local, just checked against elem_ty
-                // instead of a variable's declared type
+                // instead of a variable's declared type. close enough.
                 let result_ty = self.binary_result_type(op, &elem_ty, typed_value.ty(), pos)?;
                 if !elem_ty.accepts(&result_ty) {
                     self.errors.push(TypeError::IndexAssignTypeMismatch {
@@ -1397,7 +1396,7 @@ impl Checker {
         let mut last_ty = Ty::Void;
 
         // `#> strict`: what follows a `return`/`break`/`continue`/`throw` in the
-        // same block can never run (reported once per block)
+        // same block can never run (reported once per block). dead code, go home.
         let mut dead: Option<(&'static str, p::Pos)> = None;
         let mut reported = false;
         for stmt in &block.stmts {
@@ -1428,14 +1427,14 @@ impl Checker {
         TypedBlock { stmts: typed_stmts, locs, ty: last_ty }
     }
 
-    /// A non-void function must return on EVERY possible control
-    /// path (return TYPES are checked separately, at each `return`) (real flow analysis: if/else needs both branches to always
-    /// return, while/for never guarantee a return since the body can run
-    /// zero times, try/catch needs both try and catch to always return).
+    /// a non-void function must return on EVERY possible path.
+    /// (return TYPES are checked separately, at each `return`). real flow analysis: if/else needs both branches to always
+    /// return. while/for never guarantee one, since the body can run
+    /// zero times. try/catch needs both try and catch to return. fair.
     fn check_all_paths_return(&mut self, stmts: &[Stmt], expected: &Ty, fn_name: &str, pos: &p::Pos) {
         // inference already failed and reported CannotInferReturnType for
-        // this function — skip the normal comparison against the Void
-        // placeholder, it would only add confusing, redundant noise
+        // this function. skip the normal comparison to the Void
+        // placeholder, it'd only add confusing, redundant noise
         if self.uninferrable_functions.contains(fn_name) {
             return;
         }
@@ -1449,18 +1448,18 @@ impl Checker {
         }
     }
 
-    /// Lightweight inference used only by `collect_return_types_in_stmts`:
-    /// reuses check_expr's logic but discards the typed node, keeping just
-    /// the resolved Ty. Its errors are thrown away by the caller
+    /// lightweight inference, only used by `collect_return_types_in_stmts`:
+    /// reuses check_expr's logic but throws away the typed node, keeping just
+    /// the resolved Ty. the caller throws away its errors
     /// (`infer_return_type` snapshots/restores `self.errors`), so it can
-    /// never double-report.
+    /// never double-report. no echoes here.
     fn infer_expr_ty(&mut self, expr: &Expr) -> Ty {
         self.check_expr(expr).map(|e| e.ty().clone()).unwrap_or(Ty::Void)
     }
 
-    // Maps
+    // maps (the hash people)
 
-    /// map keys must hash: int, string, bool or an enum (never float, array, struct)
+    /// map keys must hash: int, string, bool or an enum. never float, array, struct.
     fn valid_map_key(&mut self, key: &Ty, pos: &p::Pos) -> bool {
         let ok = matches!(key, Ty::Int | Ty::String | Ty::Bool) || self.is_enum_ty(key);
         if !ok {
@@ -1470,8 +1469,8 @@ impl Checker {
     }
 
     /// `container[index]` (read, assign or compound assign): the type of the
-    /// element/value, or `None` after reporting. Arrays want an `int` index;
-    /// maps want their key type.
+    /// element/value, or `None` after reporting. arrays want an `int` index,
+    /// maps want their key type. don't mix them up.
     fn index_target(&mut self, container: &Ty, index: &Ty, pos: &p::Pos) -> Option<Ty> {
         match container {
             Ty::Array(inner) => {
@@ -1507,9 +1506,9 @@ impl Checker {
     }
 
     /// `@array.push/contains/indexOf/insert/fill/concat`: the element (or the
-    /// other array) must agree with the array's type, and `fill`/`concat` know
-    /// their own result type. An `array<void>` (the unannotated `[]`) accepts
-    /// any element, as `push` always did.
+    /// other array) must agree with the array's type. `fill`/`concat` know
+    /// their own result type. an `array<void>` (the unannotated `[]`) accepts
+    /// any element, same as `push` always did. chaos, but polite.
     fn check_array_call(&mut self, id: BuiltinId, name: &str, args: &[&Ty], pos: &p::Pos) -> Option<Ty> {
         let mismatch = |errors: &mut Vec<TypeError>, i: usize, expected: &Ty| {
             errors.push(TypeError::ArgTypeMismatch {
@@ -1598,10 +1597,10 @@ impl Checker {
         if ok { Some(result) } else { None }
     }
 
-    // Expressions
+    // expressions (the main event)
 
-    /// `callee(args)` where `callee` is a function value: its arity and argument
-    /// types are checked against the function type it has
+    /// `callee(args)` where `callee` is a function value: its arity and arg
+    /// types get checked against the function type it has
     fn check_value_call(&mut self, callee: TypedExpr, args: &[Expr], pos: &p::Pos) -> Option<TypedExpr> {
         let (params, ret) = match callee.ty() {
             Ty::Function { params, ret } => (params.clone(), (**ret).clone()),
@@ -1662,7 +1661,7 @@ impl Checker {
                         });
                         return None;
                     } else if elem_ty.is_empty_array() || elem_ty.is_empty_map() {
-                        // `[[], [1]]`: keep the item type that actually says something
+                        // `[[], [1]]`: keep the item type that actually says something. the empty one is lying.
                         elem_ty = t.ty().clone();
                     }
                     typed_items.push(t);
@@ -1716,7 +1715,7 @@ impl Checker {
                 if let Some(ty) = self.resolve_name(name) {
                     Some(TypedExpr::Ident { name: name.clone(), ty })
                 } else if let Some(sig) = self.functions.get(name) {
-                    // a named function used as a value (`let f = dobro`)
+                    // a named function used as a value (`let f = dobro`). functions are people too.
                     let params: Vec<Ty> = sig.params.iter().map(|p| resolve_type_expr(&p.type_ann)).collect();
                     let ty = Ty::Function { params, ret: Box::new(sig.return_type.clone()) };
                     Some(TypedExpr::Ident { name: name.clone(), ty })
@@ -1752,7 +1751,7 @@ impl Checker {
                 }
                 let result_ty = self.binary_result_type(op, typed_left.ty(), typed_right.ty(), pos)?;
                 // `==` / `!=` on two values of the same enum: the VM compares them
-                // with the plain int opcodes, so both operands are read as ints
+                // with the plain int opcodes, so both operands read as ints. cheap trick.
                 if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) && self.is_enum_ty(typed_left.ty()) {
                     typed_left = TypedExpr::AsInt(Box::new(typed_left));
                     typed_right = TypedExpr::AsInt(Box::new(typed_right));
@@ -1785,7 +1784,7 @@ impl Checker {
             }
 
             Expr::Call { callee, args, pos } => {
-                // a callee that is neither a name nor a method (`makeAdder(2)(3)`,
+                // a callee that's neither a name nor a method (`makeAdder(2)(3)`,
                 // a lambda called in place, `(f)(x)`) is an expression to evaluate
                 if !matches!(callee.as_ref(), Expr::Ident(..) | Expr::Field { .. }) {
                     let typed_callee = self.check_expr(callee)?;
@@ -1794,17 +1793,17 @@ impl Checker {
                 let name = match callee.as_ref() {
                     Expr::Ident(n, _) => n.clone(),
                     // `ps.run(...)`: the native namespace of a file that installed PowerShell
-                    // (the resolver renames its `ps` to `ps#powershell`, see spg-modules)
+                    // (the resolver renames its `ps` to `ps#powershell`. see spg-modules)
                     Expr::Field { object, field, .. }
                         if matches!(object.as_ref(), Expr::Ident(ns, _) if ns == "ps#powershell")
                             && self.lookup_var("ps#powershell").is_none() =>
                     {
                         format!("ps.{}", field)
                     }
-                    // `math.sqrt(x)`: the pre-`@` namespace spelling. Only when
-                    // `math` is not a variable the user declared (a struct
+                    // `math.sqrt(x)`: the pre-`@` namespace spelling. only when
+                    // `math` isn't a variable the user declared (a struct
                     // field holding... nothing callable, but `math.x` is a
-                    // legal field read, so the call is still an error below)
+                    // legal field read, so the call is still an error below. sigh.
                     Expr::Field { object, field, .. }
                         if matches!(object.as_ref(), Expr::Ident(ns, _)
                             if matches!(ns.as_str(), "math" | "time" | "list" | "transform")
@@ -1821,7 +1820,7 @@ impl Checker {
                         });
                         return None;
                     }
-                    // `obj.method(args)`: the only way a struct member is called
+                    // `obj.method(args)`: the only way a struct member gets called
                     Expr::Field { object, field, .. } => {
                         return self.check_method_call(object, field, args, pos);
                     }
@@ -1831,17 +1830,17 @@ impl Checker {
                     }
                 };
 
-                // a variable holding a function value (a local, a parameter, a
-                // global): called through its value. A local shadows a builtin or
+                // a variable holding a function value (a local, a param, a
+                // global): called through its value. a local shadows a builtin or
                 // a function of the same name, like any other binding would
                 if let Some(ty) = self.resolve_name(&name) {
                     let callee = TypedExpr::Ident { name: name.clone(), ty };
                     return self.check_value_call(callee, args, pos);
                 }
 
-                // typecheck args once, up front — overload resolution
-                // below matches this same typed_args against every
-                // candidate signature without re-checking expressions
+                // typecheck args once, up front. overload resolution
+                // below matches these typed_args against every
+                // candidate signature, no re-checking expressions. efficient.
                 let mut typed_args = Vec::new();
                 for arg in args {
                     typed_args.push(self.check_expr(arg)?);
@@ -1892,8 +1891,8 @@ impl Checker {
                     }
                 }
 
-                // arguments the caller left out take the parameter's default value,
-                // checked against the parameter's type like any written argument
+                // args the caller left out take the param's default value,
+                // checked against the param's type, like any written arg
                 let mut typed_args = typed_args;
                 for i in typed_args.len()..sig.params.len() {
                     let Some(default) = sig.params[i].default.as_ref() else { break };
@@ -1937,10 +1936,10 @@ impl Checker {
                 };
 
                 // typecheck every given field value up front (by the
-                // name the user wrote), same "check everything, then
-                // decide" shape check_call uses for builtin overload
-                // resolution — lets us report every problem in one
-                // literal instead of bailing at the first
+                // name the user wrote). same "check everything, then
+                // decide" shape check_call uses for builtin overloads.
+                // lets us report every problem in one
+                // literal instead of bailing at the first. complaints, all at once.
                 let mut given: HashMap<String, TypedExpr> = HashMap::new();
                 for (field_name, value_expr) in fields {
                     let typed_value = self.check_expr(value_expr)?;
@@ -1963,14 +1962,14 @@ impl Checker {
                 }
 
                 // reorder into declaration order and check each value's
-                // type against its field's declared type — the compiler
-                // relies on this order to emit MakeStruct positionally
+                // type against its field's declared type. the compiler
+                // relies on this order to emit MakeStruct by position
                 let mut ordered_values = Vec::with_capacity(struct_fields.len());
                 for field in &struct_fields {
                     let expected_ty = resolve_type_expr(&field.type_ann);
                     // `given` is guaranteed to have every struct_fields
                     // name at this point (the `missing` check above
-                    // already returned early otherwise)
+                    // already returned early otherwise. trust the flow.
                     let typed_value = given.remove(&field.name).expect("checked above: field present");
                     if !expected_ty.accepts(typed_value.ty()) {
                         self.errors.push(TypeError::StructFieldTypeMismatch {
@@ -2091,18 +2090,18 @@ impl Checker {
         }
     }
 
-    /// Resolves `ty.field` to `(struct_name, field_type)`, or pushes the
-    /// right error and returns `None`. Shared by `Expr::Field` (read),
-    /// `Stmt::FieldAssign`, and `Stmt::FieldCompoundAssign` (write) so
+    /// resolves `ty.field` to `(struct_name, field_type)`, or pushes the
+    /// right error and returns `None`. shared by `Expr::Field` (read),
+    /// `Stmt::FieldAssign`, and `Stmt::FieldCompoundAssign` (write), so
     /// all three reject the same non-struct types and unknown fields
-    /// the same way.
+    /// the same way. consistent, like a good tax form.
     ///
-    /// `Ty::Named` isn't exclusively "a declared struct" — `catch (e)`
-    /// without an explicit type produces `Ty::Named("Error")` with no
-    /// corresponding `struct_defs` entry (spg has no user-facing way to
-    /// declare Error's shape yet). That's treated the same as "no
-    /// fields" here rather than panicking: `catch (e) { print(e.msg) }`
-    /// is a real, reachable program, not a checker bug.
+    /// `Ty::Named` isn't only "a declared struct". `catch (e)`
+    /// without an explicit type gives `Ty::Named("Error")` with no
+    /// matching `struct_defs` entry (spg has no user-facing way to
+    /// declare Error's shape yet). it's treated like "no
+    /// fields" here instead of panicking: `catch (e) { print(e.msg) }`
+    /// is a real program you can actually run. not a checker bug. (phew.)
     fn resolve_field(&mut self, ty: &Ty, field: &str, pos: &p::Pos) -> Option<(String, Ty)> {
         if self.is_enum_ty(ty) {
             self.errors.push(TypeError::NotAStruct { found: ty.clone(), pos: pos.clone() });
@@ -2185,21 +2184,21 @@ impl Checker {
     }
 }
 
-/// Resolves a builtin's declared return type when it's a wildcard
-/// (`Ty::AnyArray` or `Ty::Any`) into the concrete type the call site
-/// actually produces, using the argument that matched the first
-/// corresponding wildcard parameter. Builtins whose return type isn't a
-/// wildcard (the overwhelming majority) pass through unchanged.
+/// figures out a builtin's return type when it's a wildcard
+/// (`Ty::AnyArray` or `Ty::Any`) and turns it into the real type at the call site
+/// using the arg that matched the first
+/// wildcard param. builtins without a wildcard return type
+/// (the overwhelming majority) pass through untouched. good.
 ///
-/// This only has two real cases in practice: `AnyArray -> AnyArray`
-/// (slice/reverse/sort: the input array's own concrete type, e.g.
+/// in practice there are only two cases: `AnyArray -> AnyArray`
+/// (slice/reverse/sort: the input array's own type, e.g.
 /// `array<int>`, becomes the return type) and `AnyArray -> Any` (pop: the
 /// input array's *element* type becomes the return type, e.g.
-/// `array<int>` in means `int` out).
+/// `array<int>` in, `int` out. simple math.
 fn resolve_wildcard_return(declared_return: &Ty, params: &[Ty], arg_types: &[&Ty]) -> Ty {
     match declared_return {
         Ty::AnyArray => {
-            // find the first AnyArray parameter and hand back the
+            // find the first AnyArray param and hand back the
             // concrete array type the caller actually passed there
             for (p, a) in params.iter().zip(arg_types.iter()) {
                 if matches!(p, Ty::AnyArray) {
@@ -2209,8 +2208,8 @@ fn resolve_wildcard_return(declared_return: &Ty, params: &[Ty], arg_types: &[&Ty
             declared_return.clone()
         }
         Ty::Any => {
-            // `pop`'s case: an AnyArray parameter's *element* type is the
-            // real return type, not the array type itself
+            // `pop`'s case: an AnyArray param's *element* type is the
+            // real return type, not the array type. the one with the twist.
             for (p, a) in params.iter().zip(arg_types.iter()) {
                 if matches!(p, Ty::AnyArray) {
                     if let Ty::Array(elem) = a {
@@ -2224,10 +2223,10 @@ fn resolve_wildcard_return(declared_return: &Ty, params: &[Ty], arg_types: &[&Ty
     }
 }
 
-/// Type compatibility check for call arguments. `Any` (builtins only)
-/// matches every type; `AnyArray` (builtins only) matches `array<T>` for
-/// any T; every other pair must match exactly — no implicit numeric
-/// coercion in v1.0.
+/// type compatibility check for call args. `Any` (builtins only)
+/// matches every type. `AnyArray` (builtins only) matches `array<T>` for
+/// any T. every other pair must match exactly. no implicit numeric
+/// coercion in v1.0. int is not float, get over it.
 pub(crate) fn ty_matches(expected: &Ty, found: &Ty) -> bool {
     match expected {
         Ty::Any => true,
@@ -2237,15 +2236,15 @@ pub(crate) fn ty_matches(expected: &Ty, found: &Ty) -> bool {
     }
 }
 
-/// True if this sequence of statements is guaranteed to hit a `return` on
-/// every possible execution path, regardless of runtime values. Used to
-/// detect functions that can fall off the end without returning.
+/// true if this list of statements is guaranteed to hit a `return` on
+/// every possible path, no matter the runtime values. used to
+/// spot functions that fall off the end without returning. gotcha.
 fn always_returns(stmts: &[Stmt], exh: &std::collections::HashSet<(Option<String>, usize, usize)>) -> bool {
     stmts.iter().any(|s| stmt_always_returns(s, exh))
 }
 
-/// the value of an integer literal, `-` included (`3`, `-3`); `None` for
-/// anything that has to be computed. Used to classify a range `step`.
+/// the value of an integer literal, `-` included (`3`, `-3`). `None` for
+/// anything that has to be computed. used to classify a range `step`.
 fn literal_int(e: &Expr) -> Option<i64> {
     match e {
         Expr::IntLit(n, _) => Some(*n),
@@ -2260,21 +2259,21 @@ fn literal_int(e: &Expr) -> Option<i64> {
 fn stmt_always_returns(stmt: &Stmt, exh: &std::collections::HashSet<(Option<String>, usize, usize)>) -> bool {
     match stmt {
         Stmt::Return { .. } => true,
-        // a `throw` never falls through either
+        // a `throw` never falls through either. dramatic exit.
         Stmt::Throw { .. } => true,
 
-        // both branches must guarantee a return; a missing else means the
-        // "fall through without entering the if" path never returns
+        // both branches must guarantee a return. a missing else means the
+        // "skip the if entirely" path never returns. oops.
         Stmt::IfStmt { then_branch, else_branch, .. } => {
             let then_ok = always_returns(&then_branch.stmts, exh);
             let else_ok = else_branch.as_ref().map_or(false, |b| always_returns(&b.stmts, exh));
             then_ok && else_ok
         }
 
-        // a match returns only when every arm and the `else` do (conservative: an
-        // enum match that covers all variants without `else` still needs one here)
+        // a match returns only when every arm and the `else` do (conservative. an
+        // enum match covering all variants without `else` still counts as one here)
         // an enum match with no `else` is fine when it names every variant
-        // (the checker records those in `exh`)
+        // (the checker writes those down in `exh`)
         Stmt::Match { arms, else_branch, pos, .. } => {
             let no_else_but_exhaustive =
                 else_branch.is_none() && exh.contains(&(pos.file.clone(), pos.line, pos.col));
@@ -2282,7 +2281,7 @@ fn stmt_always_returns(stmt: &Stmt, exh: &std::collections::HashSet<(Option<Stri
                 && arms.iter().all(|a| always_returns(&a.body.stmts, exh))
         }
 
-        // loops never guarantee a return: the body might run zero times
+        // loops never guarantee a return. the body might run zero times. shrug.
         Stmt::While { .. } => false,
         Stmt::ForIn { .. } => false,
         Stmt::ForRange { .. } => false,
@@ -2314,8 +2313,8 @@ pub fn resolve_type_expr(t: &TypeExpr) -> Ty {
     }
 }
 
-/// the source location of a statement; one without a position of its own
-/// (none today, but cheap insurance) keeps the previous statement's location
+/// the source location of a statement. one without its own position
+/// (none today, but cheap insurance) keeps the previous one's location
 fn stmt_loc(stmt: &p::Stmt, previous: &SrcLoc) -> SrcLoc {
     match stmt.pos() {
         Some(pos) => SrcLoc { file: pos.file.clone(), line: pos.line },
@@ -2323,8 +2322,8 @@ fn stmt_loc(stmt: &p::Stmt, previous: &SrcLoc) -> SrcLoc {
     }
 }
 
-/// the names a condition proves are not `none`: (when it is true, when it is false).
-/// Only `name == none`, `name != none`, `!`, `&&` and `||` of those say anything
+/// the names a condition proves aren't `none`: (when true, when false).
+/// only `name == none`, `name != none`, `!`, `&&` and `||` of those say anything
 fn narrowing(cond: &Expr) -> (Vec<String>, Vec<String>) {
     match cond {
         Expr::Binary { left, op, right, .. } => match op {
@@ -2339,9 +2338,9 @@ fn narrowing(cond: &Expr) -> (Vec<String>, Vec<String>) {
                     (Vec::new(), vec![name])
                 }
             }
-            // both halves held
+            // both halves held. good boy.
             BinaryOp::And => ([narrowing(left).0, narrowing(right).0].concat(), Vec::new()),
-            // neither half held
+            // neither half held. oof.
             BinaryOp::Or => (Vec::new(), [narrowing(left).1, narrowing(right).1].concat()),
             _ => (Vec::new(), Vec::new()),
         },
@@ -2354,7 +2353,7 @@ fn narrowing(cond: &Expr) -> (Vec<String>, Vec<String>) {
 }
 
 /// whether control never reaches the end of this block (it ends in a return, throw,
-/// break or continue)
+/// break or continue). the end is not coming.
 fn block_exits(block: &p::Block) -> bool {
     block.stmts.last().is_some_and(stmt_exits)
 }
@@ -2369,7 +2368,7 @@ fn stmt_exits(stmt: &Stmt) -> bool {
 }
 
 /// the element type of an array literal when two items differ only by `none`
-/// (`[1, none]` is an `array<int?>`); `None` when they do not, or are equal
+/// (`[1, none]` is an `array<int?>`). `None` when they don't, or when they're equal
 fn unify_optional(a: &Ty, b: &Ty) -> Option<Ty> {
     if a == b {
         return None;

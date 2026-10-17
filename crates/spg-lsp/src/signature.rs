@@ -1,17 +1,17 @@
-//! Function signatures for the editor, read from the document's tokens.
+//! function signatures for the editor, read from the document's tokens.
 //!
-//! Three kinds of callable names are understood:
+//! three kinds of callable names are understood:
 //! - named functions: `function dobro(x: int) -> int`
-//! - values of a function type: `let f: function(int) -> int`, and a parameter
+//! - values of a function type: `let f: function(int) -> int`, and a param
 //!   `g: function(int) -> int` (struct fields have the same shape, harmless here)
 //! - lambdas bound to a name: `let s = function(x: int) -> int { ... }`
 //!
-//! Everything is token-level on purpose, like the rest of the editor support: it
-//! works while the buffer is half-typed, and never needs a full resolve.
+//! everything is token-level on purpose, like the rest of the editor support. it
+//! works while the buffer is half-typed, and never needs a full resolve. sturdy.
 
 use spg_lexer::{Token, TokenKind as T};
 
-/// a callable: its name, its parameters as (name, type text), and its return type
+/// a callable: its name, its params as (name, type text), and its return type
 #[derive(Debug, Clone, PartialEq)]
 pub struct Signature {
     pub name: String,
@@ -20,7 +20,7 @@ pub struct Signature {
 }
 
 impl Signature {
-    /// `name(a: int, b: string) -> bool`; the parameter names are left out for
+    /// `name(a: int, b: string) -> bool`. the param names are left out for
     /// function-type values, which only have types (`f(int) -> int`)
     pub fn label(&self) -> String {
         let ps: Vec<String> = self
@@ -55,7 +55,7 @@ fn closing(tokens: &[Token], open: usize) -> Option<usize> {
 }
 
 /// reads one type starting at `i`, returning its text and the index after it.
-/// Covers the names, `array<T>`, `map<K, V>` and `function(A, B) -> R`
+/// covers the names, `array<T>`, `map<K, V>` and `function(A, B) -> R`
 pub fn read_type(tokens: &[Token], i: usize) -> (String, usize) {
     let (base, next) = read_type_base(tokens, i);
     // `T?`: an optional type
@@ -116,7 +116,7 @@ fn read_type_base(tokens: &[Token], i: usize) -> (String, usize) {
     }
 }
 
-/// the parameters `( a: T, b: U )` whose `(` is at `open`: (name, type) pairs,
+/// the params `( a: T, b: U )` whose `(` is at `open`: (name, type) pairs,
 /// and the index of the closing `)`
 pub fn read_params(tokens: &[Token], open: usize) -> Option<(Vec<(String, String)>, usize)> {
     let close = closing(tokens, open)?;
@@ -157,7 +157,7 @@ pub fn declared(tokens: &[Token]) -> Vec<Signature> {
 }
 
 /// names bound to a function type or a lambda: `NAME: function(..) -> R` (a
-/// parameter, a typed let) and `let NAME = function(..) -> R { .. }`
+/// param, a typed let) and `let NAME = function(..) -> R { .. }`
 pub fn bound_values(tokens: &[Token]) -> Vec<Signature> {
     let mut out = Vec::new();
     for i in 0..tokens.len() {
@@ -183,11 +183,11 @@ pub fn bound_values(tokens: &[Token]) -> Vec<Signature> {
 }
 
 /// a function TYPE's text (`function(int, string) -> bool`) as a signature with
-/// unnamed parameters
+/// unnamed params
 fn from_function_type(name: &str, ty: &str) -> Option<Signature> {
     let inner = ty.strip_prefix("function(")?;
-    // the parameter list ends at the first `) -> ` that is not inside `<...>` or
-    // another `function(`; a tiny depth scan is enough for what read_type writes
+    // the param list ends at the first `) -> ` that isn't inside `<...>` or
+    // another `function(`. a tiny depth scan is enough for what read_type writes
     let mut depth: i32 = 0;
     let mut split = None;
     let mut prev = ' ';
@@ -217,7 +217,7 @@ fn from_function_type(name: &str, ty: &str) -> Option<Signature> {
     Some(Signature { name: name.to_string(), params, ret })
 }
 
-/// splits on commas that are not inside `<>` or `()`
+/// splits on commas that aren't inside `<>` or `()`
 fn split_top(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut depth = 0i32;
@@ -243,8 +243,8 @@ fn split_top(text: &str) -> Vec<String> {
     out
 }
 
-/// every parameter of every function (named or lambda) in the document, with
-/// its type text. Parameters are offered as completions inside their bodies
+/// every param of every function (named or lambda) in the document, with
+/// its type text. params are offered as completions inside their bodies
 pub fn all_params(tokens: &[Token]) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for i in 0..tokens.len() {
@@ -264,8 +264,8 @@ pub fn all_params(tokens: &[Token]) -> Vec<(String, String)> {
 }
 
 /// the call that the cursor is inside: the callee's name and the index of the
-/// argument the cursor is on. `at` is the number of tokens before the cursor.
-/// Stops at a brace, so a call never leaks into a neighbouring block
+/// arg the cursor is on. `at` is the number of tokens before the cursor.
+/// stops at a brace, so a call never leaks into a neighbouring block
 pub fn call_at(tokens: &[Token], at: usize) -> Option<(String, usize)> {
     let (callee, active) = call_site(tokens, at)?;
     match kind(tokens, callee)? {
@@ -280,7 +280,7 @@ pub fn call_site(tokens: &[Token], at: usize) -> Option<(usize, usize)> {
     let mut depth = 0usize;
     let mut commas = 0usize;
     // a balanced `{ ... }` that sits inside the call (a lambda passed as an
-    // argument) is skipped whole; the first unmatched `{` ends the search
+    // arg) is skipped whole. the first unmatched `{` ends the search
     let mut braces = 0usize;
     for j in (0..at.min(tokens.len())).rev() {
         match tokens[j].kind {
@@ -302,8 +302,8 @@ pub fn call_site(tokens: &[Token], at: usize) -> Option<(usize, usize)> {
     None
 }
 
-/// the signature of the call around the cursor, and the active argument.
-/// Named functions win over values of the same name
+/// the signature of the call around the cursor, and the active arg.
+/// named functions win over values of the same name
 pub fn signature_help(tokens: &[Token], at: usize) -> Option<(Signature, usize)> {
     let (name, active) = call_at(tokens, at)?;
     let sig = declared(tokens)
@@ -353,7 +353,7 @@ mod tests {
 
     #[test]
     fn active_argument_counts_top_level_commas_only() {
-        // `f(a, g(b, c), |)` -- the cursor is the third argument of f
+        // `f(a, g(b, c), |)` -- the cursor is the third arg of f
         let t = toks("print(f(a, g(b, c), 1))");
         let at = t.iter().position(|x| x.kind == T::Int(1)).unwrap();
         assert_eq!(call_at(&t, at), Some(("f".to_string(), 2)));

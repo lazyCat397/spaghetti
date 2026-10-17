@@ -1,5 +1,5 @@
-//! Turns the compiler pipeline's failures into flat, positioned
-//! diagnostics (file + 1-based line/column + message).
+//! turns the compiler pipeline's failures into flat, positioned
+//! diagnostics (file + 1-based line/column + message). boring, but useful.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -13,9 +13,9 @@ pub struct Diag {
     pub message: String,
 }
 
-/// Runs resolve -> typecheck -> compile on `entry` (buffers in `overlay`
-/// win over disk) and returns everything wrong with it. Resolve stops at
-/// its first error; the typechecker reports all of its errors.
+/// runs resolve -> typecheck -> compile on `entry` (buffers in `overlay`
+/// win over disk) and returns everything wrong with it. resolve stops at
+/// its first error. the typechecker reports all of its errors. show-off.
 pub fn analyze(entry: &Path, overlay: &HashMap<PathBuf, String>) -> Vec<Diag> {
     let program = match spg_modules::resolve_with(entry, overlay) {
         Ok(p) => p,
@@ -26,7 +26,7 @@ pub fn analyze(entry: &Path, overlay: &HashMap<PathBuf, String>) -> Vec<Diag> {
     };
     let entry_canon = spg_modules::canon(entry).unwrap_or_else(|_| entry.to_path_buf());
     // `#> strict` in the header of the file being edited (the open buffer wins
-    // over the disk, so the squiggles follow what is typed)
+    // over the disk, so the squiggles follow what you type)
     let strict = entry_spec(&entry_canon, overlay).strict;
     match spg_typecheck::type_check_with(program, strict) {
         Err(errors) => errors
@@ -53,7 +53,7 @@ pub fn analyze(entry: &Path, overlay: &HashMap<PathBuf, String>) -> Vec<Diag> {
     }
 }
 
-/// the `#>` header of `entry` (empty when it cannot be read or is broken: the
+/// the `#>` header of `entry` (empty when it can't be read or is broken. the
 /// resolver already reports that as a diagnostic of its own)
 fn entry_spec(entry: &Path, overlay: &HashMap<PathBuf, String>) -> spg_lexer::FileSpec {
     let src = overlay.get(entry).cloned().or_else(|| std::fs::read_to_string(entry).ok());
@@ -61,8 +61,8 @@ fn entry_spec(entry: &Path, overlay: &HashMap<PathBuf, String>) -> spg_lexer::Fi
 }
 
 /// `Pos.file` is the "friendly" name (relative to the working dir when it
-/// lives under it) — turn it back into the canonical path buffers are
-/// keyed by.
+/// lives under it). turn it back into the canonical path buffers are
+/// keyed by. the name game again.
 fn locate_file(name: Option<&str>, fallback: &Path) -> PathBuf {
     let Some(name) = name else { return fallback.to_path_buf() };
     let mut p = PathBuf::from(name);
@@ -74,9 +74,9 @@ fn locate_file(name: Option<&str>, fallback: &Path) -> PathBuf {
     spg_modules::canon(&p).unwrap_or(p)
 }
 
-/// The UTF-16 `[start, end)` span (LSP's unit) of the token that starts at
+/// the UTF-16 `[start, end)` span (LSP's unit) of the token that starts at
 /// 1-based character column `col` of `line_text`: a whole identifier, a
-/// whole string literal, or a single character.
+/// whole string literal, or a single character. the unit of pain.
 pub fn utf16_range(line_text: &str, col: usize) -> (usize, usize) {
     let chars: Vec<char> = line_text.chars().collect();
     let start = col.saturating_sub(1).min(chars.len());
@@ -140,7 +140,7 @@ mod tests {
 
     #[test]
     fn range_after_accent_uses_utf16() {
-        // `é` = 1 char / 1 UTF-16 unit; the emoji = 1 char / 2 units
+        // `é` = 1 char / 1 UTF-16 unit. the emoji = 1 char / 2 units. unicode is a lifestyle.
         assert_eq!(utf16_range("\"é\" + x", 7), (6, 7));
         assert_eq!(utf16_range("\"😀\" + x", 7), (7, 8));
     }

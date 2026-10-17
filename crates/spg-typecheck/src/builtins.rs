@@ -1,32 +1,32 @@
-//! Builtin function signatures for the typechecker.
+//! builtin function signatures for the typechecker. the menu.
 //!
-//! Builtins are checked against this table instead of `Checker::functions`
-//! so their params can use `Ty::Any`/`Ty::AnyArray` without polluting
+//! builtins get checked against this table, not `Checker::functions`,
+//! so their params can use `Ty::Any`/`Ty::AnyArray` without messing up
 //! `FunctionSig`, which mirrors the user's always-explicit `Param` syntax.
 //!
-//! A name can have more than one signature (overloads) — e.g. `@into.string`
-//! accepts int, float, or bool, and array builtins accept any element
-//! type via `Ty::AnyArray`. Call-site checking tries each signature in
-//! order and takes the first exact arity+type match; this is a fixed,
-//! finite table (not user-extensible), so linear scan is fine.
+//! a name can have several signatures (overloads). e.g. `@into.string`
+//! takes int, float or bool, and array builtins take any element
+//! type via `Ty::AnyArray`. call-site checking tries each signature in
+//! order and takes the first exact arity+type match. it's a fixed,
+//! finite table (users can't extend it), so a linear scan is fine.
 //!
-//! Each builtin also carries a `BuiltinId`, the value the compiler and VM
-//! use to identify it at the bytecode level — this is the single source
-//! of truth both later stages key off of, so adding a builtin here is
-//! the one place a signature has to be written by hand.
+//! every builtin also carries a `BuiltinId`, the number the compiler and VM
+//! use to find it in bytecode. the single source of truth,
+//! so adding a builtin here is
+//! the one place you write a signature by hand. pain, but contained.
 
 use crate::typed_ast::Ty;
 
-/// identifies a builtin at the bytecode level; `spg-compiler` emits this
-/// inside `OpCode::CallBuiltin` and `spg-vm` dispatches on it directly,
-/// so the numbering only has to be stable within one compiled program
-/// (there's no bytecode serialization across builds today).
+/// identifies a builtin in bytecode. `spg-compiler` emits this
+/// inside `OpCode::CallBuiltin`, and `spg-vm` dispatches on it directly,
+/// so the numbering only has to hold inside one compiled program
+/// (no bytecode gets saved between builds, so nobody cares. yet.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u16)]
 pub enum BuiltinId {
     Print,
 
-    // ---- @json ----
+    // ---- @json (text in, text out, pain) ----
     JsonStringify,
     JsonPretty,
     JsonGet,
@@ -37,7 +37,7 @@ pub enum BuiltinId {
     JsonValid,
     JsonSet,
 
-    // ---- strings ----
+    // ---- strings (utf-8 says hi) ----
     Len,
     ToUpper,
     ToLower,
@@ -54,12 +54,12 @@ pub enum BuiltinId {
     IntToString,
     FloatToString,
     BoolToString,
-    /// `@into.string(enumValue)` — chosen by the checker (no table entry)
+    /// `@into.string(enumValue)`: chosen by the checker (no table entry, it's special)
     EnumToString,
-    /// `@into.string(x)` for any other type: the same text `print` shows
+    /// `@into.string(x)` for any other type: the same text `print` shows. consistent.
     AnyToString,
 
-    // ---- arrays ----
+    // ---- arrays (the big family) ----
     ArrayLenBuiltin,
     ArrayPush,
     ArrayPop,
@@ -70,15 +70,15 @@ pub enum BuiltinId {
     ArraySort,
     ArrayJoin,
     /// `@array.range(a, b)` / `@array.range(a, b, step)`: ints from `a` up to
-    /// (not including) `b`, as an array
+    /// (not including) `b`, as an array. end is exclusive, we've said it.
     ArrayRange2,
     ArrayRange3,
-    /// INTERNAL (no name in the table): emitted by the compiler for a
-    /// `for .. in a..b step s` whose step is not a literal. Returns the step
-    /// unchanged, or raises the zero-step runtime error.
+    /// INTERNAL (no name in the table): the compiler emits this for a
+    /// `for .. in a..b step s` whose step isn't a literal. returns the step
+    /// unchanged, or throws the zero-step runtime error. your step, your problem.
     RangeStepCheck,
 
-    // ---- @file ----
+    // ---- @file (the disk, again) ----
     FileRead,
     FileWrite,
     FileAppend,
@@ -98,7 +98,7 @@ pub enum BuiltinId {
     FileReadBytes,
     FileWriteBytes,
 
-    // ---- @sys ----
+    // ---- @sys (the OS, again) ----
     SysArgs,
     SysExit,
     SysEnv,
@@ -106,7 +106,7 @@ pub enum BuiltinId {
     SysCwd,
     SysClear,
 
-    // ---- ps: PowerShell, a native namespace enabled by `install <std: "powershell">` ----
+    // ---- ps: PowerShell, a native namespace turned on by `install <std: "powershell">` ----
     PsRun,
     PsRunFile,
     PsVersion,
@@ -114,7 +114,7 @@ pub enum BuiltinId {
     SysReadLine,
     SysReadAll,
 
-    // ---- more @str ----
+    // ---- more @str (still going) ----
     PadStart,
     PadStartFill,
     PadEnd,
@@ -123,7 +123,7 @@ pub enum BuiltinId {
     TrimStart,
     TrimEnd,
 
-    // ---- more @array ----
+    // ---- more @array (send help) ----
     ArrayInsert,
     ArrayRemove,
     ArrayClear,
@@ -132,7 +132,7 @@ pub enum BuiltinId {
     ArraySumInt,
     ArraySumFloat,
 
-    // ---- more @math ----
+    // ---- more @math (the calculator is on fire) ----
     Sin,
     Cos,
     Tan,
@@ -153,7 +153,7 @@ pub enum BuiltinId {
     TauDecimals,
     TauDefault,
 
-    // ---- maps (@map) ----
+    // ---- maps (@map, the hash situation) ----
     MapHas,
     MapGet,
     MapRemove,
@@ -162,7 +162,7 @@ pub enum BuiltinId {
     MapValues,
     MapKeysOf,
 
-    // ---- math ----
+    // ---- math (floats, trust no one) ----
     Abs,
     AbsFloat,
     Floor,
@@ -178,17 +178,17 @@ pub enum BuiltinId {
     /// `@math.pi(n)` / `@math.e(n)`: the constant rounded to `n` decimal places
     PiDecimals,
     EDecimals,
-    /// `@math.pi()` / `@math.e()`: the constant at the default precision (2 decimals)
+    /// `@math.pi()` / `@math.e()`: the constant at the default precision (2 decimals). pi is 3.14 for us now. shrug.
     PiDefault,
     EDefault,
 
-    // ---- type conversion (@into) ----
+    // ---- type conversion (@into, the great liar) ----
     IntToFloat,
     FloatToInt,
     ParseInt,
     ParseFloat,
 
-    // ---- I/O ----
+    // ---- I/O (print and friends) ----
     ReadLine,
     ReadLinePrompt,
     PrintError,
@@ -207,11 +207,11 @@ pub struct BuiltinSig {
 }
 
 /// every overload for a given builtin name, in the order call-site
-/// checking should try them
+/// checking should try them. first match wins.
 impl BuiltinId {
     /// the `@array.*` builtins that take an element (or two arrays) whose type
-    /// must agree with the array's own: the checker validates them itself
-    /// (`check_array_call`) because the table only knows `Any` / `AnyArray`
+    /// must match the array's own. the checker validates them itself
+    /// (`check_array_call`), because the table only knows `Any` / `AnyArray`.
     pub fn is_array_checked(self) -> bool {
         matches!(
             self,
@@ -224,8 +224,8 @@ impl BuiltinId {
         )
     }
 
-    /// the `@map.*` builtins: their key/value types come from the map argument,
-    /// so the checker types them itself (`check_map_call`) instead of by table
+    /// the `@map.*` builtins. their key/value types come from the map argument,
+    /// so the checker types them itself (`check_map_call`), not from the table
     pub fn is_map_builtin(self) -> bool {
         matches!(
             self,
@@ -247,7 +247,7 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
         m.entry(name.to_string()).or_default().push(sig);
     };
 
-    // ---- I/O ----
+    // ---- I/O (print and friends) ----
     add("print", BuiltinSig { id: BuiltinId::Print, params: vec![Ty::Any], return_type: Ty::Void });
     add(
         "printError",
@@ -256,7 +256,7 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
     add("readLine", BuiltinSig { id: BuiltinId::ReadLine, params: vec![], return_type: Ty::String });
     add("readLine", BuiltinSig { id: BuiltinId::ReadLinePrompt, params: vec![Ty::String], return_type: Ty::String });
 
-    // ---- strings ----
+    // ---- strings (utf-8 says hi) ----
     add("@str.len", BuiltinSig { id: BuiltinId::Len, params: vec![Ty::String], return_type: Ty::Int });
     add(
         "@str.toUpper",
@@ -296,7 +296,7 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
         },
     );
     // `contains` overloaded for array<T> too (element type checked as Any
-    // at this layer; the VM compares Values structurally at runtime)
+    // at this layer. the VM compares values structurally at runtime)
     add(
         "@array.contains",
         BuiltinSig { id: BuiltinId::ArrayContains, params: vec![Ty::AnyArray, Ty::Any], return_type: Ty::Bool },
@@ -337,7 +337,7 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
         "@str.repeat",
         BuiltinSig { id: BuiltinId::Repeat, params: vec![Ty::String, Ty::Int], return_type: Ty::String },
     );
-    // `@into.string` takes int, float or bool
+    // `@into.string` takes int, float or bool. that's the whole list.
     add(
         "@into.string",
         BuiltinSig { id: BuiltinId::IntToString, params: vec![Ty::Int], return_type: Ty::String },
@@ -351,8 +351,8 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
         BuiltinSig { id: BuiltinId::BoolToString, params: vec![Ty::Bool], return_type: Ty::String },
     );
 
-    // ---- arrays ----
-    // `len` overloaded for array<T> alongside the string version above
+    // ---- arrays (the big family) ----
+    // `len` overloaded for array<T>, next to the string version above
     add("@array.len", BuiltinSig { id: BuiltinId::ArrayLenBuiltin, params: vec![Ty::AnyArray], return_type: Ty::Int });
     add(
         "@array.push",
@@ -397,11 +397,11 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
         },
     );
 
-    // ---- @file: the disk. Every I/O failure is a catchable runtime error ----
+    // ---- @file: the disk. every I/O failure is a catchable runtime error. the disk is not nice. ----
     let s = Ty::String;
     let strs = || Ty::Array(Box::new(Ty::String));
 
-    // ---- @json: text <-> values. Reads work on the text by path; writes take any value ----
+    // ---- @json: text <-> values. reads work on the text by path, writes take any value ----
     add("@json.stringify", BuiltinSig { id: BuiltinId::JsonStringify, params: vec![Ty::Any], return_type: s.clone() });
     add("@json.pretty", BuiltinSig { id: BuiltinId::JsonPretty, params: vec![Ty::Any], return_type: s.clone() });
     add("@json.get", BuiltinSig { id: BuiltinId::JsonGet, params: vec![s.clone(), s.clone()], return_type: s.clone() });
@@ -423,21 +423,21 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
     add("@file.copy", BuiltinSig { id: BuiltinId::FileCopy, params: vec![s.clone(), s.clone()], return_type: Ty::Void });
     add("@file.rename", BuiltinSig { id: BuiltinId::FileRename, params: vec![s.clone(), s.clone()], return_type: Ty::Void });
     add("@file.join", BuiltinSig { id: BuiltinId::FileJoin, params: vec![s.clone(), s.clone()], return_type: s.clone() });
-    // recursive delete, kept under its own explicit name so `delete` stays the safe one
+    // recursive delete, under its own name, so `delete` stays the safe one
     add("@file.deleteAll", BuiltinSig { id: BuiltinId::FileDeleteAll, params: vec![s.clone()], return_type: Ty::Void });
-    // size in bytes of a file (a directory is an error)
+    // size in bytes of a file (a directory is an error. obviously.)
     add("@file.size", BuiltinSig { id: BuiltinId::FileSize, params: vec![s.clone()], return_type: Ty::Int });
-    // last modification: milliseconds since 1970 (same unit as @time.unix) / ISO date in UTC (same format as @time.now)
+    // last modification: ms since 1970 (same as @time.unix) / ISO date in UTC (same as @time.now)
     add("@file.modified", BuiltinSig { id: BuiltinId::FileModified, params: vec![s.clone()], return_type: Ty::Int });
     add("@file.modifiedDate", BuiltinSig { id: BuiltinId::FileModifiedDate, params: vec![s.clone()], return_type: s.clone() });
-    // binary: a file as an array of bytes (ints 0..255)
+    // binary: a file as an array of bytes (ints 0..255). bytes, not vibes.
     add("@file.readBytes", BuiltinSig { id: BuiltinId::FileReadBytes, params: vec![s.clone()], return_type: Ty::Array(Box::new(Ty::Int)) });
     add(
         "@file.writeBytes",
         BuiltinSig { id: BuiltinId::FileWriteBytes, params: vec![s.clone(), Ty::Array(Box::new(Ty::Int))], return_type: Ty::Void },
     );
 
-    // ---- @sys: the process the program runs in ----
+    // ---- @sys: the process the program lives in ----
     add("@sys.args", BuiltinSig { id: BuiltinId::SysArgs, params: vec![], return_type: strs() });
     add("@sys.exit", BuiltinSig { id: BuiltinId::SysExit, params: vec![Ty::Int], return_type: Ty::Void });
     add("@sys.env", BuiltinSig { id: BuiltinId::SysEnv, params: vec![s.clone(), s.clone()], return_type: s.clone() });
@@ -445,7 +445,7 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
     add("@sys.cwd", BuiltinSig { id: BuiltinId::SysCwd, params: vec![], return_type: s.clone() });
     add("@sys.clear", BuiltinSig { id: BuiltinId::SysClear, params: vec![], return_type: Ty::Void });
 
-    // ---- ps.* (only checked when `install <std: "powershell">` is present) ----
+    // ---- ps.* (only checked when `install <std: "powershell">` is around) ----
     let ps_result = Ty::Named("PsResult".to_string());
     add("ps.run", BuiltinSig { id: BuiltinId::PsRun, params: vec![s.clone()], return_type: ps_result.clone() });
     add("ps.run", BuiltinSig { id: BuiltinId::PsRun, params: vec![s.clone(), Ty::Int], return_type: ps_result.clone() });
@@ -456,9 +456,9 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
     add("@sys.readLine", BuiltinSig { id: BuiltinId::SysReadLine, params: vec![], return_type: s.clone() });
     add("@sys.readAll", BuiltinSig { id: BuiltinId::SysReadAll, params: vec![], return_type: s.clone() });
 
-    // ---- more @str ----
-    // padStart/padEnd(s, width [, fill]): grow `s` to `width` characters with `fill` (default " "),
-    // repeated and cut as needed; a shorter width or an empty fill leaves `s` as it is
+    // ---- more @str (still going) ----
+    // padStart/padEnd(s, width [, fill]): grow `s` to `width` chars with `fill` (default " "),
+    // repeated and cut as needed. a shorter width or empty fill leaves `s` alone.
     add("@str.padStart", BuiltinSig { id: BuiltinId::PadStart, params: vec![Ty::String, Ty::Int], return_type: Ty::String });
     add(
         "@str.padStart",
@@ -469,7 +469,7 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
         "@str.padEnd",
         BuiltinSig { id: BuiltinId::PadEndFill, params: vec![Ty::String, Ty::Int, Ty::String], return_type: Ty::String },
     );
-    // index (in characters) of the LAST occurrence, or -1
+    // index (in chars) of the LAST occurrence, or -1. last, not first. pay attention.
     add(
         "@str.lastIndexOf",
         BuiltinSig { id: BuiltinId::StrLastIndexOf, params: vec![Ty::String, Ty::String], return_type: Ty::Int },
@@ -494,7 +494,7 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
 
     // ---- maps ----
     // the parameter/return types below are placeholders (`Any`/`AnyMap`): the
-    // checker validates the key and the fallback against the map's own types
+    // the checker validates the key and fallback against the map's own types
     add("@map.has", BuiltinSig { id: BuiltinId::MapHas, params: vec![Ty::AnyMap, Ty::Any], return_type: Ty::Bool });
     add(
         "@map.get",
@@ -506,7 +506,7 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
     add("@map.values", BuiltinSig { id: BuiltinId::MapValues, params: vec![Ty::AnyMap], return_type: Ty::AnyArray });
     add("@map.keysOf", BuiltinSig { id: BuiltinId::MapKeysOf, params: vec![Ty::AnyMap, Ty::Any], return_type: Ty::AnyArray });
 
-    // ---- math ----
+    // ---- math (floats, trust no one) ----
     add("@math.abs", BuiltinSig { id: BuiltinId::Abs, params: vec![Ty::Int], return_type: Ty::Int });
     add("@math.abs", BuiltinSig { id: BuiltinId::AbsFloat, params: vec![Ty::Float], return_type: Ty::Float });
     add("@math.floor", BuiltinSig { id: BuiltinId::Floor, params: vec![Ty::Float], return_type: Ty::Int });
@@ -528,16 +528,16 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
         BuiltinSig { id: BuiltinId::MaxFloat, params: vec![Ty::Float, Ty::Float], return_type: Ty::Float },
     );
     add("@math.random", BuiltinSig { id: BuiltinId::Random, params: vec![], return_type: Ty::Float });
-    // constants: `pi(n)` / `e(n)` give n decimal places (rounded); without an
-    // argument the default precision is 2 decimals (3.14 / 2.72). The `(int)`
-    // form is registered first so a wrong argument reports against it.
+    // constants: `pi(n)` / `e(n)` give n decimal places (rounded). without an
+    // argument, 2 decimals (3.14 / 2.72). the `(int)`
+    // form is registered first, so a wrong arg reports against it. order matters.
     add("@math.pi", BuiltinSig { id: BuiltinId::PiDecimals, params: vec![Ty::Int], return_type: Ty::Float });
     add("@math.pi", BuiltinSig { id: BuiltinId::PiDefault, params: vec![], return_type: Ty::Float });
     add("@math.e", BuiltinSig { id: BuiltinId::EDecimals, params: vec![Ty::Int], return_type: Ty::Float });
     add("@math.e", BuiltinSig { id: BuiltinId::EDefault, params: vec![], return_type: Ty::Float });
 
-    // trigonometry (radians), exponentials and logarithms: float -> float; the
-    // domain errors follow IEEE (`log(0.0)` is -inf, `asin(2.0)` is NaN), same as sqrt
+    // trig (radians), exponentials and logs: float -> float. the
+    // domain errors follow IEEE (`log(0.0)` is -inf, `asin(2.0)` is NaN). same as sqrt. math being math.
     for (name, id) in [
         ("@math.sin", BuiltinId::Sin),
         ("@math.cos", BuiltinId::Cos),
@@ -558,10 +558,10 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
         "@math.atan2",
         BuiltinSig { id: BuiltinId::Atan2, params: vec![Ty::Float, Ty::Float], return_type: Ty::Float },
     );
-    // -1, 0 or 1 (a NaN gives 0)
+    // -1, 0 or 1 (a NaN gives 0. sure, why not.)
     add("@math.sign", BuiltinSig { id: BuiltinId::SignInt, params: vec![Ty::Int], return_type: Ty::Int });
     add("@math.sign", BuiltinSig { id: BuiltinId::SignFloat, params: vec![Ty::Float], return_type: Ty::Int });
-    // clamp(x, low, high): x limited to [low, high]; low > high is a runtime error
+    // clamp(x, low, high): x limited to [low, high]. low > high is a runtime error
     add(
         "@math.clamp",
         BuiltinSig { id: BuiltinId::ClampInt, params: vec![Ty::Int, Ty::Int, Ty::Int], return_type: Ty::Int },
@@ -574,8 +574,8 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
     add("@math.tau", BuiltinSig { id: BuiltinId::TauDefault, params: vec![], return_type: Ty::Float });
 
     // ---- @into: the three conversions (the target type is the member name) ----
-    // `@into.int`: float → int truncates toward zero; string → int parses
-    // (and fails at runtime with InvalidNumberFormat)
+    // `@into.int`: float → int truncates toward zero. string → int parses
+    // (and blows up at runtime with InvalidNumberFormat if it's garbage)
     add("@into.int", BuiltinSig { id: BuiltinId::FloatToInt, params: vec![Ty::Float], return_type: Ty::Int });
     add("@into.int", BuiltinSig { id: BuiltinId::ParseInt, params: vec![Ty::String], return_type: Ty::Int });
     add("@into.float", BuiltinSig { id: BuiltinId::IntToFloat, params: vec![Ty::Int], return_type: Ty::Float });
@@ -587,16 +587,16 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
     add("@time.elapsed", BuiltinSig { id: BuiltinId::TimeElapsed, params: vec![], return_type: Ty::String });
     add("@time.sleep", BuiltinSig { id: BuiltinId::TimeSleep, params: vec![Ty::Int], return_type: Ty::Void });
 
-    // ---- the one global shortcut: `len` (@str.len / @array.len) ----
+    // ---- the one global shortcut: `len` (@str.len / @array.len). the only cheat code. ----
     add("len", BuiltinSig { id: BuiltinId::Len, params: vec![Ty::String], return_type: Ty::Int });
     add("len", BuiltinSig { id: BuiltinId::ArrayLenBuiltin, params: vec![Ty::AnyArray], return_type: Ty::Int });
 
     m
 }
 
-/// Old flat builtin name → its `@namespace` replacement, so a program written
+/// old flat builtin name → its `@namespace` replacement, so a program written
 /// before namespaces gets "use '@math.sqrt'" instead of a bare "undefined
-/// function". `len` is intentionally absent: it stays global.
+/// function". `len` is absent on purpose. it stays global. the rebel.
 pub fn migrated_builtin(old: &str) -> Option<&'static str> {
     Some(match old {
         // strings
@@ -610,7 +610,7 @@ pub fn migrated_builtin(old: &str) -> Option<&'static str> {
         "endsWith" => "@str.endsWith",
         "replace" => "@str.replace",
         "repeat" => "@str.repeat",
-        // shared between string and array: which one depends on the argument
+        // shared between string and array: depends on the argument
         "contains" => "@str.contains / @array.contains",
         "indexOf" => "@str.indexOf / @array.indexOf",
         // arrays
@@ -642,9 +642,9 @@ pub fn migrated_builtin(old: &str) -> Option<&'static str> {
     })
 }
 
-/// The previous namespace spelling (`math.sqrt`, `string.len`, `list.push`,
-/// `transform.toInt`, `time.run`, ...) → the current `@` name. Only returns a
-/// name that exists in the builtin table, so the hint is always correct.
+/// the previous namespace spelling (`math.sqrt`, `string.len`, `list.push`,
+/// `transform.toInt`, `time.run`, ...) → the current `@` name. only returns a
+/// name that exists in the table, so the hint is always right.
 pub fn renamed_namespace_call(old_ns: &str, member: &str) -> Option<String> {
     let new = match (old_ns, member) {
         ("transform", "toString") => "@into.string".to_string(),
@@ -661,12 +661,12 @@ pub fn renamed_namespace_call(old_ns: &str, member: &str) -> Option<String> {
 }
 
 /// the namespaces whose functions can be called as methods: `x.fn(...)` is
-/// `@ns.fn(x, ...)` whenever the first parameter of `@ns.fn` takes `x`
+/// `@ns.fn(x, ...)` whenever the first param of `@ns.fn` takes `x`
 pub const METHOD_NAMESPACES: [&str; 5] = ["str", "array", "map", "math", "into"];
 
-/// builtins that never act as methods even though their first parameter is an
-/// int or float: constants, a random source, and the two builders whose first
-/// argument is a count or a bound, not a receiver
+/// builtins that never act as methods, even with an int/float first param:
+/// constants, a random source, and the two builders whose first
+/// arg is a count or a bound, not a receiver. not everything is a method.
 pub const NOT_METHOD_BUILTINS: [&str; 6] = [
     "@math.pi",
     "@math.e",
@@ -676,10 +676,10 @@ pub const NOT_METHOD_BUILTINS: [&str; 6] = [
     "@array.fill",
 ];
 
-/// the namespace (of `METHOD_NAMESPACES`) whose function `method` takes a value
-/// of type `ty` as its first argument: `x.abs()` for an int is `@math.abs(x)`.
-/// `None` when no such function exists. A namespace listed earlier wins, and
-/// the table has no name shared by two namespaces for the same receiver type.
+/// the namespace (from `METHOD_NAMESPACES`) whose function `method` takes a value
+/// of type `ty` as its first arg: `x.abs()` for an int is `@math.abs(x)`.
+/// `None` when no such function exists. a namespace listed earlier wins, and
+/// the table has no name shared by two namespaces for the same receiver type. no dupes. please.
 pub fn method_namespace(ty: &Ty, method: &str) -> Option<&'static str> {
     let table = builtin_signatures();
     METHOD_NAMESPACES.iter().copied().find(|ns| {
@@ -694,9 +694,9 @@ pub fn method_namespace(ty: &Ty, method: &str) -> Option<&'static str> {
 }
 
 /// every method a value of type `ty` has, sorted by name, as
-/// `(name, parameters after the receiver, return type)`. Each name is taken
+/// `(name, params after the receiver, return type)`. each name is taken
 /// from the first overload that takes `ty` first, so `x.min(y)` on an int
-/// shows the int overload. Used by the LSP to offer the methods of numbers.
+/// shows the int overload. the LSP uses this to show number methods. helpful.
 pub fn methods_of(ty: &Ty) -> Vec<(String, Vec<Ty>, Ty)> {
     let mut out: Vec<(String, Vec<Ty>, Ty)> = Vec::new();
     for (name, overloads) in builtin_signatures() {

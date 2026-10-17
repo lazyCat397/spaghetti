@@ -1,17 +1,17 @@
-//! Tokens recognized by the Spaghetti (.spg) lexer
+//! tokens the Spaghetti (.spg) lexer recognizes. the vocabulary.
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
-    // literals
+    // literals (the stuff people type)
     Int(i64),
     Float(f64),
     Str(String),
     Bool(bool),
     Ident(String),
-    /// `@math`, `@str`, ... — the name is stored WITHOUT the `@`
+    /// `@math`, `@str`, ... the name gets stored WITHOUT the `@`
     Namespace(String),
 
-    // keywords
+    // keywords (reserved, hands off)
     Let,
     Const,
     Function,
@@ -35,7 +35,7 @@ pub enum TokenKind {
     Struct,
     Enum,
 
-    // primitive types (recognized as type keywords, not plain idents)
+    // primitive types (type keywords, not plain idents)
     TypeInt,
     TypeFloat,
     TypeBool,
@@ -43,7 +43,7 @@ pub enum TokenKind {
     TypeVoid,
     TypeArray, // `array<T>`
 
-    // operators
+    // operators (the little symbols)
     Plus,
     Minus,
     Star,
@@ -63,11 +63,11 @@ pub enum TokenKind {
     GtEq,
     AndAnd,
     OrOr,
-    /// `?`: marks an optional type (`int?`)
+    /// `?`: marks an optional type (`int?`). a question mark with a job.
     Question,
-    /// `??`: the default-value operator (`x ?? 0`)
+    /// `??`: the default-value operator (`x ?? 0`). the fallback.
     QuestionQuestion,
-    /// `none`: the absent value of an optional type
+    /// `none`: the absent value of an optional type. nothing, but typed.
     NoneLit,
     Not,
     Arrow,     // ->
@@ -76,7 +76,7 @@ pub enum TokenKind {
     Dot,
     DotDot, // `..` (ranges: `for i in 1..4`)
 
-    // delimiters
+    // delimiters (brackets, commas, the usual)
     LParen,
     RParen,
     LBrace,
@@ -104,8 +104,8 @@ impl Token {
     }
 }
 
-/// Resolves a word to a keyword or primitive type, if it's one.
-/// Returns None for a plain identifier (variable, function name, etc).
+/// resolves a word to a keyword or primitive type, if it's one.
+/// returns None for a plain identifier (variable, function name, etc).
 pub fn lookup_keyword(word: &str) -> Option<TokenKind> {
     match word {
         "let" => Some(TokenKind::Let),

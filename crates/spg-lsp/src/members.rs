@@ -1,13 +1,13 @@
-//! Member completion: what to offer after `p.` (the fields and methods of a
+//! member completion: what to offer after `p.` (the fields and methods of a
 //! struct, or `value` for an enum value) and inside `Point { ` (the fields
 //! not written yet).
 //!
-//! The buffer is almost always broken at this moment (`p.` followed by
-//! nothing does not parse), so none of this uses the parser or the
-//! typechecker. It works on the TOKENS of the file, like the enum-variant
+//! the buffer is almost always broken at this moment (`p.` followed by
+//! nothing doesn't parse), so none of this uses the parser or the
+//! typechecker. it works on the TOKENS of the file, like the enum-variant
 //! completion does: a small table of the struct/enum/function declarations,
-//! and a best-effort lookup of what a name was declared as. It is a
-//! heuristic on purpose: when it cannot tell, it offers nothing.
+//! and a best-effort lookup of what a name was declared as. it's a
+//! heuristic on purpose. when it can't tell, it offers nothing. honest.
 
 use spg_lexer::{Token, TokenKind as T};
 use std::collections::{HashMap, HashSet};
@@ -120,7 +120,7 @@ fn depths(tokens: &[Token]) -> Vec<i32> {
     out
 }
 
-/// a type token's text, or "" for tokens that are not part of a type
+/// a type token's text, or "" for tokens that aren't part of a type
 fn tok_text(k: &T) -> &'static str {
     match k {
         T::TypeInt => "int",
@@ -137,7 +137,7 @@ fn tok_text(k: &T) -> &'static str {
     }
 }
 
-/// reads a type starting at `i` (`int`, `Point`, `array<map<string, int>>`);
+/// reads a type starting at `i` (`int`, `Point`, `array<map<string, int>>`).
 /// returns its text and the index just after it
 fn read_type(tokens: &[Token], mut i: usize) -> (String, usize) {
     let mut text = String::new();
@@ -186,7 +186,7 @@ fn matching_paren(tokens: &[Token], open: usize) -> Option<usize> {
     None
 }
 
-/// fields and methods of a struct body; `start` is the token after its `{`
+/// fields and methods of a struct body. `start` is the token after its `{`
 fn parse_struct_body(tokens: &[Token], start: usize) -> StructInfo {
     let mut info = StructInfo::default();
     let mut depth = 1;
@@ -266,7 +266,7 @@ fn enclosing(tokens: &[Token], depth: &[i32], at: usize, which: &T) -> Option<us
 }
 
 /// is the `[` at token `open` the start of a map literal (`[:]` or `["a": 1]`)?
-/// It is when a `:` comes before the first `,` / closing `]` at its own nesting level.
+/// it is when a `:` comes before the first `,` / closing `]` at its own nesting level.
 fn bracket_is_map(tokens: &[Token], open: usize) -> bool {
     let mut nest = 0;
     for t in &tokens[open..] {
@@ -286,7 +286,7 @@ fn bracket_is_map(tokens: &[Token], open: usize) -> bool {
     false
 }
 
-/// `@str` / `@array` / `@map` for a value of this type text, if it is a native one
+/// `@str` / `@array` / `@map` for a value of this type text, if it's a native one
 fn native_namespace(ty: &str) -> Option<&'static str> {
     if ty == "string" {
         Some("str")
@@ -300,8 +300,8 @@ fn native_namespace(ty: &str) -> Option<&'static str> {
 }
 
 /// the methods of a string, array or map: the builtins of its namespace whose first
-/// parameter takes the value (`xs.push(1)` is `@array.push(xs, 1)`), shown without
-/// that first parameter
+/// param takes the value (`xs.push(1)` is `@array.push(xs, 1)`), shown without
+/// that first param
 fn native_methods(ns: &str) -> Vec<Member> {
     use spg_typecheck::typed_ast::Ty;
     let prefix = format!("@{}.", ns);
@@ -355,8 +355,8 @@ fn decl_type(tokens: &[Token], i: usize, head: &str, decls: &Decls) -> Option<Op
     }
 }
 
-/// token ranges `(keyword, closing brace)` of the top-level functions and structs: their
-/// locals are not visible from the code outside them
+/// token ranges `(keyword, closing brace)` of the top-level functions and structs. their
+/// locals aren't visible from the code outside them
 fn hidden_ranges(tokens: &[Token], depth: &[i32]) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     for k in 0..tokens.len() {
@@ -393,7 +393,7 @@ fn resolve_head(tokens: &[Token], depth: &[i32], at: usize, head: &str, decls: &
     }
     let func = enclosing(tokens, depth, at, &T::Function);
     // 1. locals of the enclosing function (or, at the top level, of the script itself,
-    //    skipping the insides of functions and structs, which are not visible from there),
+    //    skipping the insides of functions and structs, which aren't visible from there),
     //    nearest first
     {
         let hidden = if func.is_none() { hidden_ranges(tokens, depth) } else { Vec::new() };
@@ -414,7 +414,7 @@ fn resolve_head(tokens: &[Token], depth: &[i32], at: usize, head: &str, decls: &
                     }
                 }
                 T::Catch => {
-                    // `catch (e)` / `catch (e: string)`: what is caught is always a string
+                    // `catch (e)` / `catch (e: string)`: what's caught is always a string
                     if let (Some(T::LParen), Some(T::Ident(n))) = (kind(tokens, k + 1), kind(tokens, k + 2)) {
                         if n == head {
                             return Some("string".to_string());
@@ -426,7 +426,7 @@ fn resolve_head(tokens: &[Token], depth: &[i32], at: usize, head: &str, decls: &
         }
     }
     if let Some(f) = func {
-        // 2. its parameters
+        // 2. its params
         if let (Some(T::Ident(_)), Some(T::LParen)) = (kind(tokens, f + 1), kind(tokens, f + 2)) {
             if let Some(close) = matching_paren(tokens, f + 2) {
                 for k in f + 3..close {
@@ -459,7 +459,7 @@ fn resolve_head(tokens: &[Token], depth: &[i32], at: usize, head: &str, decls: &
 /// numbers (`@into.int` / `@into.float` take them)
 fn members_of(ty: &str, decls: &Decls) -> Vec<Member> {
     let mut out = members_of_own(ty, decls);
-    // a name starting with `_` is private to its struct: never offered after a dot
+    // a name starting with `_` is private to its struct. never offered after a dot
     out.retain(|m| !m.name.starts_with('_'));
     let mut shortcut = |name: &str, detail: &str| {
         if !out.iter().any(|m| m.name == name) {
@@ -520,8 +520,8 @@ fn members_of_own(ty: &str, decls: &Decls) -> Vec<Member> {
     out
 }
 
-/// what to offer after `chain.` — `chain` is the dotted names before the dot
-/// (`["p"]`, `["a", "pos"]`, `["Color", "Red"]`); `at` is the number of
+/// what to offer after `chain.`. `chain` is the dotted names before the dot
+/// (`["p"]`, `["a", "pos"]`, `["Color", "Red"]`). `at` is the number of
 /// tokens before the word being typed
 pub fn after_dot(tokens: &[Token], at: usize, chain: &[String], decls: &Decls) -> Vec<Member> {
     if chain.is_empty() {
@@ -549,7 +549,7 @@ pub fn after_dot(tokens: &[Token], at: usize, chain: &[String], decls: &Decls) -
 }
 
 /// inside `Name { `: the fields of the struct literal being written that are
-/// not there yet, offered as `field: `. `None` when the cursor is not at a
+/// not there yet, offered as `field: `. `None` when the cursor isn't at a
 /// field-name position of a struct literal.
 pub fn literal_fields(tokens: &[Token], at: usize, decls: &Decls) -> Option<Vec<Member>> {
     let at = at.min(tokens.len());
@@ -605,7 +605,7 @@ pub fn literal_fields(tokens: &[Token], at: usize, decls: &Decls) -> Option<Vec<
         T::Ident(n) => n,
         _ => return None,
     };
-    // `struct Name {` (the declaration) and `-> Name {` (a function body) are not literals
+    // `struct Name {` (the declaration) and `-> Name {` (a function body) aren't literals
     if open >= 2 && matches!(tokens[open - 2].kind, T::Struct | T::Arrow) {
         return None;
     }
@@ -746,7 +746,7 @@ mod tests {
         assert_eq!(names(&m), ["b", "tag"]);
         assert_eq!(m[0].insert.as_deref(), Some("b: "));
 
-        // after `field:` it is a value position, and a call / a block are not literals
+        // after `field:` it's a value position, and a call / a block aren't literals
         let val = format!("{}let a = Line {{ a: ", SRC);
         let (t, at, d) = setup(&val, 9, 18);
         assert!(literal_fields(&t, at, &d).is_none());

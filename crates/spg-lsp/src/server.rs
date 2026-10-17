@@ -1,5 +1,5 @@
-//! The LSP loop: framing (`Content-Length`), dispatch, open-buffer
-//! bookkeeping, diagnostics publishing and completion.
+//! the LSP loop: framing (`Content-Length`), dispatch, open-buffer
+//! bookkeeping, diagnostics publishing and completion. the whole circus.
 
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
@@ -9,7 +9,7 @@ use crate::diag::{self, Diag};
 use crate::json::Json;
 use crate::uri;
 
-/// Speaks LSP over the process's stdin/stdout. Returns the exit code the
+/// speaks LSP over the process's stdin/stdout. returns the exit code the
 /// process should use (0 after a clean `shutdown` + `exit`).
 pub fn run_stdio() -> i32 {
     let stdin = io::stdin();
@@ -29,7 +29,7 @@ pub fn run<R: BufRead, W: Write>(mut input: R, out: W) -> i32 {
                 }
                 Err(e) => server.send_error(Json::Null, -32700, &format!("parse error: {}", e)),
             },
-            // stream closed: clean only if the client asked for shutdown
+            // stream closed. clean only if the client asked for shutdown first
             Ok(None) | Err(_) => return if server.shutdown { 0 } else { 1 },
         }
     }
@@ -61,7 +61,7 @@ fn read_message<R: BufRead>(r: &mut R) -> io::Result<Option<String>> {
 }
 
 struct Doc {
-    /// canonical path; None for documents that aren't files on disk
+    /// canonical path. None for documents that aren't files on disk
     path: Option<PathBuf>,
     text: String,
     version: i64,
@@ -75,7 +75,7 @@ struct Server<W: Write> {
     shutdown: bool,
 }
 
-// `#> name` directives: (name, text inserted, one-line help). A test keeps it in
+// `#> name` directives: (name, text inserted, one-line help). a test keeps it in
 // step with `spg_lexer::DIRECTIVES`
 const DIRECTIVE_DOCS: &[(&str, &str, &str)] = &[
     ("friendly-terminal", "friendly-terminal", "#> friendly-terminal: error messages in a friendlier tone"),
@@ -89,7 +89,7 @@ impl<W: Write> Server<W> {
         Server { out, docs: HashMap::new(), overlay: HashMap::new(), shutdown: false }
     }
 
-    // ---------- output ----------
+    // ---------- output (the writing part) ----------
 
     fn send(&mut self, body: &Json) {
         let s = body.to_string();
@@ -119,11 +119,11 @@ impl<W: Write> Server<W> {
         ]));
     }
 
-    // ---------- dispatch ----------
+    // ---------- dispatch (the switchboard) ----------
 
     /// `Some(code)` means: exit the process with that code now.
     fn handle(&mut self, msg: &Json) -> Option<i32> {
-        // a message without `method` is a response to us; nothing to do
+        // a message without `method` is a response to us. nothing to do
         let method = msg.get("method")?.as_str()?.to_string();
         let id = msg.get("id").cloned();
         let params = msg.get("params").cloned().unwrap_or(Json::Null);
@@ -209,7 +209,7 @@ impl<W: Write> Server<W> {
             }
             "textDocument/formatting" => {
                 let uri = params.get("textDocument").and_then(|t| t.get("uri")).and_then(Json::as_str).unwrap_or("");
-                // no edits when the file cannot be formatted safely (see `spg_fmt::check`)
+                // no edits when the file can't be formatted safely (see `spg_fmt::check`)
                 let result = self.formatting(uri).unwrap_or_else(|| Json::Arr(Vec::new()));
                 self.reply(id, result);
             }
@@ -254,7 +254,7 @@ impl<W: Write> Server<W> {
                 self.reply(id, Json::Arr(items));
             }
             _ => {
-                // unknown REQUEST -> tell the client; unknown notification -> ignore
+                // unknown REQUEST -> tell the client. unknown notification -> ignore
                 if let Some(id) = id {
                     self.send_error(id, -32601, &format!("method not found: {}", method));
                 }
@@ -263,7 +263,7 @@ impl<W: Write> Server<W> {
         None
     }
 
-    // ---------- documents ----------
+    // ---------- documents (the paperwork) ----------
 
     fn set_doc(&mut self, uri: String, text: String, version: i64) {
         let path = uri::uri_to_path(&uri).and_then(|p| spg_modules::canon(&p).ok());
@@ -273,8 +273,8 @@ impl<W: Write> Server<W> {
         self.docs.insert(uri, Doc { path, text, version });
     }
 
-    /// Re-analyses every open document: one file's edit can break (or fix)
-    /// another that imports it.
+    /// re-analyses every open document. one file's edit can break (or fix)
+    /// another that imports it. domino effect.
     fn refresh_all(&mut self) {
         let mut uris: Vec<String> = self.docs.keys().cloned().collect();
         uris.sort();
@@ -313,8 +313,8 @@ impl<W: Write> Server<W> {
             end = e;
             message = d.message.clone();
         } else {
-            // the error lives in ANOTHER file this one imports: pin it to
-            // the top of this file and say where it really is
+            // the error lives in ANOTHER file this one imports. pin it to
+            // the top of this file, and say where it really is
             line0 = 0;
             start = 0;
             end = 1;
@@ -329,11 +329,11 @@ impl<W: Write> Server<W> {
         ])
     }
 
-    // ---------- completion ----------
+    // ---------- completion (guessing, but politely) ----------
 
     /// text of the cursor's line before the cursor (LSP columns are UTF-16
-    /// units; identifiers here are ASCII, so a char-based prefix is exact for
-    /// everything that matters)
+    /// units. identifiers here are ASCII, so a char-based prefix is exact for
+    /// everything that matters. (the rest is noise.)
     fn line_before_cursor(&self, uri: &str, pos: Option<(usize, usize)>) -> Option<String> {
         let (line, col) = pos?;
         let doc = self.docs.get(uri)?;
@@ -397,7 +397,7 @@ impl<W: Write> Server<W> {
     }
 
     /// the variants of `enum <name> { .. }` declared in this document, found by
-    /// lexing it (`None` when there is no such enum or the text does not lex)
+    /// lexing it (`None` when there's no such enum or the text doesn't lex)
     fn enum_variants(&self, uri: &str, name: &str) -> Option<Vec<String>> {
         use spg_lexer::TokenKind as T;
         let doc = self.docs.get(uri)?;
@@ -419,8 +419,8 @@ impl<W: Write> Server<W> {
     }
 
     /// (start column, end column) of the word being typed, widened by one to
-    /// swallow a directly preceding `@` — that is what a namespace completion
-    /// must replace, because editors do not treat `@` as part of a word
+    /// swallow a directly preceding `@`. that's what a namespace completion
+    /// must replace, because editors don't treat `@` as part of a word
     fn namespace_edit_range(&self, uri: &str, pos: Option<(usize, usize)>) -> Option<(usize, usize, usize)> {
         let (line, col) = pos?;
         let before = self.line_before_cursor(uri, pos)?;
@@ -435,9 +435,9 @@ impl<W: Write> Server<W> {
         Some((line, start, col))
     }
 
-    /// `#> name` being typed: offers the file directives the file does not use
+    /// `#> name` being typed: offers the file directives the file doesn't use
     /// yet, each replacing the partial name already written (so the `-` of
-    /// `friendly-terminal` does not break the word). `None` when the cursor is
+    /// `friendly-terminal` doesn't break the word). `None` when the cursor is
     /// not there
     fn directive_completion(&self, uri: &str, pos: Option<(usize, usize)>) -> Option<Vec<Json>> {
         let (line, col) = pos?;
@@ -451,7 +451,7 @@ impl<W: Write> Server<W> {
         while start < chars.len() && chars[start] == ' ' {
             start += 1;
         }
-        // an argument (`#> timeout 5`) or a comment is being written: no names,
+        // an arg (`#> timeout 5`) or a comment is being written. no names,
         // and not the global list either (nothing of it fits on a directive line)
         if !chars[start..].iter().all(|c| c.is_ascii_alphanumeric() || *c == '-') {
             return Some(Vec::new());
@@ -576,11 +576,11 @@ impl<W: Write> Server<W> {
             .collect();
         builtins.sort();
 
-        // right after a `.`: only namespace members make sense. After
+        // right after a `.`: only namespace members make sense. after
         // `@math.` (or `@time.`, ...) offer that namespace's members, inserted
-        // without the prefix already typed; after any other dot (a struct
-        // field, a float literal, a string) offer nothing instead of
-        // dumping the global list. While the name after an `@` is being
+        // without the prefix already typed. after any other dot (a struct
+        // field, a float literal, a string), offer nothing instead of
+        // dumping the global list. while the name after an `@` is being
         // typed, only the namespaces themselves are offered.
         match self.dot_context(uri, pos) {
             DotContext::NamespaceName => {
@@ -623,7 +623,7 @@ impl<W: Write> Server<W> {
                 return crate::members::after_dot(&tokens, at, &chain, &decls).iter().map(member_item).collect();
             }
             DotContext::None => {
-                // `Point { `: the fields of the literal that are not written yet
+                // `Point { `: the fields of the literal that aren't written yet
                 if let Some((tokens, at, decls)) = self.member_context(uri, pos) {
                     if let Some(fields) = crate::members::literal_fields(&tokens, at, &decls) {
                         return fields.iter().map(member_item).collect();
@@ -633,7 +633,7 @@ impl<W: Write> Server<W> {
         }
 
         for (name, detail) in builtins {
-            // namespaced members only show up after `ns.`; globally we
+            // namespaced members only show up after `ns.`. globally we
             // offer just the un-namespaced builtins (print, len, ...)
             if !name.contains('.') {
                 items.push(item(&name, 3, Some(detail)));
@@ -652,9 +652,9 @@ impl<W: Write> Server<W> {
                 let mut seen = std::collections::HashSet::new();
                 // the signature of each callable, shown as the completion detail
                 let labels: HashMap<String, String> = crate::signature::label_by_name(&tokens).into_iter().collect();
-                // a `function` inside a `struct { .. }` body is a METHOD: it is
+                // a `function` inside a `struct { .. }` body is a METHOD. it is
                 // only callable as `value.name()`, so it must not be offered
-                // as a free name. Track brace depth to know when we are in one.
+                // as a free name. track brace depth to know when we're in one.
                 let mut depth: i64 = 0;
                 let mut struct_body: Option<i64> = None;
                 for (i, w) in tokens.windows(2).enumerate() {
@@ -693,8 +693,8 @@ impl<W: Write> Server<W> {
                 }
 
                 // names that come from OTHER files: `import { a, b } from "x"`
-                // offers exactly a and b; `install "x"` offers every export of x.
-                // Read from the files' own tokens, so it works while the buffer
+                // offers exactly a and b. `install "x"` offers every export of x.
+                // read from the files' own tokens, so it works while the buffer
                 // is half-typed (no full resolve needed).
                 let dir = doc.path.as_ref().and_then(|p| p.parent().map(|d| d.to_path_buf()));
                 let mut i = 0;
@@ -742,7 +742,7 @@ impl<W: Write> Server<W> {
                     i += 1;
                 }
 
-                // parameters of every function and lambda in the file: offered
+                // params of every function and lambda in the file. offered
                 // everywhere in the file (like the other names here), typed
                 for (name, ty) in crate::signature::all_params(&tokens) {
                     if seen.insert(name.clone()) {
@@ -755,7 +755,7 @@ impl<W: Write> Server<W> {
     }
 
     /// the name under the cursor, resolved to what it refers to: the token
-    /// list, the declaration (in this file, or in the file it is imported from)
+    /// list, the declaration (in this file, or in the file it's imported from)
     fn resolve_at(&self, uri: &str, pos: Option<(usize, usize)>) -> Option<(crate::navigate::Target, Vec<spg_lexer::Token>)> {
         let (line, col) = pos?;
         let doc = self.docs.get(uri)?;
@@ -773,7 +773,7 @@ impl<W: Write> Server<W> {
             Target::Local(d) => Some((uri.to_string(), d.clone())),
             Target::Imported { name, file } => {
                 let dir = self.docs.get(uri)?.path.as_ref()?.parent()?.to_path_buf();
-                // `./util.spg` joins as `dir/./util.spg`: drop the `.` so the URI is clean
+                // `./util.spg` joins as `dir/./util.spg`. drop the `.` so the URI is clean
                 let path: PathBuf = dir.join(file).components().filter(|c| !matches!(c, std::path::Component::CurDir)).collect();
                 let text = self.source_of(&path)?;
                 let tokens = spg_lexer::Lexer::new(&text).tokenize().ok()?;
@@ -786,15 +786,15 @@ impl<W: Write> Server<W> {
     }
 
     /// `textDocument/formatting`: one edit that replaces the whole document with
-    /// its canonical layout, or none when it is already formatted or `spg_fmt`
-    /// refuses it (the file does not lex, or the result failed its safety proofs)
+    /// its canonical layout, or none when it's already formatted or `spg_fmt`
+    /// refuses it (the file doesn't lex, or the result failed its safety proofs)
     fn formatting(&self, uri: &str) -> Option<Json> {
         let text = &self.docs.get(uri)?.text;
         let formatted = spg_fmt::check(text).ok()?;
         if formatted == *text {
             return Some(Json::Arr(Vec::new()));
         }
-        // the range ends where the document does; LSP counts UTF-16 units
+        // the range ends where the document does. LSP counts UTF-16 units
         let last_line = text.split('\n').count() - 1;
         let end_character: usize = text.split('\n').last().unwrap_or("").chars().map(char::len_utf16).sum();
         let point = |line: usize, character: usize| Json::obj(vec![("line", Json::int(line as i64)), ("character", Json::int(character as i64))]);
@@ -817,7 +817,7 @@ impl<W: Write> Server<W> {
     fn definition(&self, uri: &str, pos: Option<(usize, usize)>) -> Option<Json> {
         let (target, _) = self.resolve_at(uri, pos)?;
         let (file_uri, decl) = self.locate(uri, &target)?;
-        // the name's span: LSP counts UTF-16 units, so convert the lexer's columns
+        // the name's span. LSP counts UTF-16 units, so convert the lexer's columns
         let line0 = decl.line.saturating_sub(1);
         let text = if file_uri == uri {
             self.docs.get(uri)?.text.clone()
@@ -837,7 +837,7 @@ impl<W: Write> Server<W> {
     }
 
     /// `textDocument/signatureHelp`: the call around the cursor, its signature,
-    /// and which argument the cursor is on
+    /// and which arg the cursor is on
     fn signature_help(&self, uri: &str, pos: Option<(usize, usize)>) -> Option<Json> {
         let (tokens, at, _) = self.member_context(uri, pos)?;
         // `recv.f(`: the method of the receiver's struct wins over a free name `f`
@@ -876,7 +876,7 @@ impl<W: Write> Server<W> {
     }
 
     /// the dotted names right before a `.` being completed: `p.` -> [p],
-    /// `a.pos.na` -> [a, pos]. `None` when the receiver is not a plain name
+    /// `a.pos.na` -> [a, pos]. `None` when the receiver isn't a plain name
     /// chain (a call, an index, a number, a namespace).
     fn receiver_chain(&self, uri: &str, pos: Option<(usize, usize)>) -> Option<Vec<String>> {
         let before = self.line_before_cursor(uri, pos)?;
@@ -952,7 +952,7 @@ impl<W: Write> Server<W> {
 
     /// every name `path` exports, with its completion kind: `export function/
     /// struct/enum/let/const NAME` and `export { a, b } from ".."` (kind
-    /// unknown there, so function). An open buffer wins over the disk.
+    /// unknown there, so function). an open buffer wins over the disk.
     fn exports_of(&self, path: &std::path::Path) -> Vec<(String, i64)> {
         use spg_lexer::TokenKind as T;
         let Some(text) = self.source_of(path) else { return Vec::new() };
@@ -1080,7 +1080,7 @@ mod tests {
 
     #[test]
     fn reports_type_error_with_exact_range_using_unsaved_text() {
-        // disk is fine; the BUFFER has the error -> overlay must win
+        // disk is fine. the BUFFER has the error -> overlay must win
         let (_f, uri) = tmp_file("typeerr", "let x = 1\n");
         let buffer = "let ação: int = 1\nlet y: int = \"texto\"\n";
         let (_, out) = session(vec![
@@ -1242,7 +1242,7 @@ mod tests {
         assert_eq!(range.get("start").unwrap().get("character").and_then(Json::as_f64), Some(3.0));
         assert_eq!(range.get("end").unwrap().get("character").and_then(Json::as_f64), Some(5.0));
 
-        // an argument is being typed, or it is not a directive line at all
+        // an arg is being typed, or it's not a directive line at all
         assert!(complete_at("compl_dir_arg", "#> timeout 5\n", 0, 12).is_empty());
         let normal = labels_of(&complete_at("compl_dir_none", "let a = 1\n", 0, 3));
         assert!(!normal.iter().any(|l| l == "strict" || l == "timeout"), "{:?}", normal);
@@ -1285,7 +1285,7 @@ mod tests {
             let cmd = it.get("command").expect("namespace entry must carry a command");
             assert_eq!(cmd.get("command").and_then(Json::as_str), Some("editor.action.triggerSuggest"));
         }
-        // a plain word still gets the ordinary list: ordinary entries must NOT
+        // a plain word still gets the ordinary list. ordinary entries must NOT
         // gain a dot or a command, and the namespaces are still offered
         let items = complete_at("compl_pick_plain", "let a = pr\n", 0, 10);
         assert!(labels_of(&items).iter().any(|l| l == "@math"));
@@ -1297,7 +1297,7 @@ mod tests {
 
     #[test]
     fn string_is_only_a_type_now() {
-        // `string` used to be both a type and a namespace; with `@str` it is just the type
+        // `string` used to be both a type and a namespace. with `@str` it's just the type
         let items = complete_at("compl_str_only", "let a: st\n", 0, 9);
         let strings: Vec<&Json> = items.iter().filter(|i| i.get("label").and_then(Json::as_str) == Some("string")).collect();
         assert_eq!(strings.len(), 1);
@@ -1332,9 +1332,9 @@ mod tests {
         let text = "enum Color { Red, Green,\n    Blue }\nstruct P { x: int }\nlet a = Color.\nlet b = P.\nlet c = Color.Gr\n";
         let items = complete_at("compl_enum_dot", text, 3, 14);
         assert_eq!(labels_of(&items), vec!["Red", "Green", "Blue"]);
-        // a struct name, and a name that is not an enum, still offer nothing
+        // a struct name, and a name that isn't an enum, still offer nothing
         assert!(complete_at("compl_enum_struct", text, 4, 10).is_empty());
-        // `enum` is a keyword and the enum's own name is offered as a symbol
+        // `enum` is a keyword, and the enum's own name is offered as a symbol
         let plain = labels_of(&complete_at("compl_enum_plain", "enum Color { Red }\nlet a = \n", 1, 8));
         assert!(plain.iter().any(|l| l == "enum") && plain.iter().any(|l| l == "Color"));
     }
@@ -1350,9 +1350,9 @@ mod tests {
         // the name with the extension works the same way
         let with_ext = labels_of(&complete_at("compl_std_ext", "install <std: \"fork.spg\">\nfork.\n", 1, 5));
         assert!(with_ext.iter().any(|l| l == "box"), "fork.spg form lists nothing: {:?}", with_ext);
-        // private members (`_v`, the struct's filler field) are not offered
+        // private members (`_v`, the struct's filler field) aren't offered
         assert!(!labels.iter().any(|l| l.starts_with('_')), "private member offered: {:?}", labels);
-        // a name that is not a standard module offers nothing (and does not crash)
+        // a name that isn't a standard module offers nothing (and doesn't crash)
         assert!(complete_at("compl_std_none", "install <std: \"nope\">\nfork.\n", 1, 5).is_empty());
     }
 

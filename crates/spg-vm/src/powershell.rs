@@ -1,6 +1,6 @@
-//! `ps.*`: PowerShell, run as a child process. The Spaghetti side lives in
-//! `stdlib/powershell.spg`; this file only starts processes and reports what
-//! they did, so the .spg wrapper stays a thin layer over these builtins.
+//! `ps.*`: PowerShell, run as a child process. the spg side lives in
+//! `stdlib/powershell.spg`. this file just starts processes and reports what
+//! they did. the .spg wrapper stays a thin layer. no logic over there, please.
 
 use std::io::Read;
 use std::process::{Command, Stdio};
@@ -9,12 +9,12 @@ use std::time::{Duration, Instant};
 
 use crate::error::RuntimeError;
 
-/// every run is forced to UTF-8, both for what PowerShell prints and for
-/// what it reads from the script text, so accents survive on Windows
+/// every run is forced to UTF-8, both for what PowerShell prints and
+/// what it reads from the script, so accents survive on Windows. (ç, ã, you know.)
 const UTF8_PRELUDE: &str = "[Console]::OutputEncoding = [Text.Encoding]::UTF8; $OutputEncoding = [Text.Encoding]::UTF8; ";
 
 /// the first executable that starts and exits cleanly: `pwsh` (7+) before
-/// `powershell.exe` (5.1, always present on Windows). Found once per process.
+/// `powershell.exe` (5.1, always there on Windows). found once per process. cached.
 static EXE: OnceLock<Option<&'static str>> = OnceLock::new();
 
 fn find_exe() -> Option<&'static str> {
@@ -32,7 +32,7 @@ fn find_exe() -> Option<&'static str> {
     })
 }
 
-/// what a finished (or killed) run reported
+/// what a finished (or killed) run reported. the receipts.
 pub struct Outcome {
     pub code: i64,
     pub output: String,
@@ -40,8 +40,8 @@ pub struct Outcome {
 }
 
 /// `mode` is "cmd" (`arg` is script text) or "file" (`arg` is a .ps1 path).
-/// Returns `Err` only when PowerShell itself cannot run; a command that runs
-/// and fails, or that times out, comes back as an `Outcome`.
+/// returns `Err` only when PowerShell itself can't run. a command that runs
+/// and fails, or times out, comes back as an `Outcome`. failing is not an error here.
 pub fn exec(function: &'static str, mode: &str, arg: &str, timeout_secs: i64) -> Result<Outcome, RuntimeError> {
     if timeout_secs <= 0 {
         return Err(RuntimeError::Process { function, reason: "the timeout must be greater than 0 seconds".to_string() });
@@ -63,8 +63,8 @@ pub fn exec(function: &'static str, mode: &str, arg: &str, timeout_secs: i64) ->
         .spawn()
         .map_err(|e| RuntimeError::Process { function, reason: format!("could not start {exe}: {e}") })?;
 
-    // read both pipes on their own threads, or a chatty script could fill
-    // a pipe and block forever while we wait for it to exit
+    // read both pipes on their own threads, or a chatty script fills
+    // a pipe and deadlocks us forever while we wait for it. classic.
     let mut out_pipe = child.stdout.take().expect("stdout was piped");
     let mut err_pipe = child.stderr.take().expect("stderr was piped");
     let out_reader = std::thread::spawn(move || {
@@ -101,7 +101,7 @@ pub fn exec(function: &'static str, mode: &str, arg: &str, timeout_secs: i64) ->
     Ok(Outcome { code, output, error })
 }
 
-/// true only when PowerShell starts and answers a trivial command with exit 0
+/// true only when PowerShell starts and answers a trivial command with exit 0. vibes check.
 pub fn is_available() -> bool {
     match exec("ps.isAvailable", "cmd", "$PSVersionTable.PSVersion.ToString()", 10) {
         Ok(done) => done.code == 0 && !done.output.trim().is_empty(),
@@ -109,7 +109,7 @@ pub fn is_available() -> bool {
     }
 }
 
-/// `#> safe-party`: set once by the CLI from the entry file's header
+/// `#> safe-party`: set once by the CLI from the entry file's header. party responsibly.
 static SAFE_PARTY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub fn set_safe_party(on: bool) {
@@ -120,7 +120,7 @@ pub fn safe_party() -> bool {
     SAFE_PARTY.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// the version of the PowerShell that `exec` would use
+/// the version of the PowerShell that `exec` would pick
 pub fn version() -> Result<String, RuntimeError> {
     let outcome = exec("ps.version", "cmd", "$PSVersionTable.PSVersion.ToString()", 10)?;
     let text = outcome.output.trim().to_string();
@@ -134,8 +134,8 @@ pub fn version() -> Result<String, RuntimeError> {
     }
 }
 
-/// a PowerShell single-quoted literal: quotes are doubled, and the typographic
-/// quotes PowerShell also accepts are doubled too, so the path is never split
+/// a PowerShell single-quoted literal: quotes get doubled, and the typographic
+/// quotes PowerShell also accepts get doubled too, so the path never splits
 fn quote(text: &str) -> String {
     let mut out = String::from("'");
     for c in text.chars() {

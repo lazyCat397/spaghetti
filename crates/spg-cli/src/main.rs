@@ -1,4 +1,4 @@
-//! `spg` — the Spaghetti command line.
+//! `spg`: the Spaghetti command line. the main event.
 //!
 //!   spg file.spg            run a program (shorthand for `spg run`)
 //!   spg run file.spg        run a program
@@ -44,8 +44,8 @@ EXIT CODES:
 
 fn main() {
     // `println!` panics when stdout is a closed pipe (`spg prog.spg | head`).
-    // That's not a bug in the user's program: leave quietly. Any other panic
-    // is ours — say so plainly instead of dumping a raw Rust backtrace hint.
+    // that's not a bug in the user's program. leave quietly. any other panic
+    // is ours. say so plainly, instead of dumping a Rust backtrace at someone.
     std::panic::set_hook(Box::new(|info| {
         if info.to_string().contains("Broken pipe") {
             std::process::exit(1);
@@ -56,12 +56,12 @@ fn main() {
     }));
 
     let args: Vec<String> = std::env::args().skip(1).collect();
-    // an executable made by `spg build` carries its program: it runs that, and
-    // every argument goes to the program itself
+    // an executable made by `spg build` carries its program. it runs that, and
+    // every arg goes to the program itself
     let bundle = bundle::read_own();
-    // The VM recurses natively on every spg call, so the whole CLI runs on a
+    // the VM recurses natively on every spg call, so the whole CLI runs on a
     // thread with a big stack instead of the OS default (8 MB on Linux, only
-    // 1 MB on Windows). The memory is reserved lazily, not committed.
+    // 1 MB on Windows). the memory is reserved lazily, not committed. cheap.
     let worker = std::thread::Builder::new()
         .stack_size(VM_STACK_BYTES)
         .spawn(move || match bundle {
@@ -69,7 +69,7 @@ fn main() {
             None => real_main(&args),
         })
         .expect("failed to spawn the main worker thread");
-    // a panic was already reported by the hook above
+    // a panic was already reported by the hook above. once is enough.
     std::process::exit(worker.join().unwrap_or(101));
 }
 
@@ -103,13 +103,13 @@ fn real_main(args: &[String]) -> i32 {
     }
 }
 
-/// shared by `run` and `check`: parse options, find the one file argument
+/// shared by `run` and `check`: parse options, find the one file arg
 fn run_cmd(args: &[String], execute: bool) -> i32 {
     let mut file: Option<&str> = None;
     let mut dump_bytecode = false;
     let mut show_time = false;
     let mut optimize = true;
-    // native code is on by default; --no-jit turns it off
+    // native code is on by default. --no-jit turns it off
     let mut jit = true;
     let mut program_args: Vec<String> = Vec::new();
 
@@ -123,7 +123,7 @@ fn run_cmd(args: &[String], execute: bool) -> i32 {
             "--dump-bytecode" if execute => dump_bytecode = true,
             "--time" if execute => show_time = true,
             "--no-opt" if execute => optimize = false,
-            // native code is the default (see spg-jit); --jit is kept as a no-op for old scripts
+            // native code is the default (see spg-jit). --jit stays as a no-op for old scripts
             "--jit" if execute => jit = true,
             "--no-jit" if execute => jit = false,
             s if s.starts_with('-') && s.len() > 1 => {
@@ -142,7 +142,7 @@ fn run_cmd(args: &[String], execute: bool) -> i32 {
     };
 
     // the entry file's own header picks the tone of every error it produces.
-    // It is read on its own, so a file broken further down still gets it
+    // it's read on its own, so a file broken further down still gets it
     let spec = std::fs::read_to_string(file)
         .ok()
         .and_then(|src| spg_lexer::read_file_spec(&src).ok())
@@ -155,7 +155,7 @@ fn run_cmd(args: &[String], execute: bool) -> i32 {
         Err(code) => return code,
     };
     // native code is generated from the plain (unfused) bytecode, which is what
-    // spg-jit understands; the VM keeps running the optimized program
+    // spg-jit understands. the VM keeps running the optimized program
     let native_src = if jit {
         match build(std::path::Path::new(file), false, friendly, strict) {
             Ok(b) => Some(b),
@@ -173,7 +173,7 @@ fn run_cmd(args: &[String], execute: bool) -> i32 {
 }
 
 /// runs a compiled program: the `--dump-bytecode` listing, the program's
-/// arguments, the `#>` timeout, and the error report with its stack trace
+/// args, the `#>` timeout, and the error report with its stack trace
 fn execute_program(bytecode: &Program, spec: &spg_lexer::FileSpec, program_args: Vec<String>, show_time: bool, dump_bytecode: bool, native_src: Option<&Program>) -> i32 {
     let friendly = spec.friendly_terminal;
     let strict = spec.strict;
@@ -200,8 +200,8 @@ fn execute_program(bytecode: &Program, spec: &spg_lexer::FileSpec, program_args:
     }
     let mut vm = Vm::new(bytecode);
     if let Some(src) = native_src {
-        // native code is an optimization: if generating it panics, the VM runs everything.
-        // The panic hook is silenced for this step only, so the user sees nothing.
+        // native code is an optimization. if generating it panics, the VM runs everything.
+        // the panic hook is silenced for this step only, so the user sees nothing.
         let hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(|_| {}));
         let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| spg_jit::build(src)));
@@ -217,7 +217,7 @@ fn execute_program(bytecode: &Program, spec: &spg_lexer::FileSpec, program_args:
                 }
                 vm.set_native(Box::new(table));
             }
-            // not an error: the VM runs everything. Only shown with --time, so normal runs stay quiet.
+            // not an error. the VM runs everything. shown only with --time, so normal runs stay quiet.
             Err(e) => {
                 if show_time {
                     eprintln!("--- native code disabled, running in the VM: {e} ---");
@@ -229,7 +229,7 @@ fn execute_program(bytecode: &Program, spec: &spg_lexer::FileSpec, program_args:
     let result = vm.run();
     let elapsed = start.elapsed();
     if let Err(e) = result {
-        // `@sys.exit(code)` is the program choosing its exit code, not a failure
+        // `@sys.exit(code)` is the program picking its exit code, not a failure
         if let spg_vm::RuntimeError::Exit { code } = e {
             return code;
         }
@@ -285,7 +285,7 @@ fn build_cmd(args: &[String]) -> i32 {
     };
     let path = std::path::Path::new(file);
 
-    // the same checks as `spg check`: a program that does not compile is not built
+    // same checks as `spg check`. a program that doesn't compile doesn't get built
     let spec = std::fs::read_to_string(file)
         .ok()
         .and_then(|src| spg_lexer::read_file_spec(&src).ok())
@@ -330,7 +330,7 @@ fn build_cmd(args: &[String]) -> i32 {
 fn run_bundle(bundle: bundle::Bundle, args: &[String]) -> i32 {
     let spec = spg_lexer::read_file_spec(&bundle.files[0].1).unwrap_or_default();
     // the same two copies `spg run` makes: the optimized one the VM runs, and the
-    // plain one native code is generated from (spg-jit only understands the plain one)
+    // plain one native code gets generated from (spg-jit only understands the plain one)
     let compile = |optimize: bool| -> Result<Program, i32> {
         let program = match spg_modules::resolve_with(&bundle.entry(), &bundle.overlay()) {
             Ok(program) => program,
@@ -349,7 +349,7 @@ fn run_bundle(bundle: bundle::Bundle, args: &[String]) -> i32 {
         Ok(bytecode) => bytecode,
         Err(code) => return code,
     };
-    // native code is an optimization: without its plain copy the VM just runs everything
+    // native code is an optimization. without its plain copy the VM just runs everything
     let native_src = compile(false).ok();
     execute_program(&bytecode, &spec, args.to_vec(), false, false, native_src.as_ref())
 }
@@ -357,12 +357,12 @@ fn run_bundle(bundle: bundle::Bundle, args: &[String]) -> i32 {
 /// native stack reserved for the worker thread that runs the whole CLI
 const VM_STACK_BYTES: usize = 1 << 30;
 
-/// resolve imports -> typecheck -> compile. On failure the diagnostics are
-/// already printed and the exit code is returned.
-/// `#> timeout N`: a thread that ends the whole process once the program has
-/// run for `ms` milliseconds. It is a thread, not a check inside the VM, so it
-/// also cuts a `time.sleep` or a `readLine` that is blocked. Exit code 124, like
-/// the Unix `timeout` command
+/// resolve imports -> typecheck -> compile. on failure the diagnostics get
+/// printed and the exit code is returned.
+/// `#> timeout N`: a thread that kills the whole process once the program has
+/// run for `ms` ms. it's a thread, not a check inside the VM, so it
+/// also cuts a `time.sleep` or a blocked `readLine`. exit code 124, like
+/// the Unix `timeout` command. stolen with love.
 fn start_watchdog(ms: u64, friendly: bool) {
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(ms));
@@ -380,7 +380,7 @@ fn start_watchdog(ms: u64, friendly: bool) {
 
 fn build(path: &std::path::Path, optimize: bool, friendly: bool, strict: bool) -> Result<Program, i32> {
     // resolves the entry file AND everything it imports into a single
-    // merged program — lexing/parsing of every file happens in there
+    // merged program. lexing/parsing of every file happens in there
     let program = spg_modules::resolve(path).map_err(|e| {
         if friendly {
             eprintln!("error: {}", e.friendly());
@@ -402,10 +402,10 @@ fn print_chunk(chunk: &spg_vm::Chunk) {
     }
 }
 
-/// the stack trace of a runtime error, innermost call first: one line per
-/// frame, `at <function> (<file>:<line>)`. A run of identical frames (a
-/// recursion stuck on one line) prints once, then a count; frames the VM
-/// dropped at its limit are counted at the end.
+/// the stack trace of a runtime error, innermost call first. one line per
+/// frame, `at <function> (<file>:<line>)`. a run of identical frames (a
+/// recursion stuck on one line) prints once, then a count. frames the VM
+/// dropped at its limit get counted at the end.
 fn print_trace((frames, omitted): (Vec<spg_vm::TraceFrame>, usize)) {
     let mut i = 0;
     while i < frames.len() {
@@ -428,7 +428,7 @@ fn print_trace((frames, omitted): (Vec<spg_vm::TraceFrame>, usize)) {
     }
 }
 
-/// type-check and compile a program whose files are already resolved
+/// typecheck and compile a program whose files are already resolved
 fn compile_resolved(program: spg_parser::ast::Program, optimize: bool, friendly: bool, strict: bool) -> Result<Program, i32> {
     let typed = spg_typecheck::type_check_with(program, strict).map_err(|errors| {
         if friendly {
@@ -456,8 +456,8 @@ fn compile_resolved(program: spg_parser::ast::Program, optimize: bool, friendly:
 }
 
 /// `spg fmt`: the canonical layout of one or more files, or of every `.spg`
-/// file under a folder. A file is written only when `spg_fmt::check` proves the
-/// result has the same tokens, comments and directives, and is a fixed point
+/// file under a folder. a file gets written only when `spg_fmt::check` proves the
+/// result has the same tokens, comments and directives, and is a fixed point.
 fn fmt_cmd(args: &[String]) -> i32 {
     let mut check = false;
     let mut to_stdout = false;

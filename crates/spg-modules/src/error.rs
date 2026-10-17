@@ -1,5 +1,5 @@
-//! Errors raised while resolving a program's import graph. Every message
-//! is English, per the language's fixed output rule.
+//! errors raised while resolving a program's import graph. every message
+//! is English, per the language's sacred output rule.
 
 use std::fmt;
 use std::path::PathBuf;
@@ -7,14 +7,14 @@ use std::path::PathBuf;
 use spg_parser::ast::Pos;
 
 /// how a file is shown to the user: relative to the current directory
-/// when it lives under it (`lib/a.spg`), the full path otherwise. The
-/// resolver works with canonical absolute paths internally — those are
-/// noise in a diagnostic.
+/// when it lives under it (`lib/a.spg`), the full path otherwise. the
+/// resolver works with canonical absolute paths internally. those are
+/// noise in a diagnostic. nobody reads that.
 pub fn friendly(path: &std::path::Path) -> String {
     if let Ok(cwd) = std::env::current_dir() {
         // stripping the root ("/") itself would leave a path that LOOKS
-        // relative ("home/x/a.spg") but isn't one — every path is "under"
-        // the root, so that prefix carries no information worth cutting
+        // relative ("home/x/a.spg") but isn't one. every path is "under"
+        // the root, so that prefix carries no info worth cutting
         if cwd.parent().is_some() {
             if let Ok(rel) = path.strip_prefix(&cwd) {
                 return rel.display().to_string();
@@ -32,19 +32,19 @@ pub enum ModuleError {
     /// lexing an imported/entry file failed
     Lex { path: PathBuf, message: String, error: spg_lexer::LexError },
 
-    /// `#>` in an imported module: directives belong to the file you run
+    /// `#>` in an imported module. directives belong to the file you run
     DirectiveInImport { path: PathBuf, name: String, line: usize, col: usize },
 
     /// parsing an imported/entry file failed
     Parse { path: PathBuf, message: String, error: spg_parser::ParseError },
 
-    /// `import ... from "x"` where the path has no `.spg` extension —
-    /// the extension is mandatory (it's how a file is told apart from
-    /// a directory), never inferred
+    /// `import ... from "x"` where the path has no `.spg` extension.
+    /// the extension is mandatory (it's how a file gets told apart from
+    /// a directory). never inferred. no guessing.
     MissingExtension { importer: PathBuf, path: String, pos: Pos },
 
     /// the import graph loops back on itself. `chain` is the full cycle,
-    /// first module repeated at the end (a -> b -> a).
+    /// first module repeated at the end (a -> b -> a). a loop, a loop.
     Cycle { chain: Vec<PathBuf> },
 
     /// `import { x } from "m.spg"` but `m.spg` declares no `x` at all
@@ -58,18 +58,18 @@ pub enum ModuleError {
     NotExported { importer: PathBuf, module: String, name: String, pos: Pos },
 
     /// two things in ONE file want the same name. `second` is where the
-    /// conflict was detected (the one the error points at); `first` is
-    /// the earlier thing that already owned the name (the `note:`).
+    /// conflict was detected (the one the error points at). `first` is
+    /// the earlier thing that already owned the name (the `note:`). squatter.
     Collision { file: PathBuf, name: String, kind: CollisionKind, second: Pos, first: Pos },
 
     /// a name two different `install`s both provide, and the file USES it.
-    /// Importing it by name (`import { x } from "..."`) picks one.
+    /// importing it by name (`import { x } from "..."`) picks one. pick wisely.
     AmbiguousInstall { file: PathBuf, name: String, first: (Pos, String), second: (Pos, String) },
 }
 
-/// what the two colliding things are — decides the wording, since
+/// what the two colliding things are. decides the wording, since
 /// "'x' conflicts with a local declaration" is only true when one side
-/// really is a local declaration
+/// really is a local declaration. honesty in error messages.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CollisionKind {
     /// `function a` declared twice (or a `let a` next to a `function a`)
@@ -79,9 +79,9 @@ pub enum CollisionKind {
     /// the same name imported twice (from the same or different modules)
     ImportVsImport,
     /// `export { a } from ...` next to a `export function a` in the same
-    /// file: two different things would both be importable as `a`
+    /// file. two different things would both be importable as `a`
     ReExportVsLocal,
-    /// the same name re-exported twice
+    /// the same name re-exported twice. again. stop it.
     ReExportVsReExport,
 }
 
@@ -160,7 +160,7 @@ impl fmt::Display for ModuleError {
                 };
                 // `import { a, a }`: both sides are the same statement, so
                 // "first imported here -> the line we already pointed at"
-                // would say nothing. Say what actually happened instead.
+                // would say nothing. say what actually happened instead.
                 let same_line = second.line == first.line;
                 let also = match kind {
                     CollisionKind::LocalVsLocal => "is first declared here",
@@ -191,7 +191,7 @@ impl fmt::Display for ModuleError {
 impl std::error::Error for ModuleError {}
 
 /// a module error boiled down to what an editor needs: which file, where
-/// (1-based line/column, as everywhere else in the compiler) and a message
+/// (1-based line/column, like everywhere else in the compiler) and a message
 /// without the "(in 'file' at line X, column Y)" tail the CLI text carries
 #[derive(Debug, Clone)]
 pub struct Located {
@@ -273,7 +273,7 @@ fn strip_pos(msg: &str) -> String {
 }
 
 impl ModuleError {
-    /// the same fact in the friendly tone (`#> friendly-terminal`)
+    /// the same fact, friendly tone (`#> friendly-terminal`). the nice version.
     pub fn friendly(&self) -> String {
         match self {
             ModuleError::Lex { path, error, .. } => error.friendly(&friendly(path)),

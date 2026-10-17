@@ -1,4 +1,4 @@
-//! A small, strict JSON reader/writer. Just enough for LSP messages.
+//! a small, strict JSON reader/writer. just enough for LSP messages. no frills.
 
 use std::fmt;
 
@@ -9,7 +9,7 @@ pub enum Json {
     Num(f64),
     Str(String),
     Arr(Vec<Json>),
-    /// insertion-ordered, so output is deterministic
+    /// insertion-ordered, so output is deterministic. no surprises.
     Obj(Vec<(String, Json)>),
 }
 
@@ -271,7 +271,7 @@ impl<'a> Parser<'a> {
                         b'u' => {
                             let hi = self.hex4()?;
                             if (0xD800..0xDC00).contains(&hi) {
-                                // high surrogate: needs a following \uDC00..DFFF
+                                // high surrogate: needs a following \uDC00..DFFF. utf-16, we meet again.
                                 if self.s[self.i..].starts_with(b"\\u") {
                                     self.i += 2;
                                     let lo = self.hex4()?;
@@ -325,7 +325,7 @@ mod tests {
     fn unicode_and_surrogates() {
         let v = Json::parse(r#""olá \u00e7 \ud83d\ude00 —""#).unwrap();
         assert_eq!(v.as_str().unwrap(), "olá ç 😀 —");
-        // writer keeps real chars, escapes only controls
+        // writer keeps real chars, escapes only controls. dignified.
         assert_eq!(Json::str("ç\u{1}").to_string(), "\"ç\\u0001\"");
     }
 

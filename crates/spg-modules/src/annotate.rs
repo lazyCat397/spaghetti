@@ -1,25 +1,25 @@
-//! Stamps every `Pos` in a freshly-parsed module with the file it came
-//! from, before that module's statements are merged into the program.
+//! stamps every `Pos` in a freshly-parsed module with the file it came
+//! from, before that module's statements get merged into the program.
 //!
-//! The parser never sets `Pos.file` — it only sees a token stream, not a
-//! filename — so every position starts life as `file: None`. That's
-//! exactly right for a single-file program (no filename is ever needed,
-//! so no diagnostic ever prints one). It stops being right once several
-//! files are merged into one `Program`: a `Pos` with only a line/column
-//! is ambiguous the moment it could belong to any of them. This module
+//! the parser never sets `Pos.file`. it only sees tokens, not a
+//! filename, so every position starts life as `file: None`. that's
+//! exactly right for a single-file program (no filename needed,
+//! so no diagnostic ever prints one). it stops being right once several
+//! files are merged into one `Program`. a `Pos` with only a line/column
+//! is ambiguous the moment it could belong to any of them. this module
 //! is the one place that resolves that ambiguity, once, right after each
-//! module is parsed.
+//! module gets parsed.
 //!
-//! The walk mirrors `rename.rs`'s on purpose — same tree, same shape —
-//! but the two stay separate modules: renaming rewrites NAMES and only
-//! touches a handful of `Expr`/`Stmt` fields that hold one, so it never
-//! had to (and still doesn't) look at `pos` at all; this walks EVERY
-//! node for its `pos` and nothing else. Folding one into the other would
-//! make each harder to follow for no shared logic gained.
+//! the walk mirrors `rename.rs` on purpose. same tree, same shape,
+//! but they stay separate: renaming rewrites NAMES and only
+//! touches a few `Expr`/`Stmt` fields that hold one, so it never
+//! had to (and still doesn't) look at `pos`. this walks EVERY
+//! node for its `pos` and nothing else. folding one into the other would
+//! make both harder to read, for no shared logic. no merge, thanks.
 
 use spg_parser::ast::{Block, Expr, Param, Pos, Stmt, TypeExpr};
 
-/// Stamps `file` onto every `Pos` reachable from `stmts`.
+/// stamps `file` onto every `Pos` reachable from `stmts`.
 pub fn annotate_file(stmts: &mut [Stmt], file: &str) {
     for stmt in stmts {
         annotate_stmt(stmt, file);
@@ -38,10 +38,10 @@ fn annotate_block(block: &mut Block, file: &str) {
 }
 
 fn annotate_type(ty: &mut TypeExpr, _file: &str) {
-    // TypeExpr carries no Pos of its own (see ast.rs) — nothing to stamp.
-    // Kept as a function anyway so a future field addition to TypeExpr
-    // has an obvious place to be wired in, the same way `rename_type`
-    // does for names.
+    // TypeExpr carries no Pos of its own (see ast.rs). nothing to stamp.
+    // kept as a function anyway, so a future field in TypeExpr
+    // has an obvious place to be wired in, same as `rename_type`
+    // does for names. consistency, again.
     let _ = ty;
 }
 
@@ -146,7 +146,7 @@ fn annotate_stmt(stmt: &mut Stmt, file: &str) {
         Stmt::EnumDecl { pos, .. } => stamp(pos, file),
 
         // consumed by spg-modules before this walk ever gets to the
-        // typechecker/compiler, but annotated anyway in case a future
+        // typechecker/compiler, but annotated anyway, in case a future
         // error (e.g. resolving the `from` path) wants their own pos
         Stmt::Import { pos, .. } | Stmt::ReExport { pos, .. } | Stmt::Install { pos, .. } => stamp(pos, file),
 

@@ -1,9 +1,9 @@
-//! `spg build`: a standalone executable is the `spg` binary itself with the
-//! program's sources appended to it. At startup `read_own` looks for that
-//! payload at the very end of the running executable; when it is there, the
-//! program runs from the embedded sources and nothing is read from disk.
+//! `spg build`: a standalone executable is the `spg` binary itself, with the
+//! program's sources appended to it. at startup `read_own` looks for that
+//! payload at the very end of the running executable. when it's there, the
+//! program runs from the embedded sources and nothing gets read from disk.
 //!
-//! Layout appended to the executable:
+//! layout appended to the executable:
 //!
 //! ```text
 //! payload:  u32 file count, then per file: u32 path length, path bytes,
@@ -61,8 +61,8 @@ pub fn write(out: &Path, exe: &[u8], files: &[(PathBuf, String)]) -> std::io::Re
     Ok(())
 }
 
-/// the bundle this executable carries, if it is one. Any problem reading the
-/// executable simply means "not a bundle": the normal CLI then takes over.
+/// the bundle this executable carries, if it is one. any problem reading the
+/// executable just means "not a bundle". the normal CLI takes over.
 pub fn read_own() -> Option<Bundle> {
     let exe = std::env::current_exe().ok()?;
     let mut file = std::fs::File::open(exe).ok()?;

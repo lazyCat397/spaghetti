@@ -1,7 +1,7 @@
 //! spg-vm: bytecode format (`chunk`), runtime values (`value`), runtime
-//! errors (`error`), and the interpreter loop itself (`vm`).
+//! errors (`error`), and the interpreter loop itself (`vm`). the good stuff.
 //!
-//! Entry point: `Vm::new(&Program).run()`.
+//! entry point: `Vm::new(&Program).run()`. that's it. that's the whole crate.
 
 pub mod builtins;
 pub mod chunk;

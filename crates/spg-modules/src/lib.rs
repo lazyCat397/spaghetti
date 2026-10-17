@@ -1,18 +1,18 @@
 //! spg-modules: turns an entry `.spg` file and everything it imports
-//! into ONE merged `spg_parser::Program`.
+//! into ONE merged `spg_parser::Program`. one big file, eventually.
 //!
-//! Runs between the parser and the typechecker. That's the whole point
-//! of the design: after this crate, typecheck/compiler/VM see a single
-//! flat program and never need to know that several files existed.
+//! runs between the parser and the typechecker. that's the whole point
+//! of the design. after this crate, typecheck/compiler/VM see a single
+//! flat program and never need to know several files existed. blissful ignorance.
 //!
-//! How it stays collision-free: every top-level symbol of every module
+//! how it stays collision-free: every top-level symbol of every module
 //! except the entry file gets a mangled name (`<module path>::<name>`),
-//! and every use of it — in its own module or in an importer — is
-//! rewritten to match (see `rename`). The entry file keeps its names
-//! as-is, so single-file programs behave exactly as before and error
-//! messages about the user's own code stay readable.
+//! and every use of it (in its own module or in an importer) gets
+//! rewritten to match (see `rename`). the entry file keeps its names
+//! as-is, so single-file programs behave exactly as before, and error
+//! messages about the user's own code stay readable. for the user, not us.
 //!
-//! Fixed language decisions this implements:
+//! fixed language decisions this implements (no arguing):
 //! - only named imports: `import { a, b } from "./x.spg"`
 //! - an import cycle is always a fatal error, never "resolved"
 //! - the path must carry an explicit `.spg` extension
@@ -34,19 +34,19 @@ use rename::{NameMap, Renamer};
 
 /// what a module exposes to importers
 struct ModuleInfo {
-    /// every top-level symbol DECLARED in the module (exported or not —
+    /// every top-level symbol DECLARED in the module (exported or not.
     /// a non-exported one is still looked up, to say "not exported"
-    /// instead of "no such name")
+    /// instead of "no such name"). precise sadness.
     symbols: HashMap<String, Symbol>,
-    /// names re-exported with `export { x } from "./y.spg"`. Kept apart
+    /// names re-exported with `export { x } from "./y.spg"`. kept apart
     /// from `symbols` on purpose: a re-export is importable FROM this
-    /// module but is not a name INSIDE it, so it must never leak into
-    /// this module's own scope. The mangled name is the ORIGINAL
+    /// module, but it's not a name INSIDE it, so it must never leak into
+    /// this module's own scope. the mangled name is the ORIGINAL
     /// module's, so `a.dois` and `b.dois` (re-exported) are one symbol.
     reexports: HashMap<String, Symbol>,
-    /// names this module IMPORTED (not declared, not re-exported): only
+    /// names this module IMPORTED (not declared, not re-exported). only
     /// used to tell someone who asks for one of them that importing
-    /// doesn't re-export it — a much better hint than "no such name"
+    /// doesn't re-export it. a much better hint than "no such name"
     imported: HashMap<String, (spg_parser::ast::Pos, String)>,
 }
 
@@ -54,11 +54,11 @@ struct ModuleInfo {
 struct Symbol {
     mangled: String,
     exported: bool,
-    /// where this symbol was declared — the `note:` line of a collision
+    /// where this symbol was declared. the `note:` line of a collision
     pos: spg_parser::ast::Pos,
 }
 
-/// libraries written in Rust, enabled by `install <std: "name">` (no file is read)
+/// libraries written in Rust, enabled by `install <std: "name">` (no file gets read)
 const NATIVE_LIBS: [&str; 1] = ["powershell"];
 
 /// the declarations a native library needs in the program (the struct its calls return)
@@ -78,24 +78,24 @@ struct Resolver {
     natives: Vec<String>,
     /// canonical path -> already-resolved module
     loaded: HashMap<PathBuf, ModuleInfo>,
-    /// modules currently being resolved, outermost first — finding a
+    /// modules currently being resolved, outermost first. finding a
     /// path already in here means the import graph has a cycle
     in_progress: Vec<PathBuf>,
     /// merged output, in dependency order (a module's statements land
     /// before anything that imports it)
     merged: Vec<Stmt>,
-    /// the entry file's canonical path (its symbols are never mangled)
+    /// the entry file's canonical path (its symbols never get mangled)
     entry: PathBuf,
-    /// source text that takes priority over the disk, keyed by canonical
-    /// path — how an editor's unsaved buffers get analysed
+    /// source text that beats the disk, keyed by canonical
+    /// path. how an editor's unsaved buffers get analysed
     overlay: HashMap<PathBuf, String>,
-    /// every file read for this program, in load order, with its text — what
+    /// every file read for this program, in load order, with its text. what
     /// `spg build` embeds in the executable
     sources: Vec<(PathBuf, String)>,
 }
 
-/// Resolves `entry` and everything it transitively imports.
-/// Folder with the standard library. Order: the `SPG_STD` environment
+/// resolves `entry` and everything it transitively imports.
+/// folder with the standard library. order: the `SPG_STD` environment
 /// variable, then `stdlib/` next to the `spg` executable, then the same
 /// folder two levels up (running from the workspace's target/release).
 pub fn std_dir() -> Option<PathBuf> {
@@ -110,13 +110,13 @@ pub fn std_dir() -> Option<PathBuf> {
         .and_then(|p| p.canonicalize().ok())
 }
 
-/// Path of a standard module (`<std: "name">` -> `<std dir>/name.spg`),
-/// or a message saying where it was looked for.
+/// path of a standard module (`<std: "name">` -> `<std dir>/name.spg`),
+/// or a message saying where it was looked for. the search party report.
 pub fn standard_module(name: &str) -> Result<PathBuf, String> {
     let dir = std_dir().ok_or_else(|| {
         "standard library folder not found (set SPG_STD, or put a 'stdlib' folder next to spg)".to_string()
     })?;
-    // the name is written without the extension (`<std: "fork">`); `"fork.spg"` is accepted too
+    // the name is written without the extension (`<std: "fork">`). `"fork.spg"` works too
     let stem = name.strip_suffix(".spg").unwrap_or(name);
     let file = dir.join(format!("{stem}.spg"));
     if file.is_file() {
@@ -130,16 +130,16 @@ pub fn resolve(entry: &Path) -> Result<Program, ModuleError> {
     resolve_with(entry, &HashMap::new())
 }
 
-/// Same as `resolve`, but any file present in `overlay` (keyed by its
-/// canonical path, see `canon`) is read from there instead of the disk.
+/// same as `resolve`, but any file in `overlay` (keyed by its
+/// canonical path, see `canon`) gets read from there instead of the disk.
 pub fn resolve_with(entry: &Path, overlay: &HashMap<PathBuf, String>) -> Result<Program, ModuleError> {
     resolve_collect(entry, overlay).map(|(program, _)| program)
 }
 
-/// Same as `resolve_with`, and also returns every source file the program
-/// was built from (path and text, entry first). An overlay file does not need
-/// to exist on disk: the path is taken as-is, which is how a bundled program
-/// (`spg build`) runs from its embedded sources alone.
+/// same as `resolve_with`, and also returns every source file the program
+/// was built from (path and text, entry first). an overlay file doesn't need
+/// to exist on disk. the path is taken as-is, which is how a bundled program
+/// (`spg build`) runs from its embedded sources alone. self-contained, like a hermit.
 pub fn resolve_collect(
     entry: &Path,
     overlay: &HashMap<PathBuf, String>,
@@ -160,7 +160,7 @@ pub fn resolve_collect(
     Ok((Program { stmts, natives: r.natives }, r.sources))
 }
 
-/// `canonicalize`, except that a path present in the overlay is taken lexically
+/// `canonicalize`, except that a path in the overlay gets taken lexically
 /// (no disk access needed)
 fn canonicalize_in(path: &Path, overlay: &HashMap<PathBuf, String>) -> Result<PathBuf, ModuleError> {
     let lexical = lexical_normalize(path);
@@ -189,8 +189,8 @@ fn lexical_normalize(path: &Path) -> PathBuf {
 }
 
 /// `std::fs::canonicalize`, minus the `\\?\` verbatim prefix Windows adds
-/// (`\\?\C:\dir\a.spg` -> `C:\dir\a.spg`). Without this every path in a
-/// diagnostic would carry the prefix and never match the current dir.
+/// (`\\?\C:\dir\a.spg` -> `C:\dir\a.spg`). without this every path in a
+/// diagnostic would carry the prefix and never match the current dir. windows, sigh.
 pub fn canon(path: &Path) -> std::io::Result<PathBuf> {
     let p = std::fs::canonicalize(path)?;
     Ok(strip_verbatim(p))
@@ -234,8 +234,8 @@ fn read_and_parse(path: &Path, overlay: &HashMap<PathBuf, String>, is_entry: boo
 }
 
 impl Resolver {
-    /// Loads `path` (already canonical), resolving its imports first.
-    /// Idempotent: a second call for the same module is a no-op, which
+    /// loads `path` (already canonical), resolving its imports first.
+    /// idempotent: a second call for the same module is a no-op, which
     /// is what makes diamond imports load a shared module exactly once.
     fn load_module(&mut self, path: &Path) -> Result<(), ModuleError> {
         if self.loaded.contains_key(path) {
@@ -256,10 +256,10 @@ impl Resolver {
         let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
 
         // every Pos in this module gets stamped with the file it came
-        // from BEFORE renaming/merging — so any error from here on
+        // from BEFORE renaming/merging. so any error from here on
         // (collision, later a type error) can say which file it's in,
-        // even for the entry file (single-file programs still benefit:
-        // an error there now also names the file, not just line/col)
+        // even for the entry file (single-file programs benefit too:
+        // an error there now names the file too, not just line/col
         annotate::annotate_file(&mut program.stmts, &error::friendly(path));
 
         // 1) this module's own top-level symbols and their mangled names
@@ -283,8 +283,8 @@ impl Resolver {
         // 2) resolve every import / re-export: load the dependency, then
         // either bring its exported names into THIS module's scope
         // (import) or list them as importable from this module
-        // (re-export). Same validation for both — only the destination
-        // differs, which is the whole difference between the two.
+        // (re-export). same validation for both. only the destination
+        // differs, which is the whole difference between the two. tidy.
         let mut name_map: NameMap = symbols.iter().map(|(k, v)| (k.clone(), v.mangled.clone())).collect();
         let mut imported_here: HashMap<String, spg_parser::ast::Pos> = HashMap::new();
         // same names as `imported_here`, plus the path each came from
@@ -303,7 +303,7 @@ impl Resolver {
             for (name, sym) in resolved {
                 if is_reexport {
                     // importable from here, but not a name inside this
-                    // module. It may not clash with what this module
+                    // module. it may not clash with what this module
                     // itself exports, nor with another re-export.
                     if let Some(local) = symbols.get(&name).filter(|l| l.exported) {
                         return Err(ModuleError::Collision {
@@ -326,7 +326,7 @@ impl Resolver {
                     reexports.insert(name, Symbol { mangled: sym.mangled, exported: true, pos: pos.clone() });
                 } else {
                     // an import may not collide with the module's own
-                    // declarations or with another import of the same name
+                    // declarations, or with another import of the same name
                     if let Some(local) = symbols.get(&name) {
                         return Err(ModuleError::Collision {
                             file: path.to_path_buf(),
@@ -352,17 +352,17 @@ impl Resolver {
             }
         }
 
-        // 2b) `install`: every export of the file, at the LOWEST priority —
+        // 2b) `install`: every export of the file, at the LOWEST priority.
         // a name this file declares, or imports by name, is never replaced
-        // (so a new export in the library can't break its installers). Two
+        // (so a new export in the library can't break its installers). two
         // installs giving one name different meanings is only an error if
-        // the name is USED (found while renaming, below).
+        // the name is USED (found while renaming, below). unused = fine.
         let mut installs_native = false;
         let mut installed: HashMap<String, (String, spg_parser::ast::Pos, String)> = HashMap::new();
         let mut ambiguous: HashMap<String, ((spg_parser::ast::Pos, String), (spg_parser::ast::Pos, String))> = HashMap::new();
         for stmt in &program.stmts {
             let Stmt::Install { from, pos, std } = stmt else { continue };
-            // native libraries live in the engine, not in stdlib/: installing one enables it
+            // native libraries live in the engine, not in stdlib/. installing one enables it
             if *std && NATIVE_LIBS.contains(&from.as_str()) {
                 if !self.natives.contains(from) {
                     self.natives.push(from.clone());
@@ -370,7 +370,7 @@ impl Resolver {
                 installs_native = true;
                 continue;
             }
-            // `install <std: "name">` points at the standard library folder;
+            // `install <std: "name">` points at the standard library folder.
             // `install "path"` is a path relative to this file, as before
             let target = if *std {
                 let file = standard_module(from).map_err(|message| ModuleError::Io {
@@ -386,7 +386,7 @@ impl Resolver {
                     continue;
                 }
                 match installed.get(&name) {
-                    // the same declaration reached twice (e.g. through a re-export)
+                    // the same declaration reached twice (e.g. through a re-export). déjà vu.
                     Some((mangled, ..)) if *mangled == sym.mangled => {}
                     Some((_, first_pos, first_from)) => {
                         ambiguous
@@ -405,16 +405,16 @@ impl Resolver {
             }
         }
 
-        // a native namespace belongs to the file that installed it: inside that file
-        // `ps` is renamed to a name a program cannot spell (`ps#powershell`), so files
-        // that did not install it never see it. Variables named `ps` there follow the rename.
+        // a native namespace belongs to the file that installed it. inside that file
+        // `ps` is renamed to a name a program can't spell (`ps#powershell`), so files
+        // that didn't install it never see it. variables named `ps` there follow the rename.
         if installs_native {
             let map: rename::NameMap = [("ps".to_string(), "ps#powershell".to_string())].into_iter().collect();
             rename::Renamer::new(&map).rename_program(&mut program.stmts);
         }
 
         // 3) rewrite every declaration and use to the mangled names, drop
-        // the (now consumed) import statements, and append to the output
+        // the (now eaten) import statements, and append to the output
         let mut renamer = Renamer::new(&name_map).with_ambiguous(ambiguous.keys().cloned().collect());
         renamer.rename_program(&mut program.stmts);
         if let Some(name) = renamer.used_ambiguous().into_iter().next() {
@@ -431,12 +431,12 @@ impl Resolver {
 }
 
 impl Resolver {
-    /// Loads `from` (relative to the file that mentions it) and looks up
-    /// every requested name in what that module exposes to importers —
-    /// its exported declarations plus whatever it re-exports. Returns the
+    /// loads `from` (relative to the file that mentions it) and looks up
+    /// every requested name in what that module exposes to importers.
+    /// its exported declarations plus whatever it re-exports. returns the
     /// `(name, symbol)` pairs, or the first thing wrong with the request.
-    /// Shared by `import` and `export ... from`: both ask the same
-    /// question of the dependency.
+    /// shared by `import` and `export ... from`. both ask the same
+    /// question of the dependency. nosy little resolver.
     fn resolve_names(
         &mut self,
         importer: &Path,
@@ -467,7 +467,7 @@ impl Resolver {
         Ok(out)
     }
 
-    /// checks the path, finds the file relative to the IMPORTING file and loads it
+    /// checks the path, finds the file relative to the IMPORTING file, and loads it
     fn load_dep(
         &mut self,
         importer: &Path,
@@ -484,8 +484,8 @@ impl Resolver {
         }
 
         // the path is relative to the IMPORTING file, not the cwd.
-        // A missing file is reported with the path as the user wrote
-        // it (not the half-joined `/dir/./x.spg` the join produces).
+        // a missing file is reported with the path as the user wrote it
+        // (not the half-joined `/dir/./x.spg` the join produces). honest paths.
         let dep_path = canonicalize_in(&dir.join(from), &self.overlay).map_err(|e| ModuleError::Io {
             path: PathBuf::from(from),
             message: format!(
@@ -511,15 +511,15 @@ impl Resolver {
         let mut out = Vec::with_capacity(names.len());
         for name in names {
             // a re-exported name is exactly as importable as a declared
-            // one; declared-but-not-exported gets its own error below
+            // one. declared-but-not-exported gets its own error below
             if let Some(sym) = dep.reexports.get(name) {
                 out.push((name.clone(), sym.clone()));
                 continue;
             }
             let Some(sym) = dep.symbols.get(name) else {
                 // it's in that module's scope only because it imported it
-                // — say so, since "no declaration" would send the user
-                // looking at a file where the name plainly appears
+                // say so, since "no declaration" would send the user
+                // looking at a file where the name plainly appears. ugh, yes.
                 if let Some((at, origin)) = dep.imported.get(name) {
                     return Err(ModuleError::ImportedNotReExported {
                         importer: importer.to_path_buf(),
@@ -552,7 +552,7 @@ impl Resolver {
 }
 
 /// `(name, exported, pos)` for a statement that declares a module-level
-/// symbol; `None` for everything else
+/// symbol. `None` for everything else
 fn declared_symbol(stmt: &Stmt) -> Option<(String, bool, &spg_parser::ast::Pos)> {
     match stmt {
         Stmt::FunctionDecl { name, exported, pos, .. } => Some((name.clone(), *exported, pos)),
@@ -564,16 +564,16 @@ fn declared_symbol(stmt: &Stmt) -> Option<(String, bool, &spg_parser::ast::Pos)>
     }
 }
 
-/// `<file stem>::<name>` — readable in error messages. The stem alone
+/// `<file stem>::<name>`. readable in error messages. the stem alone
 /// isn't unique (`a/util.spg` vs `b/util.spg`), so the path's own hash
-/// is appended as a tiebreaker.
+/// is appended as a tiebreaker. a hash for the drama.
 fn mangle(path: &Path, name: &str) -> String {
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("module");
     format!("{}#{:x}{}{}", stem, short_hash(path), spg_parser::ast::MANGLE_SEP, name)
 }
 
 fn short_hash(path: &Path) -> u32 {
-    // FNV-1a over the path bytes — stable across runs (unlike the
+    // FNV-1a over the path bytes. stable across runs (unlike the
     // std HashMap hasher), so mangled names don't change run to run
     let mut h: u32 = 0x811c9dc5;
     for b in path.to_string_lossy().as_bytes() {

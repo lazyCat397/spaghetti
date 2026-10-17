@@ -1,6 +1,6 @@
 //! `file://` URI <-> filesystem path, including the Windows shapes VSCode
-//! sends (`file:///c%3A/dir/a.spg`). Pure string work, so the Windows
-//! cases are unit-tested on any OS.
+//! sends (`file:///c%3A/dir/a.spg`). pure string work, so the Windows
+//! cases are unit-tested on any OS. thanks, tests.
 
 use std::path::{Path, PathBuf};
 
@@ -25,7 +25,7 @@ pub fn path_to_uri(path: &Path) -> String {
     let s = path.to_string_lossy().replace('\\', "/");
     let b = s.as_bytes();
     if b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
-        // VSCode writes the drive lowercase with an encoded colon
+        // VSCode writes the drive lowercase with an encoded colon. of course it does.
         let drive = (b[0] as char).to_ascii_lowercase();
         format!("file:///{}%3A{}", drive, percent_encode(&s[2..]))
     } else if s.starts_with('/') {

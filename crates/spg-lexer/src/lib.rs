@@ -4,11 +4,11 @@ pub mod token;
 pub use lexer::{read_file_spec, FileSpec, LexError, Lexer, DIRECTIVES};
 pub use token::{Token, TokenKind};
 
-/// builtin namespaces. In source they always carry a leading `@`
-/// (`@math.sqrt`, `@str.len`, ...); the names below are WITHOUT the `@`.
-/// Because `@` can never be part of an identifier, a namespace can never
-/// collide with anything the user declares: `struct @math {}` is a lex-level
-/// namespace token in a name position, reported as a reserved-name error.
+/// builtin namespaces. in source they always carry a leading `@`
+/// (`@math.sqrt`, `@str.len`, ...). the names below are WITHOUT the `@`.
+/// because `@` can never be part of an identifier, a namespace can never
+/// collide with anything the user declares. `struct @math {}` is a lex-level
+/// namespace token in a name position, reported as a reserved-name error. don't.
 pub const NAMESPACES: [&str; 9] = ["str", "array", "map", "into", "math", "time", "file", "sys", "json"];
 
 pub fn is_namespace(name: &str) -> bool {

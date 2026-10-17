@@ -1,22 +1,22 @@
-//! Spaghetti's AST.
+//! Spaghetti's AST. the family tree.
 //!
-//! `Expr` always produces a value; `Stmt` usually doesn't. `if` exists as
-//! an `Expr` variant too — when used in statement position the parser
-//! just wraps it in `Stmt::ExprStmt`, but the "else is mandatory, both
-//! branches share a type" rule only applies when `if` is in expression
-//! position (e.g. the right side of a `let`); the typechecker enforces
-//! that.
+//! `Expr` always produces a value. `Stmt` usually doesn't. `if` exists as
+//! an `Expr` variant too. in statement position the parser
+//! just wraps it in `Stmt::ExprStmt`. but the "else is mandatory, both
+//! branches share a type" rule only applies in expression
+//! position (e.g. the right side of a `let`). the typechecker enforces
+//! that. yes, it's strict.
 
-/// Separator between a module's unique tag and a symbol's own name in a
-/// mangled name (`<tag>::<name>`). Identifiers can only contain letters,
-/// digits and `_`, so this can never occur in a name the user wrote —
-/// which is what makes `display_name` unambiguous without any lookup
-/// table. The module resolver builds mangled names with it; diagnostics
-/// undo it. Keeping both halves next to each other is the point.
+/// separator between a module's unique tag and a symbol's own name in a
+/// mangled name (`<tag>::<name>`). identifiers can only contain letters,
+/// digits and `_`, so this can never show up in a name the user wrote.
+/// that's what makes `display_name` unambiguous, no lookup needed.
+/// table. the module resolver builds mangled names with it. diagnostics
+/// undo it. keeping both halves next to each other is the whole point.
 pub const MANGLE_SEP: &str = "::";
 
-/// What the user actually wrote: strips the module tag from a mangled
-/// name (`errmod#c29b::Ponto` -> `Ponto`), leaves ordinary names alone.
+/// what the user actually wrote: strips the module tag from a mangled
+/// name (`errmod#c29b::Ponto` -> `Ponto`). ordinary names: left alone.
 pub fn display_name(name: &str) -> &str {
     match name.rfind(MANGLE_SEP) {
         Some(i) => &name[i + MANGLE_SEP.len()..],
@@ -28,16 +28,16 @@ pub fn display_name(name: &str) -> &str {
 pub struct Pos {
     pub line: usize,
     pub col: usize,
-    /// which file this position is in. The parser itself never sets
-    /// this — it only sees a token stream, not a filename — so every
-    /// `Pos` starts out `None`. spg-modules (the only thing that ever
-    /// runs a parser in this codebase) stamps every `Pos` with its
+    /// which file this position is in. the parser itself never sets
+    /// this (it only sees tokens, not filenames), so every
+    /// `Pos` starts out `None`. spg-modules (the only thing that runs
+    /// a parser in this codebase) stamps every `Pos` with its
     /// file right after parsing, single-file programs included, so in
-    /// practice this is always `Some` by the time anything reads it.
+    /// practice it's always `Some` by the time anything reads it.
     pub file: Option<String>,
 }
 
-// type annotations — `int`, `array<int>`, a custom struct name, etc.
+// type annotations: `int`, `array<int>`, a custom struct name, etc.
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeExpr {
@@ -47,17 +47,17 @@ pub enum TypeExpr {
     String,
     Void,
     Array(Box<TypeExpr>),
-    /// `map<K, V>` — `map` is only a type name when followed by `<` (contextual,
-    /// so a variable called `map` keeps working)
+    /// `map<K, V>`. `map` is only a type name when followed by `<` (contextual,
+    /// so a variable called `map` keeps working. nice of it.
     Map(Box<TypeExpr>, Box<TypeExpr>),
     Named(String), // a user-defined struct
     /// `function(int, string) -> bool`: the type of a function value
     Function { params: Vec<TypeExpr>, ret: Box<TypeExpr> },
-    /// `T?`: a value of type T, or `none`
+    /// `T?`: a value of type T, or `none`. the question mark again.
     Optional(Box<TypeExpr>),
 }
 
-// expressions — always produce a value
+// expressions. always produce a value
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
@@ -68,7 +68,7 @@ pub enum Expr {
     /// `none`: the absent value of an optional type
     NoneLit(Pos),
     ArrayLit(Vec<Expr>, Pos),
-    /// `["a": 1, "b": 2]`, and `[:]` for the empty map (no entries)
+    /// `["a": 1, "b": 2]`, and `[:]` for the empty map (no entries). lonely map.
     MapLit(Vec<(Expr, Expr)>, Pos),
 
     Ident(String, Pos),
@@ -92,25 +92,25 @@ pub enum Expr {
         pos: Pos,
     },
 
-    /// `arr[index]` — reading an element out of an array
+    /// `arr[index]`: reading an element out of an array
     Index {
         array: Box<Expr>,
         index: Box<Expr>,
         pos: Pos,
     },
 
-    /// `Name { field: value, ... }` — constructs a struct value. Only
+    /// `Name { field: value, ... }`: builds a struct value. only
     /// parsed in "struct-literal-allowed" position (see the parser's
-    /// `no_struct_literal` flag) — in an `if`/`while` condition or a
-    /// `for .. in` iterable, `Name {` would otherwise be ambiguous with
-    /// the following block's opening brace.
+    /// `no_struct_literal` flag). in an `if`/`while` condition or a
+    /// `for .. in` iterable, `Name {` would be ambiguous with
+    /// the following block's opening brace. the classic trap.
     StructLit {
         name: String,
         fields: Vec<(String, Expr)>,
         pos: Pos,
     },
 
-    /// `obj.field` — reading a struct field
+    /// `obj.field`: reading a struct field
     Field {
         object: Box<Expr>,
         field: String,
@@ -119,7 +119,7 @@ pub enum Expr {
 
     /// `if` as an EXPRESSION: `else` is required here (checked by the
     /// parser itself, not just the typechecker), and both branches must
-    /// agree on type — that part the typechecker validates.
+    /// agree on type. that part the typechecker validates.
     IfExpr {
         cond: Box<Expr>,
         then_branch: Box<Block>,
@@ -127,7 +127,7 @@ pub enum Expr {
         pos: Pos,
     },
     /// `function(x: int) -> int { ... }` in expression position: an anonymous
-    /// function value. Without `-> T` the return type is void
+    /// function value. without `-> T` the return type is void
     Lambda {
         params: Vec<Param>,
         return_type: Option<TypeExpr>,
@@ -152,7 +152,7 @@ pub enum BinaryOp {
     GtEq,
     And,
     Or,
-    /// `a ?? b`: `a` unless it is `none`, else `b` (the checker turns it into its own node)
+    /// `a ?? b`: `a` unless it's `none`, else `b` (the checker makes it its own node)
     Coalesce,
 }
 
@@ -162,7 +162,7 @@ pub enum UnaryOp {
     Not,
 }
 
-// statements — control flow and declarations, no value produced
+// statements. control flow and declarations, no value produced
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Block {
@@ -170,8 +170,8 @@ pub struct Block {
     pub pos: Pos,
 }
 
-/// The value of an enum variant (`enum Status { Ok = 200 }`): a literal of one
-/// of the four plain types. Every variant of one enum has the same kind.
+/// the value of an enum variant (`enum Status { Ok = 200 }`): a literal of one
+/// of the four plain types. every variant of one enum has the same kind.
 #[derive(Debug, Clone, PartialEq)]
 pub enum EnumValue {
     Int(i64),
@@ -194,7 +194,7 @@ impl EnumValue {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
-    /// `let x = 10` or `let x: int = 10` — type_ann is None when inferred
+    /// `let x = 10` or `let x: int = 10`. type_ann is None when inferred
     Let {
         name: String,
         type_ann: Option<TypeExpr>,
@@ -203,7 +203,7 @@ pub enum Stmt {
         pos: Pos,
     },
 
-    /// `const name: string = "spaghetti"`
+    /// `const name: string = "spaghetti"`. the immovable one.
     Const {
         name: String,
         type_ann: Option<TypeExpr>,
@@ -213,7 +213,7 @@ pub enum Stmt {
     },
 
     /// `when (subject) { 1, 2 { } 3 { } else { } }`: a match on an int, a string
-    /// or an enum. Lowered by the checker to an if/elif chain on a hidden local.
+    /// or an enum. lowered by the checker to an if/elif chain on a hidden local.
     Match {
         subject: Expr,
         arms: Vec<MatchArm>,
@@ -221,7 +221,7 @@ pub enum Stmt {
         pos: Pos,
     },
 
-    /// `if` as a plain STATEMENT — else is optional here, unlike IfExpr
+    /// `if` as a plain STATEMENT. else is optional here, unlike IfExpr
     IfStmt {
         cond: Expr,
         then_branch: Block,
@@ -242,10 +242,10 @@ pub enum Stmt {
         pos: Pos,
     },
 
-    /// `for i in 1..4 { }` / `for i in 0..10 step 2 { }` — counts without
-    /// building an array. End is EXCLUSIVE (like Python's `range`); a
+    /// `for i in 1..4 { }` / `for i in 0..10 step 2 { }`. counts without
+    /// building an array. end is EXCLUSIVE (like Python's `range`). a
     /// negative step counts down. `step` is a contextual word, not a
-    /// keyword: it is only read right after the end expression.
+    /// keyword. it's only read right after the end expression.
     ForRange {
         var_name: String,
         start: Expr,
@@ -260,16 +260,16 @@ pub enum Stmt {
         pos: Pos,
     },
 
-    /// `break` — exits the nearest enclosing while/for-in loop.
-    /// Rejected by the typechecker outside of a loop.
+    /// `break`: exits the nearest enclosing while/for-in loop.
+    /// rejected by the typechecker outside of a loop.
     Break { pos: Pos },
 
-    /// `continue` — skips to the next iteration of the nearest
-    /// enclosing loop. Rejected outside of a loop, same as `break`.
+    /// `continue`: skips to the next iteration of the nearest
+    /// enclosing loop. rejected outside a loop, same as `break`.
     Continue { pos: Pos },
 
-    /// `throw "message"` — raises an exception carrying a string; the nearest
-    /// enclosing `try`/`catch` (in this function or any caller) catches it
+    /// `throw "message"`: raises an exception carrying a string. the nearest
+    /// enclosing `try`/`catch` (this function or any caller) catches it.
     Throw { value: Expr, pos: Pos },
 
     Try {
@@ -283,9 +283,9 @@ pub enum Stmt {
     FunctionDecl {
         name: String,
         params: Vec<Param>,
-        /// `None` when the trailing `-> Type` was omitted — the
+        /// `None` when the trailing `-> Type` was omitted. the
         /// typechecker infers it from the body's return statements
-        /// instead of requiring it up front.
+        /// instead of demanding it up front. chill.
         return_type: Option<TypeExpr>,
         body: Block,
         exported: bool, // true if preceded by `export`
@@ -299,16 +299,16 @@ pub enum Stmt {
         pos: Pos,
     },
 
-    /// `enum Color { Red, Green, Blue }` — a closed set of named options.
-    /// A distinct type (not an `int`): only `==` / `!=` apply to it. Each
-    /// variant carries its own position so a duplicate can be reported
-    /// where it was written.
+    /// `enum Color { Red, Green, Blue }`: a closed set of named options.
+    /// a distinct type (not an `int`). only `==` / `!=` apply to it. each
+    /// variant carries its own position, so a duplicate can be reported
+    /// where it was written. shame.
     EnumDecl {
         name: String,
         variants: Vec<String>,
-        /// one resolved value per variant, same order as `variants`. The parser
+        /// one resolved value per variant, same order as `variants`. the parser
         /// fills in the automatic numbering (0, 1, 2...), so everything after it
-        /// sees a value for every variant. All of them share one type.
+        /// sees a value for every variant. all of them share one type.
         values: Vec<EnumValue>,
         exported: bool,
         pos: Pos,
@@ -320,8 +320,8 @@ pub enum Stmt {
         pos: Pos,
     },
 
-    /// `install "./file.spg"` — brings in EVERY exported name of that file,
-    /// without listing them. Consumed by spg-modules, like `Import`.
+    /// `install "./file.spg"`: brings in EVERY exported name of that file,
+    /// without listing them. consumed by spg-modules, like `Import`.
     Install {
         from: String,
         pos: Pos,
@@ -330,12 +330,12 @@ pub enum Stmt {
         std: bool,
     },
 
-    /// `export { a, b } from "./y.spg"` — makes names that live in
+    /// `export { a, b } from "./y.spg"`: makes names that live in
     /// another module importable FROM THIS ONE, without declaring
-    /// anything here. Deliberately not the same as `Import`: an import
-    /// only brings a name into this file's own scope, and never makes it
-    /// importable onward. Consumed by spg-modules (like `Import`), so it
-    /// never reaches the typechecker or compiler.
+    /// anything here. deliberately not the same as `Import`: an import
+    /// only brings a name into this file's own scope, never makes it
+    /// importable onward. consumed by spg-modules (like `Import`), so it
+    /// never reaches the typechecker or compiler. go away, typechecker.
     ReExport {
         names: Vec<String>,
         from: String,
@@ -343,20 +343,20 @@ pub enum Stmt {
     },
 
 
-    /// `x = value` — reassigns an already-declared `let`. Distinct from
+    /// `x = value`: reassigns an already-declared `let`. distinct from
     /// `Let`/`Const`: nothing new is declared, just an existing slot
-    /// updated. Checking that the target isn't `const` is the
-    /// typechecker's job — the parser doesn't track mutability.
+    /// updated. checking that the target isn't `const` is the
+    /// typechecker's job. the parser doesn't track mutability.
     Assign {
         name: String,
         value: Expr,
         pos: Pos,
     },
 
-    /// `arr[index] = value` — mutates an existing array element in
-    /// place. Kept distinct from `Assign` (whole-variable rebind)
+    /// `arr[index] = value`: mutates an existing array element in
+    /// place. kept distinct from `Assign` (whole-variable rebind)
     /// rather than generalizing `Assign`'s target, since the two compile
-    /// to entirely different opcodes (SetLocal vs IndexSet) and only
+    /// to totally different opcodes (SetLocal vs IndexSet), and only
     /// array element assignment needs an index expression at all.
     IndexAssign {
         array: Expr,
@@ -365,13 +365,13 @@ pub enum Stmt {
         pos: Pos,
     },
 
-    /// `arr[index] OP= rhs` (+=, -=, *=, /=). Kept as its own node
+    /// `arr[index] OP= rhs` (+=, -=, *=, /=). kept as its own node
     /// instead of desugaring to `arr[index] = arr[index] OP rhs` in the
-    /// parser: that desugaring would duplicate the `array`/`index`
-    /// subexpressions, so anything with a side effect inside the index
-    /// (e.g. `arr[next()] += 1`) would run twice. This node carries
-    /// `array`/`index` exactly once; spg-compiler evaluates each a
-    /// single time and reuses them for both the read and the write.
+    /// parser. that desugaring would duplicate the `array`/`index`
+    /// subexpressions, so anything with a side effect in the index
+    /// (e.g. `arr[next()] += 1`) would run twice. this node carries
+    /// `array`/`index` exactly once. spg-compiler evaluates each one
+    /// a single time and reuses them for the read and the write. efficient.
     IndexCompoundAssign {
         array: Expr,
         index: Expr,
@@ -380,10 +380,10 @@ pub enum Stmt {
         pos: Pos,
     },
 
-    /// `obj.field = value` — mutates an existing struct field in place.
-    /// Same shape and same reasoning as `IndexAssign`, field name instead
-    /// of an index expression (so nothing to duplicate/evaluate-once
-    /// worry about — a field name isn't an expression).
+    /// `obj.field = value`: mutates an existing struct field in place.
+    /// same shape and reasoning as `IndexAssign`, field name instead
+    /// of an index expression (so nothing to duplicate or evaluate-once
+    /// worry about. a field name isn't an expression.
     FieldAssign {
         object: Expr,
         field: String,
@@ -391,11 +391,11 @@ pub enum Stmt {
         pos: Pos,
     },
 
-    /// `obj.field OP= rhs` — same relationship to FieldAssign that
+    /// `obj.field OP= rhs`: same relationship to FieldAssign that
     /// IndexCompoundAssign has to IndexAssign, minus the "evaluate once"
-    /// concern (a field name has nothing to re-evaluate), kept as its
-    /// own node anyway so spg-compiler's dispatch mirrors the index case
-    /// exactly and object is still only compiled once.
+    /// concern (a field name has nothing to re-evaluate). kept as its
+    /// own node anyway, so spg-compiler's dispatch mirrors the index case
+    /// exactly, and object still gets compiled only once.
     FieldCompoundAssign {
         object: Expr,
         field: String,
@@ -405,7 +405,7 @@ pub enum Stmt {
     },
 
     /// an expression used as a statement (a bare function call, or an
-    /// if-expression whose value is discarded)
+    /// if-expression whose value gets thrown away)
     ExprStmt(Expr),
 }
 
@@ -413,9 +413,9 @@ pub enum Stmt {
 pub struct Param {
     pub name: String,
     pub type_ann: TypeExpr, // always required in a signature/field
-    /// `n: int = 10`: a literal used when the caller leaves this argument out.
-    /// Only literals (`10`, `-1.5`, `"x"`, `true`), so the value needs no scope
-    /// of its own. Only named functions and methods may have one.
+    /// `n: int = 10`: a literal used when the caller leaves this arg out.
+    /// only literals (`10`, `-1.5`, `"x"`, `true`), so the value needs no scope
+    /// of its own. only named functions and methods may have one.
     pub default: Option<Expr>,
 }
 

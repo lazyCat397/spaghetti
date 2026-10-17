@@ -1,19 +1,19 @@
-//! Walks `TypedProgram` (already fully typed — no type errors possible
+//! walks `TypedProgram` (already fully typed. no type errors possible
 //! at this stage) and emits bytecode for spg-vm.
 //!
-//! Two passes, mirroring spg-typecheck's own approach:
+//! two passes, like spg-typecheck's own approach:
 //! 1. collect every function's name -> chunk index, so forward calls
-//!    (fn A calls fn B declared below it) resolve correctly, exactly
-//!    like `collect_function_signatures` in the checker.
-//! 2. compile each function body into its own Chunk; top-level
-//!    statements (anything not inside a FunctionDecl) go into `main`.
+//!    (fn A calls fn B declared below it) resolve, exactly
+//!    like `collect_function_signatures` in the checker. copy the homework.
+//! 2. compile each function body into its own Chunk. top-level
+//!    statements (anything not in a FunctionDecl) go into `main`.
 //!
-//! Locals are resolved to numeric slots via a scope stack of
-//! `HashMap<String, usize>` per active block, the same block-scoping
-//! model the checker uses (own block + nested blocks see the variable).
-//! `And`/`Or` compile to short-circuiting jumps rather than an eager
-//! bytecode op, since a naive AddOp-style opcode would evaluate both
-//! sides even when the left side already decides the result.
+//! locals become numeric slots, via a scope stack of
+//! `HashMap<String, usize>` per active block. same block scoping
+//! the checker uses (own block + nested blocks see the variable).
+//! `And`/`Or` compile to short-circuiting jumps, not an eager
+//! bytecode op. a naive AddOp-style opcode would evaluate both
+//! sides even when the left one already decides. wasteful, so no.
 
 use std::collections::HashMap;
 
@@ -24,17 +24,17 @@ use spg_vm::value::Value;
 
 use crate::error::CompileError;
 
-/// Compiles with the superinstruction pass enabled (what every normal run uses).
+/// compiles with the superinstruction pass on (what every normal run uses).
 pub fn compile(program: TypedProgram) -> Result<Program, CompileError> {
     compile_with(program, true)
 }
 
-/// `optimize == false` skips the peephole pass entirely (`spg --no-opt`): the
-/// plain one-op-per-operation bytecode, useful to debug the optimizer and as
-/// the reference its output must match.
+/// `optimize == false` skips the peephole pass entirely (`spg --no-opt`). the
+/// plain one-op-per-operation bytecode. useful to debug the optimizer, and as
+/// the reference its output must match. the honest version.
 pub fn compile_with(program: TypedProgram, optimize: bool) -> Result<Program, CompileError> {
     // pass 1: register every top-level function under a stable index
-    // ordering matches declaration order, same as the checker's table
+    // ordering matches declaration order, like the checker's table
     let mut function_names: Vec<String> = Vec::new();
     for stmt in &program.stmts {
         if let TypedStmt::FunctionDecl { name, .. } = stmt {
@@ -45,9 +45,9 @@ pub fn compile_with(program: TypedProgram, optimize: bool) -> Result<Program, Co
         function_names.iter().cloned().enumerate().map(|(i, n)| (n, i)).collect();
 
     // pass 1b: register every struct under a stable index too, plus a
-    // per-struct field-name -> position map so MakeStruct/FieldGet/
-    // FieldSet can resolve `def_index`/`field_index` at compile time —
-    // the VM itself never looks a struct or field up by name
+    // per-struct field-name -> position map, so MakeStruct/FieldGet/
+    // FieldSet can resolve `def_index`/`field_index` at compile time.
+    // the VM never looks a struct or field up by name. good, the VM is busy.
     let mut struct_defs: Vec<std::rc::Rc<spg_vm::value::StructDef>> = Vec::new();
     let mut struct_name_to_index: HashMap<String, usize> = HashMap::new();
     let mut struct_field_indices: HashMap<String, HashMap<String, usize>> = HashMap::new();
@@ -100,9 +100,9 @@ pub fn compile_with(program: TypedProgram, optimize: bool) -> Result<Program, Co
         }
     }
     // pass 1c: every root-scope `let`/`const` becomes a GLOBAL slot.
-    // Collected up front (like functions/structs) so a function body
-    // compiled before the declaration in source order still resolves
-    // it — the typechecker already accepts that, so the compiler must.
+    // collected up front (like functions/structs), so a function body
+    // compiled before the declaration (in source order) still finds it
+    // the typechecker already accepts that, so the compiler must too.
     let mut global_slots: HashMap<String, usize> = HashMap::new();
     for stmt in &program.stmts {
         if let TypedStmt::Let { name, .. } | TypedStmt::Const { name, .. } = stmt {
@@ -124,9 +124,9 @@ pub fn compile_with(program: TypedProgram, optimize: bool) -> Result<Program, Co
     let mut functions: Vec<Chunk> = Vec::new();
 
     // one FunctionCompiler lives across every top-level (non-function)
-    // statement, so `let`/`const` locals declared by an earlier
-    // top-level statement stay resolvable by a later one — mirrors the
-    // checker's single top-level scope for `main`
+    // statement, so `let`/`const` locals from an earlier
+    // top-level statement stay findable by a later one. mirrors the
+    // checker's single top-level scope for `main`. one big room.
     let sink = std::rc::Rc::new(std::cell::RefCell::new(LambdaSink { base: function_names.len(), chunks: Vec::new() }));
     let mut main_fc = FunctionCompiler::new("main", &name_to_index, &struct_table, &global_slots, true);
     main_fc.sink = sink.clone();
@@ -191,15 +191,15 @@ pub fn compile_with(program: TypedProgram, optimize: bool) -> Result<Program, Co
                 // a function whose body doesn't end in an explicit
                 // Return (e.g. `-> void` falling off the end, which
                 // the typechecker allows for Void returns) needs an
-                // implicit return so the VM always has a value to pop
+                // implicit return, so the VM always has a value to pop
                 fc.emit_implicit_return(return_type);
                 fc.end_scope();
                 functions.push(fc.chunk);
             }
-            // struct declarations carry no bytecode of their own — the
+            // struct declarations carry no bytecode of their own. the
             // struct table built above (pass 1b) is what MakeStruct/
-            // FieldGet/FieldSet actually consult; imports are resolved
-            // before compilation reaches this stage
+            // FieldGet/FieldSet actually use. imports get resolved
+            // before compilation gets here
             TypedStmt::StructDecl { .. } | TypedStmt::EnumDecl { .. } | TypedStmt::Import { .. } => {}
             other => {
                 main_fc.compile_stmt(other)?;
@@ -218,8 +218,8 @@ pub fn compile_with(program: TypedProgram, optimize: bool) -> Result<Program, Co
         function_names.push("<lambda>".to_string());
     }
 
-    // fold common instruction pairs into single opcodes as a post-pass
-    // over every already-compiled chunk (see spg-compiler::peephole)
+    // fold common instruction pairs into single opcodes, as a post-pass
+    // over every compiled chunk (see spg-compiler::peephole)
     if optimize {
         crate::peephole::fuse_superinstructions(&mut main);
         for f in &mut functions {
@@ -230,34 +230,34 @@ pub fn compile_with(program: TypedProgram, optimize: bool) -> Result<Program, Co
     Ok(Program { main, functions, function_names, struct_defs, enum_defs, num_globals: global_slots.len() })
 }
 
-/// where a resolved variable name actually lives
+/// where a resolved variable name actually lives. the address book.
 enum VarSlot {
     Local(usize),
     Global(usize),
 }
 
-/// struct name/field-name resolution shared read-only by every
-/// `FunctionCompiler` — built once in `compile`'s pass 1b, since structs
-/// (unlike locals) are visible from every function body regardless of
-/// declaration order, the same reason `name_to_index` (functions) is
-/// built once and shared the same way.
+/// struct name/field-name resolution, shared read-only by every
+/// `FunctionCompiler`. built once in `compile`'s pass 1b, since structs
+/// (unlike locals) are visible from every function body, no matter the
+/// declaration order. same reason `name_to_index` (functions) is
+/// built once and shared the same way. consistency is a virtue.
 struct StructTable {
     name_to_index: HashMap<String, usize>,
     /// struct name -> (field name -> positional index)
     field_indices: HashMap<String, HashMap<String, usize>>,
-    /// struct name -> (field name -> declared type) — the compiler needs
+    /// struct name -> (field name -> declared type). the compiler needs
     /// a field's type (not just its position) to pick the right
-    /// arithmetic opcode for `obj.field OP= value`, the same way
+    /// arithmetic opcode for `obj.field OP= value`, same way
     /// IndexCompoundAssign needs the array's element type
     field_types: HashMap<String, HashMap<String, Ty>>,
-    /// enum name -> its index in `Program.enum_defs` (the first field of `Value::Enum`)
+    /// enum name -> its index in `Program.enum_defs` (first field of `Value::Enum`)
     enum_indices: HashMap<String, u32>,
     /// per enum (indexed like `Program.enum_defs`): each variant's value
     enum_values: Vec<Vec<Value>>,
 }
 
 /// the bodies of every lambda in the program, shared by all `FunctionCompiler`s.
-/// A lambda's function index is `base` (the number of named functions) plus its
+/// a lambda's function index is `base` (the number of named functions) plus its
 /// position here, so indices stay stable while compilation is still going
 #[derive(Default)]
 struct LambdaSink {
@@ -269,42 +269,42 @@ struct FunctionCompiler<'a> {
     chunk: Chunk,
     /// where the lambdas found in this body go (shared with every other compiler)
     sink: std::rc::Rc<std::cell::RefCell<LambdaSink>>,
-    /// stack of block scopes; each maps a local variable name to its
+    /// stack of block scopes. each maps a local variable name to its
     /// slot index in the (flat, per-function) locals array
     scopes: Vec<HashMap<String, usize>>,
-    /// next free local slot — only grows, never reused across sibling
-    /// blocks, which keeps slot resolution simple at the cost of using
-    /// slightly more stack space than strictly necessary
+    /// next free local slot. only grows, never reused across sibling
+    /// blocks. keeps slot lookup simple, at the cost of
+    /// slightly more stack space than strictly needed. fine.
     next_slot: usize,
     function_index: &'a HashMap<String, usize>,
     struct_table: &'a StructTable,
     /// name -> global slot for every root-scope variable of the program
     globals: &'a HashMap<String, usize>,
-    /// true only for the `main` chunk. Its outermost scope (depth 1) is
-    /// the file's root scope, whose declarations are globals; a function
-    /// body's outermost scope is just its own locals.
+    /// true only for the `main` chunk. its outermost scope (depth 1) is
+    /// the file's root scope, whose declarations are globals. a function
+    /// body's outermost scope is just its own locals. humble.
     is_main: bool,
-    /// one entry per while/for-in loop we're currently nested inside
+    /// one entry per while/for-in loop we're nested inside right now
     /// (innermost last). `break`/`continue` always target the top of
-    /// this stack — the typechecker already guarantees this stack is
-    /// non-empty whenever a Break/Continue node is reached.
+    /// this stack. the typechecker already guarantees it's not empty
+    /// whenever a Break/Continue node shows up.
     loop_stack: Vec<LoopContext>,
     /// `try` bodies being compiled right now (handlers armed at this point)
     open_handlers: usize,
 }
 
-/// bookkeeping for one active loop while its body is being compiled.
-/// Both `Jump` instruction indices need their target patched once the
-/// loop finishes emitting — `break`s to `after the loop`, `continue`s
-/// to `the loop's own "next iteration" point`, which for `while` is
-/// the condition re-check and for the desugared `for-in` is the index
+/// bookkeeping for one active loop while its body gets compiled.
+/// both `Jump` instruction indices need their target patched once the
+/// loop finishes emitting. `break`s go to `after the loop`, `continue`s
+/// go to `the loop's own "next iteration" point`, which for `while` is
+/// the condition re-check. for the desugared `for-in` it's the index
 /// increment (jumping straight to the condition would skip it and
-/// spin forever on the same element).
+/// spin forever on the same element. infinite loops, we're not doing that.
 struct LoopContext {
     break_jumps: Vec<usize>,
     continue_jumps: Vec<usize>,
-    /// how many `try` handlers were armed when the loop started: a `break` /
-    /// `continue` that leaves a `try` inside the body has to disarm the extra ones
+    /// how many `try` handlers were armed when the loop started. a `break` /
+    /// `continue` that leaves a `try` inside the body has to disarm the extras
     handlers_at_entry: usize,
 }
 
@@ -332,7 +332,7 @@ impl<'a> FunctionCompiler<'a> {
 
     /// `break` / `continue` jump out of any `try` body between them and the loop:
     /// the handlers those `try`s armed must not outlive the jump (a later `throw`
-    /// would land in a catch block that is no longer active)
+    /// would land in a catch block that's no longer active. spooky.
     fn disarm_handlers_to_loop(&mut self) {
         let at_entry = self.loop_stack.last().map_or(0, |l| l.handlers_at_entry);
         for _ in at_entry..self.open_handlers {
@@ -346,11 +346,11 @@ impl<'a> FunctionCompiler<'a> {
 
     fn end_scope(&mut self) {
         self.scopes.pop();
-        // note: next_slot is deliberately NOT rolled back here. Reusing
-        // slots across sibling blocks would require the VM to clear
-        // stale values on scope exit (else a shadowed-then-reused slot
-        // could leak the previous block's last value); v1.0 trades a
-        // few extra locals-array entries for that simplicity.
+        // note: next_slot is deliberately NOT rolled back here. reusing
+        // slots across sibling blocks would need the VM to clear
+        // stale values on scope exit (or a shadowed-then-reused slot
+        // could leak the old block's last value). v1.0 trades a
+        // few extra locals-array entries for simplicity. worth it.
     }
 
     fn declare_local(&mut self, name: &str) -> usize {
@@ -362,16 +362,16 @@ impl<'a> FunctionCompiler<'a> {
     }
 
     /// true when a declaration made right now lands in the file's root
-    /// scope — only possible in `main`, at scope depth 1 (depth 0 means
-    /// no scope is open yet; anything deeper is a nested block, whose
-    /// variables stay ordinary locals)
+    /// scope. only possible in `main`, at depth 1 (depth 0 means
+    /// no scope open yet. anything deeper is a nested block, whose
+    /// variables stay ordinary locals. no globals in there.
     fn at_root_scope(&self) -> bool {
         self.is_main && self.scopes.len() == 1
     }
 
-    /// which storage a name resolves to. Locals shadow globals, so a
-    /// function parameter (or a `let` inside a block) named like a
-    /// global still wins — the same shadowing the typechecker applies.
+    /// which storage a name resolves to. locals shadow globals, so a
+    /// function param (or a `let` inside a block) named like a
+    /// global still wins. same shadowing the typechecker applies.
     fn resolve_var(&self, name: &str) -> Option<VarSlot> {
         if let Some(slot) = self.resolve_local(name) {
             return Some(VarSlot::Local(slot));
@@ -388,11 +388,11 @@ impl<'a> FunctionCompiler<'a> {
         None
     }
 
-    /// resolves `object_ty.field`'s positional slot via `struct_table` —
-    /// `object_ty` is always `Ty::Named(struct_name)` here since
+    /// resolves `object_ty.field`'s positional slot via `struct_table`.
+    /// `object_ty` is always `Ty::Named(struct_name)` here, since
     /// spg-typecheck already rejected any FieldAssign/FieldCompoundAssign
-    /// whose object isn't a real struct, so the lookups below are
-    /// expected to always succeed for a program that passed typecheck
+    /// whose object isn't a real struct, so the lookups below
+    /// should always succeed for a program that passed typecheck. (trust.)
     fn resolve_field_index(&self, object_ty: &Ty, field: &str) -> Result<usize, CompileError> {
         let struct_name = match object_ty {
             Ty::Named(n) => n,
@@ -416,9 +416,9 @@ impl<'a> FunctionCompiler<'a> {
             })
     }
 
-    /// resolves `object_ty.field`'s declared type via `struct_table` —
-    /// needed by FieldCompoundAssign to pick the right arithmetic opcode
-    /// (int vs float), the same role `elem_ty` plays for
+    /// resolves `object_ty.field`'s declared type via `struct_table`.
+    /// FieldCompoundAssign needs it to pick the right arithmetic opcode
+    /// (int vs float). same job `elem_ty` does for
     /// IndexCompoundAssign
     fn field_type(&self, object_ty: &Ty, field: &str) -> Result<Ty, CompileError> {
         let struct_name = match object_ty {
@@ -446,12 +446,12 @@ impl<'a> FunctionCompiler<'a> {
             }
             // non-void functions are guaranteed by spg-typecheck's
             // always_returns analysis to return on every path, so this
-            // is only ever reached for Void — nothing else to emit
+            // is only ever reached for Void. nothing else to emit. quiet day.
             _ => {}
         }
     }
 
-    // Statements
+    // statements (the bulk, again)
 
     fn compile_block(&mut self, block: &TypedBlock) -> Result<(), CompileError> {
         self.begin_scope();
@@ -460,7 +460,7 @@ impl<'a> FunctionCompiler<'a> {
             let is_last = i == block.stmts.len() - 1;
             // the last statement of a block used as an if-expression
             // branch is an expression whose value must be LEFT on the
-            // stack (it's the branch's result); every other statement
+            // stack (it's the branch's result). every other statement
             // position pops its expression result to keep the stack
             // balanced. block.ty is Void for plain (non-if-expr) blocks.
             if is_last && block.ty != Ty::Void {
@@ -482,7 +482,7 @@ impl<'a> FunctionCompiler<'a> {
                 self.compile_expr(value)?;
                 if self.at_root_scope() {
                     // root-scope declaration -> global slot (pre-assigned
-                    // in pass 1c); nothing to declare locally
+                    // in pass 1c). nothing to declare locally. the global already exists, relax.
                     let slot = *self
                         .globals
                         .get(name)
@@ -508,19 +508,19 @@ impl<'a> FunctionCompiler<'a> {
 
             TypedStmt::IndexAssign { array, index, value } => {
                 // push order matches OpCode::IndexSet's expected pop
-                // order (array, then index, then value)
+                // order (array, then index, then value). don't swap them.
                 self.compile_expr(array)?;
                 self.compile_expr(index)?;
                 self.compile_expr(value)?;
                 // a map is indexed by key, with its own opcodes (the fused array-index
-                // superinstructions never see a map)
+                // superinstructions never see a map. they'd cry.
                 self.chunk.emit(if matches!(array.ty(), Ty::Map(..)) { OpCode::MapSet } else { OpCode::IndexSet });
             }
 
             TypedStmt::IndexCompoundAssign { array, index, op, value } => {
-                // array/index are pushed exactly once and then Dup2'd —
+                // array/index are pushed exactly once and then Dup2'd.
                 // see OpCode::Dup2 and Stmt::IndexCompoundAssign's doc
-                // comments for why re-evaluating either would be wrong
+                // for why re-evaluating either one would be wrong
                 self.compile_expr(array)?;
                 self.compile_expr(index)?;
                 self.chunk.emit(OpCode::Dup2);
@@ -529,7 +529,7 @@ impl<'a> FunctionCompiler<'a> {
                 self.compile_expr(value)?;
                 // the element type (not the array type) is the left
                 // operand type the arithmetic opcode needs to pick
-                // int-vs-float arithmetic correctly
+                // int-vs-float arithmetic correctly. yes, this one matters.
                 let elem_ty = match array.ty() {
                     Ty::Array(inner) => (**inner).clone(),
                     Ty::Map(_, value_ty) => (**value_ty).clone(),
@@ -547,7 +547,7 @@ impl<'a> FunctionCompiler<'a> {
 
             TypedStmt::FieldAssign { object, field, value } => {
                 // push order matches OpCode::FieldSet's expected pop
-                // order (struct, then value)
+                // order (struct, then value). same deal, different struct.
                 self.compile_expr(object)?;
                 self.compile_expr(value)?;
                 let field_index = self.resolve_field_index(object.ty(), field)?;
@@ -555,9 +555,9 @@ impl<'a> FunctionCompiler<'a> {
             }
 
             TypedStmt::FieldCompoundAssign { object, field, op, value } => {
-                // object is pushed exactly once and then Dup1'd — see
+                // object is pushed exactly once and then Dup1'd. see
                 // OpCode::Dup1 and Stmt::FieldCompoundAssign's doc
-                // comments for why re-evaluating it would be wrong
+                // for why re-evaluating it would be wrong
                 self.compile_expr(object)?;
                 let field_index = self.resolve_field_index(object.ty(), field)?;
                 self.chunk.emit(OpCode::Dup1);
@@ -601,8 +601,8 @@ impl<'a> FunctionCompiler<'a> {
                 self.loop_stack.push(LoopContext { break_jumps: Vec::new(), continue_jumps: Vec::new(), handlers_at_entry: self.open_handlers });
                 self.compile_block(body)?;
                 // continue targets the condition re-check, i.e. `loop_start`
-                // — that's where control needs to go to re-evaluate `cond`
-                // before deciding whether to run the body again
+                // that's where control goes to re-evaluate `cond`
+                // before deciding whether to run the body again. decisions, decisions.
                 let loop_ctx = self.loop_stack.pop().expect("pushed right above");
                 for continue_idx in &loop_ctx.continue_jumps {
                     self.chunk.patch_jump(*continue_idx, loop_start);
@@ -636,8 +636,8 @@ impl<'a> FunctionCompiler<'a> {
 
             TypedStmt::Try { try_block, catch_block, .. } => {
                 // PushHandler's target is backpatched to the catch
-                // block's start; PopHandler after the try body disarms
-                // it once the try body finished without throwing
+                // block's start. PopHandler after the try body disarms
+                // it once the try body finished without throwing. phew.
                 let push_handler = self.chunk.emit(OpCode::PushHandler { catch_target: 0 });
                 self.open_handlers += 1;
                 self.compile_block(try_block)?;
@@ -648,7 +648,7 @@ impl<'a> FunctionCompiler<'a> {
                 let catch_start = self.chunk.next_index();
                 self.chunk.patch_jump(push_handler, catch_start);
                 // the thrown value is left on the stack by the VM's
-                // unwind logic when it lands here; bind it to catch_var
+                // unwind logic when it lands here. bind it to catch_var
                 self.begin_scope();
                 let slot = self.declare_local(&catch_var_name(stmt));
                 self.chunk.emit(OpCode::SetLocal(slot));
@@ -687,7 +687,7 @@ impl<'a> FunctionCompiler<'a> {
 
             // nested function declarations don't exist in v1.0 (per the
             // checker's own single global function table), so this
-            // path is unreachable for well-typed programs
+            // path is unreachable for well-typed programs. famous last words.
             TypedStmt::FunctionDecl { .. } => {}
             TypedStmt::StructDecl { .. } => {}
             TypedStmt::EnumDecl { .. } => {}
@@ -703,8 +703,8 @@ impl<'a> FunctionCompiler<'a> {
 
     /// desugars `for (x in arr) { body }` into an index-counter while
     /// loop over a hidden local holding the array and one holding the
-    /// running index — keeps the VM from needing a dedicated iterator
-    /// concept for v1.0, since arrays are the only iterable
+    /// running index. keeps the VM from needing a dedicated iterator
+    /// concept for v1.0, since arrays are the only thing you can loop over
     fn compile_for_in(
         &mut self,
         var_name: &str,
@@ -744,10 +744,10 @@ impl<'a> FunctionCompiler<'a> {
         let loop_ctx = self.loop_stack.pop().expect("pushed right above");
         self.end_scope();
 
-        // continue targets HERE — the index increment — not `loop_start`.
-        // Jumping straight to `loop_start` (the condition check) would
-        // skip this increment entirely and spin forever re-checking the
-        // same index.
+        // continue targets HERE (the index increment), not `loop_start`.
+        // jumping straight to `loop_start` (the condition check) would
+        // skip this increment and spin forever re-checking the
+        // same index. we've been here before.
         let increment_start = self.chunk.next_index();
         for continue_idx in &loop_ctx.continue_jumps {
             self.chunk.patch_jump(*continue_idx, increment_start);
@@ -772,7 +772,7 @@ impl<'a> FunctionCompiler<'a> {
         Ok(())
     }
 
-    /// `for i in start..end [step s]`: a counting loop, no array. Shape:
+    /// `for i in start..end [step s]`: a counting loop, no array. shape:
     ///
     /// ```text
     ///   counter = start; stop = end; [step = check(s)]     (once, in source order)
@@ -787,10 +787,10 @@ impl<'a> FunctionCompiler<'a> {
     /// exit:                                  (`break` lands here)
     /// ```
     ///
-    /// A missing or literal step has its direction fixed at compile time, so
+    /// a missing or literal step has its direction fixed at compile time, so
     /// the hot loop is the same `compare + JumpIfFalse` shape as a `while`
-    /// (the peephole fuses it). Only a non-literal step pays for a run-time
-    /// sign test.
+    /// (the peephole fuses it). only a non-literal step pays for a runtime
+    /// sign test. fair price.
     fn compile_for_range(
         &mut self,
         var_name: &str,
@@ -823,10 +823,10 @@ impl<'a> FunctionCompiler<'a> {
             None
         };
 
-        // Nobody assigns to `i` in the body: the counter IS the variable (no
-        // per-iteration copy; 2 instructions less in a 3-instruction loop).
-        // The name is bound only now, after start/end/step were compiled, so
-        // they still see any OUTER variable called `i`.
+        // nobody assigns to `i` in the body: the counter IS the variable (no
+        // per-iteration copy. 2 instructions less in a 3-instruction loop).
+        // the name only gets bound now, after start/end/step compiled, so
+        // they still see any OUTER variable called `i`. no mixups.
         if !var_assigned {
             self.scopes
                 .last_mut()
@@ -865,7 +865,7 @@ impl<'a> FunctionCompiler<'a> {
 
         self.begin_scope();
         if var_assigned {
-            // the body reassigns `i`: it gets a COPY, so that cannot move the counter
+            // the body reassigns `i`: it gets a COPY, so it can't move the counter
             self.chunk.emit(OpCode::GetLocal(counter));
             let var_slot = self.declare_local(var_name);
             self.chunk.emit(OpCode::SetLocal(var_slot));
@@ -914,7 +914,7 @@ impl<'a> FunctionCompiler<'a> {
     }
 
     /// `counter <cmp> stop`, then a `JumpIfFalse` (recorded in `exits`, to be
-    /// patched to the loop exit)
+    /// patched to the loop exit later)
     fn emit_range_test(&mut self, counter: usize, stop: usize, cmp: OpCode, exits: &mut Vec<usize>) {
         self.chunk.emit(OpCode::GetLocal(counter));
         self.chunk.emit(OpCode::GetLocal(stop));
@@ -926,7 +926,7 @@ impl<'a> FunctionCompiler<'a> {
         self.chunk.add_constant(Value::Int(n))
     }
 
-    // Expressions
+    // expressions (the good stuff)
 
     fn compile_expr(&mut self, expr: &TypedExpr) -> Result<(), CompileError> {
         match expr {
@@ -960,7 +960,7 @@ impl<'a> FunctionCompiler<'a> {
                 Some(VarSlot::Global(slot)) => {
                     self.chunk.emit(OpCode::GetGlobal(slot));
                 }
-                // not a variable: a named function used as a value (no captures)
+                // not a variable: a named function used as a value (no captures). functions as values. spicy.
                 None => {
                     let func_index = *self.function_index.get(name).ok_or_else(|| CompileError::UnknownFunction(name.clone()))?;
                     self.chunk.emit(OpCode::MakeClosure { func_index, ncap: 0 });
@@ -1028,9 +1028,9 @@ impl<'a> FunctionCompiler<'a> {
 
             TypedExpr::StructLit { name, fields, .. } => {
                 // push order matches OpCode::MakeStruct's expected pop
-                // order — `fields` is already in declaration order
+                // order. `fields` is already in declaration order
                 // (spg-typecheck's Expr::StructLit handling reorders it),
-                // matching struct_defs' field_names order 1:1
+                // matching struct_defs' field_names order 1:1. the paperwork is in order.
                 for f in fields {
                     self.compile_expr(f)?;
                 }
@@ -1060,7 +1060,7 @@ impl<'a> FunctionCompiler<'a> {
                     self.chunk.emit(OpCode::EnumValue);
                 }
             }
-            // reads an enum as the int the compare opcodes expect: no code of its own
+            // reads an enum as the int the compare opcodes expect. no code of its own. zero cost.
             TypedExpr::AsInt(inner) => self.compile_expr(inner)?,
             TypedExpr::Field { object, field, .. } => {
                 self.compile_expr(object)?;
@@ -1085,8 +1085,8 @@ impl<'a> FunctionCompiler<'a> {
 
     fn compile_binary(&mut self, left: &TypedExpr, op: &BinaryOp, right: &TypedExpr) -> Result<(), CompileError> {
         // And/Or short-circuit: the right side is only evaluated when
-        // it can still change the result, so these compile to jumps
-        // instead of an eager two-value opcode.
+        // it can still change the result. so these compile to jumps
+        // instead of an eager two-value opcode. lazy, and proud of it.
         if matches!(op, BinaryOp::And) {
             self.compile_expr(left)?;
             // if left is false, short-circuit: jump straight past the
@@ -1119,7 +1119,7 @@ impl<'a> FunctionCompiler<'a> {
         self.compile_expr(left)?;
         self.compile_expr(right)?;
         // an optional on either side (`x == none`, `x == 3` with `x: int?`) compares
-        // whole values: the int/float/string opcodes would reject a `none`
+        // whole values. the int/float/string opcodes would reject a `none`
         let optional = |t: &Ty| matches!(t, Ty::Optional(_) | Ty::NoneLit);
         if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) && (optional(left.ty()) || optional(right.ty())) {
             self.chunk.emit(if matches!(op, BinaryOp::Eq) { OpCode::EqValue } else { OpCode::NotEqValue });
@@ -1132,8 +1132,8 @@ impl<'a> FunctionCompiler<'a> {
     }
 
     /// a lambda: its body becomes a chunk in the shared sink (reserved first, so
-    /// its index is known before its body is compiled); here, the captured values
-    /// are pushed in the order the body expects them, then the closure is made
+    /// its index is known before its body gets compiled). here, the captured values
+    /// are pushed in the order the body expects, then the closure gets made
     fn compile_lambda(
         &mut self,
         params: &[spg_parser::ast::Param],
@@ -1161,7 +1161,7 @@ impl<'a> FunctionCompiler<'a> {
         fc.chunk.cur_loc = self.chunk.cur_loc.clone();
         fc.chunk.arity = params.len();
         fc.begin_scope();
-        // captured values arrive first, then the arguments (see OpCode::CallValue)
+        // captured values arrive first, then the args (see OpCode::CallValue)
         for (name, _) in captures {
             fc.declare_local(name);
         }
@@ -1192,8 +1192,8 @@ impl<'a> FunctionCompiler<'a> {
             self.compile_expr(arg)?;
         }
 
-        // the checker already resolved which builtin (if any) this call
-        // targets and stashed it on the typed node — the compiler just
+        // the checker already figured out which builtin (if any) this call is
+        // targets and stashed it on the typed node. the compiler just
         // reads that instead of re-matching the name itself, which is
         // what lets `compile_expr`'s `TypedExpr::Call { .. }` arm stay a
         // single call to this function regardless of overloads
@@ -1253,7 +1253,7 @@ fn binary_opcode(op: &BinaryOp, left_ty: &Ty) -> OpCode {
     }
 }
 
-/// pulls the catch variable name back out of a `TypedStmt::Try` — small
+/// pulls the catch variable name back out of a `TypedStmt::Try`. small
 /// helper so `compile_stmt`'s match arm doesn't need to destructure the
 /// field twice (once for the match guard, once to use the value)
 fn catch_var_name(stmt: &TypedStmt) -> String {

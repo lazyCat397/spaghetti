@@ -1,14 +1,14 @@
-//! `spg fmt`: the canonical layout of a Spaghetti file.
+//! `spg fmt`: the one true layout of a Spaghetti file. no debates.
 //!
-//! The formatter only changes WHITESPACE: spaces inside a line, the indentation
-//! of each line, blank lines, and the spelling of a `#>` directive line. It never
-//! joins or splits lines, never touches a token, and keeps every comment. Those
-//! promises are not trusted, they are checked: `check` lexes the input and the
-//! output and compares the tokens, the comments and the directives; a result
-//! that does not pass is an error, and the file is left as it was.
+//! the formatter only changes WHITESPACE: spaces inside a line, the indentation
+//! of each line, blank lines, and the spelling of a `#>` directive line. it never
+//! joins or splits lines, never touches a token, keeps every comment. those
+//! promises aren't trusted, they're checked: `check` lexes the input and the
+//! output and compares tokens, comments and directives. a result
+//! that doesn't pass is an error, and the file stays as it was. untouched.
 //!
-//! The scanner is a plain character scanner rather than the real lexer, because
-//! a formatter must keep comments, and the lexer drops them.
+//! the scanner is a plain character scanner, not the real lexer, because
+//! a formatter must keep comments, and the lexer throws them away.
 
 use spg_lexer::TokenKind;
 
@@ -31,7 +31,7 @@ struct Atom {
 
 #[derive(Debug, Clone, PartialEq)]
 enum Piece {
-    /// whitespace containing this many newlines (spaces alone are not kept)
+    /// whitespace containing this many newlines (spaces alone don't count)
     Gap(usize),
     Comment(String),
     Atom(Atom),
@@ -43,7 +43,7 @@ const KEYWORDS: &[&str] = &[
     "bool", "string", "void", "array",
 ];
 
-/// keywords that are followed by a space when a `(` comes after them: `if (x)`,
+/// keywords followed by a space when a `(` comes after them: `if (x)`,
 /// but a call `f(x)` and a lambda or type `function(x)` take none
 const SPACED_PAREN_KEYWORDS: &[&str] = &["if", "elif", "while", "for", "return", "catch", "when", "else", "in", "try", "throw"];
 
@@ -63,7 +63,7 @@ fn scan_double_quoted(c: &[char], mut i: usize) -> usize {
     c.len()
 }
 
-/// the end (exclusive) of an interpolation body `${ ... }` whose body starts at `i`
+/// the end (exclusive) of an interpolation body `${ ... }` starting at `i`
 fn scan_interpolation(c: &[char], mut i: usize) -> usize {
     let mut depth = 0usize;
     while i < c.len() {
@@ -102,7 +102,7 @@ fn scan(src: &str) -> Vec<Piece> {
     while i < c.len() {
         let ch = c[i];
         if ch == '\n' {
-            // consecutive newlines (and the spaces between them) form one gap
+            // consecutive newlines (and the spaces between) form one gap
             let mut n = 0;
             while i < c.len() && c[i].is_whitespace() {
                 if c[i] == '\n' {
@@ -202,7 +202,7 @@ fn is_unary_position(prev: Option<&Atom>) -> bool {
     }
 }
 
-/// whether a space goes between two atoms of the same line
+/// whether a space goes between two atoms on the same line
 fn needs_space(prev: &Atom, next: &Atom, prev_unary: bool, generic: usize) -> bool {
     let p = prev.text.as_str();
     let n = next.text.as_str();
@@ -241,8 +241,8 @@ fn needs_space(prev: &Atom, next: &Atom, prev_unary: bool, generic: usize) -> bo
     true
 }
 
-/// the file in canonical layout. Leading and trailing blank lines go, runs of
-/// blank lines shrink to one, and the file ends with a single newline
+/// the file in canonical layout. leading and trailing blank lines go, runs of
+/// blank lines shrink to one, and the file ends with one newline
 pub fn format_source(src: &str) -> String {
     let mut out = String::new();
     let mut started = false;
@@ -319,7 +319,7 @@ pub fn format_source(src: &str) -> String {
 }
 
 /// starts a line: the blank line first (if the source had one), then the indent.
-/// A line that opens with `}`, `)` or `]` is printed one level out
+/// a line that opens with `}`, `)` or `]` is printed one level out
 fn emit_indent(out: &mut String, brace: i64, paren: i64, first: Option<&str>, blank: bool, started: &mut bool) {
     if *started && !out.is_empty() && blank {
         out.push('\n');
@@ -354,10 +354,10 @@ fn token_kinds(src: &str) -> Result<Vec<TokenKind>, String> {
         .map_err(|e| e.to_string())
 }
 
-/// why a file cannot be formatted safely
+/// why a file can't be formatted safely. the scary list.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FmtError {
-    /// the file does not lex, so its tokens cannot be compared
+    /// the file doesn't lex, so its tokens can't be compared
     Lex(String),
     /// the formatted text would lex to different tokens
     TokensChanged,
@@ -365,7 +365,7 @@ pub enum FmtError {
     CommentsChanged,
     /// the formatted text has different directives (`#>`)
     DirectivesChanged,
-    /// formatting the formatted text again changes it
+    /// formatting the formatted text again changes it (not a fixed point. bad.)
     NotStable,
 }
 
@@ -381,8 +381,8 @@ impl std::fmt::Display for FmtError {
     }
 }
 
-/// formats `src` and proves the result is safe: the same tokens, the same
-/// comments, the same directives, and a fixed point. Returns the formatted text
+/// formats `src` and proves the result is safe: same tokens, same
+/// comments, same directives, and a fixed point. returns the formatted text
 pub fn check(src: &str) -> Result<String, FmtError> {
     let before = token_kinds(src).map_err(FmtError::Lex)?;
     let out = format_source(src);

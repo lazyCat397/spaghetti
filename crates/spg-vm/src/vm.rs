@@ -1,6 +1,5 @@
-//! The bytecode interpreter — a plain loop over a `Vec<OpCode>`, fully
-//! synchronous. If I ever need real concurrency I'll reach for
-//! `std::thread` rather than build it into the VM.
+//! The VM. A dumb loop over Vec<OpCode>. Synchronous on purpose.
+//! Threads? Later. Maybe. Don't ask me at 3am.
 
 use std::rc::Rc;
 
@@ -12,24 +11,23 @@ use crate::arith;
 use crate::error::RuntimeError;
 use crate::value::{Closure, Value};
 
-/// One active function call. Locals live in their own `Vec` per frame,
-/// but the operand stack is a single `Vec<Value>` shared across the
-/// whole call chain and borrowed here by reference — that avoids
-/// allocating a fresh stack on every call.
+/// One function call. Locals get their own Vec per frame.
+/// The operand stack is ONE shared Vec for the whole call chain, borrowed
+/// by ref, because allocating a stack per call made the benchmarks cry.
 struct CallFrame<'p, 'v> {
     chunk: &'p Chunk,
     ip: usize,
     locals: Vec<Value>,
-    /// shared across the whole call chain; a frame only ever pops what
-    /// it (or its own callees) pushed, so the sharing stays safe
+    /// shared by the whole chain. A frame only pops what it pushed (or what
+    /// its callees pushed). Don't break that. I beg you.
     value_stack: &'v mut Vec<Value>,
-    /// active `try` handlers in this frame, innermost last — each entry is
-    /// `(catch block's instruction index, operand-stack height when the try
-    /// began)`. The height lets an exception that arrives in the middle of an
-    /// expression (a callee threw) drop the half-built temporaries first.
-    /// An exception nobody in this frame handles leaves the frame as an
-    /// `Err`, and the caller's `run_chunk` looks in ITS handlers: that is
-    /// how a `throw` reaches a `try` in a calling function.
+    /// active `try` handlers in this frame, innermost last. each entry is
+    /// (catch block's instruction index, operand-stack height when the try
+    /// began). the height lets an exception that lands mid-expression (a callee
+    /// threw) drop the half-built temporaries first. dont leave garbage on the stack.
+    /// no handler here? the frame returns an
+    /// `Err` and the caller's `run_chunk` checks ITS handlers. that's how a
+    /// throw reaches a try in some other function. magic, basically.
     handlers: Vec<(usize, usize)>,
 }
 
@@ -51,54 +49,54 @@ impl<'p, 'v> CallFrame<'p, 'v> {
 
 pub struct Vm<'p> {
     program: &'p Program,
-    /// recycled `Vec`s for call frames' locals: a call takes one (already
-    /// allocated) instead of hitting the allocator, and gives it back on return
+    /// recycled Vecs for call frame locals: a call grabs one (already
+    /// allocated) instead of asking the allocator, and gives it back on return.
     pool: Vec<Vec<Value>>,
-    /// every root-scope variable of the whole program, indexed by the
-    /// slot the compiler assigned. One array for the entire run, shared
-    /// by every call frame — see OpCode::GetGlobal.
+    /// every root-scope variable of the whole program. indexed by the
+    /// slot the compiler gave it. one array for the whole run, shared
+    /// by every frame. see OpCode::GetGlobal. don't ask why it's global.
     globals: Vec<Value>,
-    /// the call chain of the error being propagated, innermost frame first.
-    /// Filled while the error unwinds, cleared again when a `try` catches it.
+    /// the call chain of the error being thrown up, innermost frame first.
+    /// filled while the error unwinds. cleared when a try catches it. good riddance.
     trace: Vec<TraceFrame>,
-    /// frames that did not fit in `trace` (a very deep recursion keeps only
-    /// its innermost frames; the count says how many were left out)
+    /// frames that didn't fit in `trace` (deep recursion keeps only
+    /// the innermost ones; the count says how many got cut)
     trace_omitted: usize,
-    /// optional native backend, consulted before running an `int` function
+    /// optional native backend, asked before running an `int` function.
     native: Option<Box<dyn NativeCalls>>,
-    /// how many frames are running right now (every spg call is one native recursion)
+    /// how many frames are running right now (every spg call is a native recursion, yay)
     depth: usize,
 }
 
-/// deepest spg call chain allowed. The CLI runs the VM on a 1 GiB thread stack,
-/// which holds well over this many frames; the limit turns an endless recursion
-/// into a catchable error with a trace instead of a process abort
+/// Max spg call depth. The CLI gives the VM a 1 GiB stack, so this fits fine.
+/// Without the limit, infinite recursion just kills the process with no trace,
+/// and nobody wants that at 4am.
 pub const MAX_CALL_DEPTH: usize = 100_000;
 
-/// A native implementation of some `int`-only functions (see the spg-jit crate).
-/// `call` returns `None` when the native code cannot answer for sure (overflow,
-/// division by zero, too deep, a callee that gave up...): the VM then runs the
-/// function itself, which is always correct because those functions are pure.
+/// native version of some `int`-only functions (see spg-jit). fast, and fragile.
+/// `call` returns `None` when native can't answer for sure (overflow,
+/// div by zero, too deep, a callee that gave up...): the VM runs the
+/// function itself. always correct, because these functions are pure. phew.
 pub trait NativeCalls {
-    /// whether this function has native code at all (checked before any argument work)
+    /// does this function have native code at all? checked before any arg work.
     fn has(&self, func_index: usize) -> bool;
     fn call(&self, func_index: usize, args: &[i64]) -> Option<i64>;
 }
 
-/// how many frames a stack trace keeps before it starts counting instead
+/// how many frames a trace keeps before it starts just counting
 const TRACE_LIMIT: usize = 50;
 
-/// one line of a stack trace: the function, and where in the source it stopped
+/// one line of a trace: the function, and where in the source it died
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraceFrame {
-    /// `<main>` for the top-level code, otherwise the function's name
+    /// `<main>` for top-level code, otherwise the function name
     pub function: String,
     pub file: Option<String>,
     pub line: u32,
 }
 
-/// what one step of execution produced — right now that's only "the
-/// frame returned with this value"
+/// what one step produced. right now it's only "the
+/// frame returned with this value". that's the whole thing.
 enum FrameOutcome {
     Returned(Value),
 }
@@ -118,13 +116,13 @@ impl<'p> Vm<'p> {
         }
     }
 
-    /// installs a native backend; calls to `int` functions try it first
+    /// installs a native backend. int calls try it first.
     pub fn set_native(&mut self, native: Box<dyn NativeCalls>) {
         self.native = Some(native);
     }
 
-    /// tries the native backend for a call whose arguments are on the stack.
-    /// On success the arguments are replaced by the result and `true` is returned.
+    /// tries native for a call whose args are on the stack.
+    /// on success, the args get replaced by the result and we return `true`.
     fn try_native(&self, frame: &mut CallFrame<'p, '_>, func_index: usize, argc: usize) -> bool {
         let Some(native) = self.native.as_ref() else { return false };
         if !native.has(func_index) || argc > 4 {
@@ -134,8 +132,8 @@ impl<'p> Vm<'p> {
             return false;
         };
         let at = frame.value_stack.len() - argc;
-        // check every kind before converting anything: a string argument hands
-        // native code a reference, which must not be left dangling on a mismatch
+        // check every kind before converting anything. a string arg hands
+        // native a reference, which must not dangle if the kinds don't match. don't be sloppy.
         let fits = frame.value_stack[at..].iter().zip(params).all(|(v, k)| {
             matches!(
                 (v, k),
@@ -150,8 +148,8 @@ impl<'p> Vm<'p> {
         if !fits {
             return false;
         }
-        // native code takes every value as its 64-bit pattern: floats as their
-        // bits, strings as an owned pointer (one extra reference, released by native code)
+        // native takes every value as its 64-bit pattern: floats as their
+        // bits, strings as an owned pointer (one extra ref, native releases it)
         let mut buf = [0i64; 4];
         for (i, v) in frame.value_stack[at..].iter().enumerate() {
             buf[i] = match v {
@@ -171,10 +169,10 @@ impl<'p> Vm<'p> {
                     NativeKind::Int => Value::Int(r),
                     NativeKind::Bool => Value::Bool(r != 0),
                     NativeKind::Float => Value::Float(f64::from_bits(r as u64)),
-                    // arrays never come back from native code (native_sig rejects array returns)
+                    // arrays never come back from native (native_sig rejects them). thank god.
                     NativeKind::Array(_) | NativeKind::Struct(_) => return false,
                     NativeKind::String if r != 0 => {
-                        // SAFETY: native code returns an owned reference made by Rc::into_raw
+                        // SAFETY: native returns an owned ref made by Rc::into_raw. trust me bro.
                         Value::String(unsafe { Rc::from_raw(r as *const String) })
                     }
                     NativeKind::String => return false,
@@ -185,37 +183,37 @@ impl<'p> Vm<'p> {
         }
     }
 
-    /// Runs the program's `main` chunk to completion and returns
-    /// whatever it left on top of the stack (always `Value::Void` in
-    /// practice, since `main` has no way to produce a value in spg —
-    /// kept as a real return in case that changes).
+    /// runs `main` to completion and returns
+    /// whatever it left on top of the stack (always `Value::Void` in practice,
+    /// since `main` can't produce a value in spg. dead end, but kept for later.
+    /// (kept as a real return in case that changes)
     ///
-    /// The operand stack is a single `Vec<Value>` shared across every
-    /// call in the run, rather than one per frame — that's what lets a
-    /// function call skip allocating its own stack. I tried this and a
-    /// few other approaches (an explicit call stack instead of native
+    /// the operand stack is one `Vec<Value>` shared across every
+    /// call in the run, not one per frame. that's what lets a
+    /// call skip allocating a stack. I tried this and a
+    /// few other ideas (an explicit call stack instead of native
     /// recursion, shrinking `Value`) in SpgLab, a throwaway copy of the
-    /// VM used for testing performance ideas before they land here.
+    /// VM I use to test perf ideas. most of them were slower. learned that the hard way.
     pub fn run(&mut self) -> Result<Value, RuntimeError> {
         self.trace.clear();
         self.trace_omitted = 0;
         let mut value_stack: Vec<Value> = Vec::with_capacity(256);
         let result = self.run_chunk(&self.program.main, Vec::new(), &mut value_stack);
-        // buffered `print` output must land before the caller reports anything
+        // buffered `print` output has to land before the caller reports anything. obviously.
         crate::builtins::flush_stdout();
         result
     }
 
-    /// Runs one chunk (a function body or `main`) to completion, given
-    /// its already-evaluated arguments. Nested spg calls recurse into
-    /// this function again, so a pathologically deep spg recursion will
-    /// eventually hit a Rust stack overflow rather than a clean spg-level
-    /// error — a deliberate simplification, not a temporary one.
-    /// `value_stack` is threaded through by reference instead of living
-    /// on `Vm` itself, which avoids a borrow conflict on the recursive
-    /// call.
+    /// runs one chunk (a function body or `main`) to completion, given
+    /// its already-evaluated args. nested spg calls recurse into
+    /// this again, so pathologically deep spg recursion will
+    /// eventually hit a Rust stack overflow instead of a clean spg error.
+    /// yes, that's deliberate. no, I'm not fixing it today.
+    /// `value_stack` gets passed by ref instead of living
+    /// on `Vm` itself, which avoids a borrow fight on the recursive
+    /// call. the borrow checker and I have an understanding.
     /// `ps.run(cmd [, timeout])` and `ps.runFile(path [, timeout])`: runs PowerShell and
-    /// builds the `PsResult` the program declared (fields in order: success, code, output, error)
+    /// builds the `PsResult` the program declared (success, code, output, error). in that order, don't swap.
     fn ps_run(&self, frame: &mut CallFrame<'p, '_>, id: spg_typecheck::BuiltinId, argc: usize) -> Result<Value, RuntimeError> {
         let function = if id == spg_typecheck::BuiltinId::PsRunFile { "ps.runFile" } else { "ps.run" };
         let mut args: Vec<Value> = (0..argc).map(|_| frame.pop()).collect::<Result<_, _>>()?;
@@ -228,7 +226,7 @@ impl<'p> Vm<'p> {
             Some(Value::Int(n)) => *n,
             _ => 30,
         };
-        // the folder of the script that made the call (the frame's own file)
+        // the folder of the script that made the call (the frame's own file). relative paths are a pain.
         let here = frame.chunk.locs.get(frame.ip.saturating_sub(1)).and_then(|loc| loc.file.as_deref());
         let (mode, arg) = if id == spg_typecheck::BuiltinId::PsRunFile {
             let path = std::path::Path::new(&text);
@@ -291,8 +289,8 @@ impl<'p> Vm<'p> {
                         self.depth -= 1;
                         return Err(e);
                     }
-                    // caught here: whatever the deeper frames recorded belonged to
-                    // an error that is now handled, so it is not a trace anymore
+                    // caught here. whatever the deeper frames recorded belonged to
+                    // an error that's handled now, so it's not a trace anymore. bye.
                     self.trace.clear();
                     self.trace_omitted = 0;
                 }
@@ -300,7 +298,7 @@ impl<'p> Vm<'p> {
         }
     }
 
-    /// adds this frame to the trace of the error that is leaving it
+    /// adds this frame to the trace of the error leaving it
     #[cold]
     #[inline(never)]
     fn record_frame(&mut self, frame: &CallFrame<'p, '_>) {
@@ -322,17 +320,17 @@ impl<'p> Vm<'p> {
     }
 
     /// the trace of the last error `run` returned, innermost first, plus how
-    /// many frames were left out. Empty after a successful run.
+    /// many frames got cut. empty after a successful run, obviously.
     pub fn take_trace(&mut self) -> (Vec<TraceFrame>, usize) {
         let omitted = std::mem::take(&mut self.trace_omitted);
         (std::mem::take(&mut self.trace), omitted)
     }
 
-    /// An error surfaced in `frame`. If it is catchable (a `throw`, or a runtime
-    /// condition like a division by zero or a missing map key) and this frame
-    /// has an active `try`, jump to its catch block with the message on the stack;
-    /// otherwise hand the error up (the caller's frame gets the same chance).
-    /// VM bugs are never catchable. Kept out of the hot loop on purpose.
+    /// an error showed up in `frame`. if it's catchable (a throw, or a runtime
+    /// thing like a div by zero or a missing map key) and this frame
+    /// has an active try, jump to its catch with the message on the stack.
+    /// otherwise pass it up. the caller gets the same chance.
+    /// VM bugs are never catchable. that's on purpose. kept out of the hot loop.
     #[cold]
     #[inline(never)]
     fn catch_or_propagate(frame: &mut CallFrame<'p, '_>, e: RuntimeError) -> Result<(), RuntimeError> {
@@ -348,9 +346,9 @@ impl<'p> Vm<'p> {
         }
     }
 
-    /// Executes one instruction. Returns `Some(Returned(v))` once
-    /// `Return` fires, `None` otherwise. `ip` advances by one each call
-    /// except for jumps, which set it directly.
+    /// executes one instruction. returns `Some(Returned(v))` once
+    /// `Return` fires, `None` otherwise. `ip` moves by one each call
+    /// except jumps, which set it themselves.
     #[inline(always)]
     fn step(&mut self, frame: &mut CallFrame<'p, '_>) -> Result<Option<FrameOutcome>, RuntimeError> {
         let op = frame.chunk.code[frame.ip];
@@ -362,24 +360,24 @@ impl<'p> Vm<'p> {
 
             OpCode::GetGlobal(slot) => frame.push(self.globals[slot].clone()),
             OpCode::SetGlobal(slot) => {
-                // same no-pop contract as SetLocal
+                // same no-pop deal as SetLocal
                 let v = frame.value_stack.last().ok_or(RuntimeError::StackUnderflow)?.clone();
                 self.globals[slot] = v;
             }
 
             OpCode::GetLocal(slot) => frame.push(frame.locals[slot].clone()),
             OpCode::SetLocal(slot) => {
-                // doesn't pop — the compiler always emits a Pop right
-                // after, once the assignment's own value has served its
-                // purpose. Leaving it on the stack here keeps room for a
+                // doesn't pop. the compiler always emits a Pop right
+                // after, once the assignment's value has done its job. 
+                // Leaving it on the stack keeps room for a
                 // future "assignment as expression" without changing
-                // this opcode's format.
+                // this opcode's format. future me's problem.
                 let v = frame.value_stack.last().ok_or(RuntimeError::StackUnderflow)?.clone();
                 frame.locals[slot] = v;
             }
 
             // arithmetic: operands pop right-then-left, since the
-            // compiler pushes left then right
+            // compiler pushes left then right. don't touch the order.
             OpCode::AddInt => binary_int(frame, |a, b| arith::add(a, b))?,
             OpCode::AddLocals(a, b) => fused_int_arith(frame, a, b, |x, y| arith::add(x, y))?,
             OpCode::SubLocals(a, b) => fused_int_arith(frame, a, b, |x, y| arith::sub(x, y))?,
@@ -390,7 +388,7 @@ impl<'p> Vm<'p> {
             OpCode::MulInt => binary_int(frame, |a, b| arith::mul(a, b))?,
             OpCode::DivInt => binary_int(frame, |a, b| arith::div(a, b))?,
             OpCode::ModInt => binary_int(frame, |a, b| arith::rem(a, b))?,
-            // the typechecker only allows int**int with a non-mixed type, so a
+            // the typechecker only allows int**int with non-mixed types, so a
             // negative exponent is a valid spg program, not a bug (see arith::pow)
             OpCode::PowInt => binary_int(frame, |a, b| arith::pow(a, b))?,
             OpCode::AddFloat => binary_float(frame, |a, b| a + b)?,
@@ -414,7 +412,7 @@ impl<'p> Vm<'p> {
                 frame.push(Value::Float(-v));
             }
 
-            // ---- comparison ----
+            // ---- comparison (the fun part) ----
             OpCode::EqInt => binary_int_cmp(frame, |a, b| a == b)?,
             OpCode::EqFloat => binary_float_cmp(frame, |a, b| a == b)?,
             OpCode::EqBool => {
@@ -448,9 +446,9 @@ impl<'p> Vm<'p> {
             OpCode::LtEqFloat => binary_float_cmp(frame, |a, b| a <= b)?,
             OpCode::GtEqFloat => binary_float_cmp(frame, |a, b| a >= b)?,
 
-            // fused GetLocal(a); GetLocal(b); <CmpInt> — same idea as
-            // AddLocals above, extended to comparisons since they're the
-            // backbone of most if/while conditions
+            // fused GetLocal(a); GetLocal(b); <CmpInt>. same idea as
+            // AddLocals above, extended to comparisons because they're the
+            // backbone of every if/while. basically the whole language.
             OpCode::LtLocals(a, b) => fused_int_cmp(frame, a, b, |x, y| x < y)?,
             OpCode::GtLocals(a, b) => fused_int_cmp(frame, a, b, |x, y| x > y)?,
             OpCode::LtEqLocals(a, b) => fused_int_cmp(frame, a, b, |x, y| x <= y)?,
@@ -458,7 +456,7 @@ impl<'p> Vm<'p> {
             OpCode::EqIntLocals(a, b) => fused_int_cmp(frame, a, b, |x, y| x == y)?,
             OpCode::NotEqIntLocals(a, b) => fused_int_cmp(frame, a, b, |x, y| x != y)?,
 
-            // same fusion, mirrored for float/string/bool
+            // same fusion, mirrored for float/string/bool. copy paste, sorry.
             OpCode::AddFloatLocals(a, b) => fused_float_arith(frame, a, b, |x, y| x + y)?,
             OpCode::SubFloatLocals(a, b) => fused_float_arith(frame, a, b, |x, y| x - y)?,
             OpCode::MulFloatLocals(a, b) => fused_float_arith(frame, a, b, |x, y| x * y)?,
@@ -604,20 +602,20 @@ impl<'p> Vm<'p> {
                     self.program.functions.get(func_index).ok_or(RuntimeError::InvalidFunctionIndex(func_index))?;
                 let mut locals = self.pool.pop().unwrap_or_default();
                 locals.reserve(callee.num_locals);
-                // the arguments are the top `argc` stack values, already in order
+                // args are the top argc values, already in order. yes, it's that simple
                 let at = frame.value_stack.len() - argc;
                 locals.extend(frame.value_stack.drain(at..));
                 let result = self.run_chunk(callee, locals, frame.value_stack)?;
                 frame.push(result);
             }
             OpCode::MakeClosure { func_index, ncap } => {
-                // the captured values are the top `ncap` stack values, in order
+                // captured values are the top ncap stack values, in order
                 let at = frame.value_stack.len() - ncap;
                 let captures: Vec<Value> = frame.value_stack.drain(at..).collect();
                 frame.push(Value::Func(Rc::new(Closure { index: func_index, captures })));
             }
             OpCode::CallValue { argc } => {
-                // stack: callee, arg1 .. argN (callee below the arguments)
+                // stack: callee, arg1 .. argN (callee below the args, as usual)
                 let at = frame.value_stack.len() - argc;
                 let mut locals = self.pool.pop().unwrap_or_default();
                 locals.extend(frame.value_stack.drain(at..));
@@ -625,7 +623,7 @@ impl<'p> Vm<'p> {
                 let Value::Func(closure) = callee_value else {
                     return Err(RuntimeError::TypeMismatch { expected: "function", found: callee_value.type_name() });
                 };
-                // the captured values go before the arguments
+                // captured values go before the args
                 let mut all = Vec::with_capacity(closure.captures.len() + locals.len());
                 all.extend(closure.captures.iter().cloned());
                 all.append(&mut locals);
@@ -656,7 +654,7 @@ impl<'p> Vm<'p> {
             OpCode::CallLocalMinusConst1 { func_index, a, k } => {
                 let callee =
                     self.program.functions.get(func_index).ok_or(RuntimeError::InvalidFunctionIndex(func_index))?;
-                // same semantics as a plain SubInt, just fused into the call
+                // same as a plain SubInt, just fused into the call. 
                 let n = match &frame.locals[a] {
                     Value::Int(n) => *n,
                     other => return Err(RuntimeError::TypeMismatch { expected: "int", found: other.type_name() }),
@@ -696,7 +694,7 @@ impl<'p> Vm<'p> {
                 frame.push(b);
             }
 
-            // ---- superinstructions ----
+            // ---- superinstructions (we got greedy) ----
             OpCode::StoreLocal(slot) => {
                 let v = frame.pop()?;
                 frame.locals[slot] = v;
@@ -997,8 +995,8 @@ impl<'p> Vm<'p> {
                 };
                 frame.push(v);
             }
-            // fused array-index ops: bodies live out of line in `index_ops` so
-            // they do not grow this function (see that module's header)
+            // fused array-index ops. bodies live out of line in `index_ops` so
+            // they don't bloat this function (see that module's header)
             OpCode::IndexGetDupLocals(arr, i) => index_ops::get_dup_locals(&frame.locals, frame.value_stack, arr, i)?,
             OpCode::IndexAddConstLocals { arr, idx, k } => index_ops::add_const_locals(&frame.locals, arr, idx, k)?,
             OpCode::IndexAddLocalLocals { arr, idx, x } => index_ops::int_add(&frame.locals, arr, idx, x)?,
@@ -1036,13 +1034,13 @@ impl<'p> Vm<'p> {
             OpCode::PopHandler => {
                 frame.handlers.pop();
             }
-            // the exception travels up as an `Err`: `run_chunk` of this frame (and then of
-            // each caller) looks for a handler, and the program ends only if none is found
+            // the exception travels up as an `Err`. `run_chunk` of this frame (and then of
+            // each caller) looks for a handler. program only dies if nobody catches it.
             OpCode::Throw => {
                 let v = frame.pop()?;
                 return Err(RuntimeError::UnhandledException(v.to_string()));
             }
-            // fused struct-field ops: bodies out of line in `field_ops`
+            // fused struct-field ops. bodies out of line in `field_ops`
             OpCode::FieldAddConst { local, field_index, k } => field_ops::add_const(&frame.locals, local, field_index, k)?,
             OpCode::FieldIntAdd { local, field_index, x } => field_ops::int_add(&frame.locals, local, field_index, x)?,
             OpCode::FieldIntSub { local, field_index, x } => field_ops::int_sub(&frame.locals, local, field_index, x)?,
@@ -1062,7 +1060,7 @@ impl<'p> Vm<'p> {
 pub(crate) fn local_int(locals: &[Value], slot: usize) -> Result<i64, RuntimeError> {
     match &locals[slot] {
         Value::Int(n) => Ok(*n),
-        // enums compare with the int opcodes (`==` / `!=` only; the checker allows nothing else)
+        // enums compare with the int opcodes (`==` / `!=` only, the checker won't allow more)
         Value::Enum(_, v) => Ok(*v as i64),
         other => Err(RuntimeError::TypeMismatch { expected: "int", found: other.type_name() }),
     }
@@ -1110,7 +1108,7 @@ fn expect_map(v: Value) -> Result<crate::value::MapRef, RuntimeError> {
     }
 }
 
-/// how a key reads in the "key not found" error: strings quoted, the rest as printed
+/// how a key looks in the "key not found" error. strings get quotes, rest as printed
 fn key_text(key: &Value) -> String {
     match key {
         Value::String(s) => format!("\"{}\"", s),
@@ -1133,8 +1131,8 @@ fn expect_struct(v: Value) -> Result<crate::value::StructRef, RuntimeError> {
     }
 }
 
-/// pops two Ints (right-then-left, per the compiler's push order),
-/// applies `f`, pushes the Int result
+/// pops two Ints (right-then-left, the compiler's order, fight me),
+/// applies `f`, pushes the Int result. boring, but it works.
 #[inline(always)]
 fn binary_int(frame: &mut CallFrame, f: impl FnOnce(i64, i64) -> Result<i64, RuntimeError>) -> Result<(), RuntimeError> {
     let b = expect_int(frame.pop()?)?;
@@ -1159,8 +1157,8 @@ fn binary_int_cmp(frame: &mut CallFrame, f: impl FnOnce(i64, i64) -> bool) -> Re
     Ok(())
 }
 
-/// fused `GetLocal(a); GetLocal(b); <CmpInt>` — reads both locals
-/// directly (skipping the stack round-trip) and pushes the result
+/// fused `GetLocal(a); GetLocal(b); <CmpInt>`. reads both locals
+/// directly (no stack round trip) and pushes the result.
 #[inline(always)]
 fn fused_int_cmp(frame: &mut CallFrame, a: usize, b: usize, f: impl FnOnce(i64, i64) -> bool) -> Result<(), RuntimeError> {
     let x = expect_int(frame.locals[a].clone())?;
@@ -1177,9 +1175,9 @@ fn binary_float_cmp(frame: &mut CallFrame, f: impl FnOnce(f64, f64) -> bool) -> 
     Ok(())
 }
 
-// the float/string/bool fused helpers below read both locals directly
-// (like fused_int_cmp), so their operand order is f(locals[a],
-// locals[b]) rather than reversed like the pop-based binary_* helpers
+// the float/string/bool fused helpers below read both locals directly,
+// (like fused_int_cmp), so their order is f(locals[a],
+// locals[b]) and NOT reversed like the pop-based binary_* helpers. careful.
 
 #[inline(always)]
 fn fused_int_arith(frame: &mut CallFrame, a: usize, b: usize, f: impl FnOnce(i64, i64) -> Result<i64, RuntimeError>) -> Result<(), RuntimeError> {

@@ -1,8 +1,8 @@
-//! Out-of-line bodies of the fused struct-field opcodes (`FieldAddConst`,
-//! `Field{Int,Float}{Add,Sub,Mul}`, `FieldSetLocal*`). Each one is the exact
-//! behavior of the instruction sequence it replaces, with the same checks in
-//! the same order, so optimized and `--no-opt` programs fail the same way.
-//! Out of line for the same reason as `index_ops`: keep `Vm::step` small.
+//! out-of-line bodies of the fused struct-field opcodes (`FieldAddConst`,
+//! `Field{Int,Float}{Add,Sub,Mul}`, `FieldSetLocal*`). each one does the exact
+//! same thing as the instruction sequence it replaces, same checks in
+//! the same order, so optimized and `--no-opt` programs fail the same way. consistency.
+//! out of line for the same reason as `index_ops`: keep `Vm::step` small.
 
 use crate::error::RuntimeError;
 use crate::index_ops::local_float;
@@ -13,7 +13,7 @@ fn not_struct(other: &Value) -> RuntimeError {
     RuntimeError::TypeMismatch { expected: "struct", found: other.type_name() }
 }
 
-/// `FieldGetDup; AddConst(k); FieldSet`: `s.f += k` in place.
+/// `FieldGetDup; AddConst(k); FieldSet`: `s.f += k`, in place. boring and fast.
 #[inline(never)]
 pub(crate) fn add_const(locals: &[Value], local: usize, field: usize, k: i64) -> Result<(), RuntimeError> {
     match &locals[local] {
@@ -31,8 +31,8 @@ pub(crate) fn add_const(locals: &[Value], local: usize, field: usize, k: i64) ->
     }
 }
 
-/// `FieldGetDup; GetLocal(x); <op>; FieldSet`: `s.f OP= x` in place. The
-/// operand's type is checked first, as the arithmetic op would.
+/// `FieldGetDup; GetLocal(x); <op>; FieldSet`: `s.f OP= x`, in place. the
+/// operand's type gets checked first, like the arithmetic op would. order matters.
 macro_rules! op_locals {
     ($name:ident, $local:ident, $variant:ident, $expected:literal, $f:expr) => {
         #[inline(never)]
@@ -72,13 +72,13 @@ fn store(locals: &[Value], local: usize, field: usize, value: Value) -> Result<(
     }
 }
 
-/// `GetLocal(s); GetLocal(v); FieldSet`: `s.f = v`.
+/// `GetLocal(s); GetLocal(v); FieldSet`: `s.f = v`. nothing to see here.
 #[inline(never)]
 pub(crate) fn set_local_local(locals: &[Value], local: usize, field: usize, v: usize) -> Result<(), RuntimeError> {
     store(locals, local, field, locals[v].clone())
 }
 
-/// `GetLocal(s); Const(c); FieldSet`: `s.f = <constant>`.
+/// `GetLocal(s); Const(c); FieldSet`: `s.f = <const>`. same, but cheaper, we hope.
 #[inline(never)]
 pub(crate) fn set_local_const(locals: &[Value], constants: &[Value], local: usize, field: usize, c: usize) -> Result<(), RuntimeError> {
     store(locals, local, field, constants[c].clone())

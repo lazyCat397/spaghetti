@@ -1,7 +1,7 @@
-//! spg-compiler: consumes `TypedProgram` (from spg-typecheck) and emits
-//! `spg_vm::chunk::Program` — stack-based bytecode ready for the VM.
+//! spg-compiler: eats `TypedProgram` (from spg-typecheck) and spits out
+//! `spg_vm::chunk::Program`. stack-based bytecode, ready for the VM.
 //!
-//! Entry point: `compile(TypedProgram) -> Result<Program, CompileError>`.
+//! entry point: `compile(TypedProgram) -> Result<Program, CompileError>`. the door.
 
 pub mod compiler;
 pub mod error;

@@ -1,4 +1,4 @@
-//! Turns .spg source into a token stream.
+//! turns .spg source into a stream of tokens. the first step of the pain.
 
 use crate::token::{lookup_keyword, Token, TokenKind};
 use std::fmt;
@@ -8,33 +8,33 @@ pub enum LexError {
     UnexpectedChar { ch: char, line: usize, col: usize },
     UnterminatedString { line: usize, col: usize },
     UnterminatedBlockComment { line: usize, col: usize },
-    /// `"${}"`: an interpolation with nothing inside the braces
+    /// `"${}"`: an interpolation with nothing inside the braces. empty, like my coffee cup.
     EmptyInterpolation { line: usize, col: usize },
-    /// `@foo` where `foo` is not a builtin namespace (or a lone `@`)
+    /// `@foo` where `foo` isn't a builtin namespace (or a lone `@`). typo, probably.
     UnknownNamespace { name: String, line: usize, col: usize },
-    /// `#> name` where `name` is not a known directive; `suggestion` is the
-    /// closest known one, when it is a plausible typo
+    /// `#> name` where `name` isn't a known directive. `suggestion` is the
+    /// closest known one, when it looks like a plausible typo
     UnknownDirective { name: String, suggestion: Option<&'static str>, line: usize, col: usize },
-    /// the same directive written twice in one file
+    /// the same directive written twice in one file. copy paste detected.
     DuplicateDirective { name: String, line: usize, col: usize },
-    /// `#>` after the header (directives only exist at the top of a file)
+    /// `#>` after the header (directives only live at the top of a file)
     MisplacedDirective { line: usize, col: usize },
-    /// a directive with a missing, wrong or unexpected argument
+    /// a directive with a missing, wrong or unexpected arg
     BadDirectiveArgument { name: String, expected: &'static str, line: usize, col: usize },
 }
 
-/// every `#>` directive the engine understands
+/// every `#>` directive the engine understands. the whole list. three of them.
 pub const DIRECTIVES: [&str; 4] = ["friendly-terminal", "timeout", "strict", "safe-party"];
 
-/// what a file's `#>` header asked for
+/// what a file's `#>` header asked for. the file's wishlist.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct FileSpec {
     pub friendly_terminal: bool,
     /// `#> strict`: ambiguities become errors (int overflow, hidden names, dead code)
     pub strict: bool,
-    /// `#> safe-party`: `ps.run` / `ps.runFile` stay inside the script's folder for files
+    /// `#> safe-party`: `ps.run` / `ps.runFile` stay inside the script's folder, for files
     pub safe_party: bool,
-    /// `#> timeout N`: the program is stopped after N milliseconds
+    /// `#> timeout N`: the program gets shot after N milliseconds
     pub timeout_ms: Option<u64>,
     /// every directive written, in order: (name, line, column)
     pub directives: Vec<(String, usize, usize)>,
@@ -151,7 +151,7 @@ impl LexError {
     }
 }
 
-/// the closest directive name to a typo, if it is at most two edits away
+/// the closest directive name to a typo, if it's at most two edits away
 fn closest_directive(name: &str) -> Option<&'static str> {
     DIRECTIVES
         .iter()
@@ -178,14 +178,14 @@ fn edit_distance(a: &str, b: &str) -> usize {
 
 impl std::error::Error for LexError {}
 
-/// one piece of an interpolated string while it is being read
+/// one piece of an interpolated string, while we're reading it
 enum Part {
     Text(String),
     Expr(Vec<Token>),
 }
 
-/// tokenizes a piece of source that sits at a known position (an interpolated
-/// expression, or a synthetic wrapper), so its tokens report real positions
+/// tokenizes a piece of source at a known position (an interpolated
+/// expression, or a fake wrapper), so its tokens report real positions
 fn fragment_tokens(src: &str, line: usize, col: usize) -> Result<Vec<Token>, LexError> {
     let mut lx = Lexer::new(src);
     lx.line = line;
@@ -195,7 +195,7 @@ fn fragment_tokens(src: &str, line: usize, col: usize) -> Result<Vec<Token>, Lex
 
 pub struct Lexer<'a> {
     /// decoded characters, NOT bytes: a multi-byte UTF-8 char (`á`, `ç`, `—`)
-    /// is one element, one column, and survives into string literals intact
+    /// is one element, one column, and survives into string literals intact. accents, respect.
     source: Vec<char>,
     _src: std::marker::PhantomData<&'a str>,
     pos: usize,
@@ -220,8 +220,8 @@ impl<'a> Lexer<'a> {
         self.tokenize_with_spec().map(|(tokens, _)| tokens)
     }
 
-    /// tokens plus the file's `#>` header. Directives are read first and are
-    /// not tokens: the parser never sees them
+    /// tokens plus the file's `#>` header. directives get read first, and are
+    /// not tokens. the parser never sees them. lucky parser.
     pub fn tokenize_with_spec(mut self) -> Result<(Vec<Token>, FileSpec), LexError> {
         self.read_header()?;
         let mut tokens = self.lex_tokens()?;
@@ -273,7 +273,7 @@ impl<'a> Lexer<'a> {
     }
 
     /// reads the `#>` header: directive lines before any code (comments and
-    /// blank lines may sit between them)
+    /// blank lines may sit between them. air is allowed.
     fn read_header(&mut self) -> Result<(), LexError> {
         loop {
             self.skip_whitespace_and_comments()?;
@@ -308,7 +308,7 @@ impl<'a> Lexer<'a> {
             let suggestion = closest_directive(&name);
             return Err(LexError::UnknownDirective { name, suggestion, line, col });
         }
-        // `timeout` takes a whole number of milliseconds; the others take nothing
+        // `timeout` takes a whole number of ms. the others take nothing. simple.
         while matches!(self.peek(), Some(' ' | '\t')) {
             self.advance();
         }
@@ -335,7 +335,7 @@ impl<'a> Lexer<'a> {
                 }
             }
         }
-        // a directive owns its whole line: only spaces or a comment may follow
+        // a directive owns its whole line. only spaces or a comment may follow
         while matches!(self.peek(), Some(' ' | '\t' | '\r')) {
             self.advance();
         }
@@ -397,7 +397,7 @@ impl<'a> Lexer<'a> {
                 Some(c) if c.is_whitespace() => {
                     self.advance();
                 }
-                // block comment: //[[ ... //]]  (no nesting; the first //]] closes it)
+                // block comment: //[[ ... //]]  (no nesting. the first //]] closes it, no questions)
                 Some('/') if self.at(0, "//[[") => {
                     let (line, col) = (self.line, self.col);
                     for _ in 0..4 {
@@ -417,7 +417,7 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 Some('/') if self.peek_next() == Some('/') => {
-                    // line comment: // ...
+                    // line comment: // ... (the classic)
                     while let Some(c) = self.peek() {
                         if c == '\n' {
                             break;
@@ -454,9 +454,9 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// `"..."`: a normal string. Escapes work as before, and `${expr}`
-    /// interpolates. The literal becomes a parenthesized `+` chain of string
-    /// pieces and `@into.string(expr)` calls, so the parser and typechecker
+    /// `"..."`: a normal string. escapes work as before, and `${expr}`
+    /// interpolates. the literal becomes a parenthesized `+` chain of string
+    /// pieces and `@into.string(expr)` calls, so the parser and checker
     /// see ordinary tokens. `\${` is just text (`\$` is an escape like any other).
     fn read_string_tokens(&mut self) -> Result<Vec<Token>, LexError> {
         let (start_line, start_col) = (self.line, self.col);
@@ -545,8 +545,8 @@ impl<'a> Lexer<'a> {
     }
 
     /// raw source of `${...}`, up to its closing brace (the `${` is already
-    /// consumed). Nested braces, strings and raw strings are copied whole, so
-    /// `"${@str.len("}")}"` closes at the right brace.
+    /// consumed). nested braces, strings and raw strings get copied whole, so
+    /// `"${@str.len("}")}"` closes at the right brace. yes, even that one.
     fn read_interpolation(&mut self, start_line: usize, start_col: usize) -> Result<String, LexError> {
         let unterminated = LexError::UnterminatedString {
             line: start_line,
@@ -590,7 +590,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// the rest of a `"..."` that sits inside `${...}`, copied raw through its
+    /// the rest of a `"..."` inside `${...}`, copied raw through its
     /// closing quote (nested `${...}` included)
     fn copy_nested_string(&mut self, raw: &mut String, start_line: usize, start_col: usize) -> Result<(), LexError> {
         let unterminated = LexError::UnterminatedString {
@@ -622,14 +622,14 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// `'...'`: a RAW string. Everything up to the next `'` is the content,
+    /// `'...'`: a RAW string. everything up to the next `'` is the content,
     /// byte for byte: no escapes at all (`'a\nb'` is the 4 characters
-    /// `a`, `\`, `n`, `b`), and a `"` inside is just a `"`. Because there is
-    /// no escape, a `'` can never appear inside one: the first `'` after
-    /// the opening one always closes it. That is deliberate: the lexer stays
-    /// stuck in the string it already opened and never looks ahead for a
+    /// `a`, `\`, `n`, `b`), and a `"` inside is just a `"`. because there is
+    /// no escape, a `'` can never appear inside. the first `'` after
+    /// the opening one always closes it. deliberate: the lexer stays
+    /// stuck in the string it already opened, never looking ahead for a
     /// "better" closing quote, so `'print('hi')'` fails instead of silently
-    /// gluing strings together.
+    /// gluing strings together. no sneaky merging.
     fn read_raw_string(&mut self) -> Result<TokenKind, LexError> {
         let (start_line, start_col) = (self.line, self.col);
         self.advance(); // consume the opening '
@@ -662,8 +662,8 @@ impl<'a> Lexer<'a> {
         lookup_keyword(&text).unwrap_or(TokenKind::Ident(text))
     }
 
-    /// `@name` → `TokenKind::Namespace(name)`; anything that is not one of
-    /// `NAMESPACES` is a lex error (so a typo like `@mth` is caught here)
+    /// `@name` → `TokenKind::Namespace(name)`. anything that's not one of
+    /// `NAMESPACES` is a lex error (so a typo like `@mth` gets caught here)
     fn read_namespace(&mut self) -> Result<TokenKind, LexError> {
         let (line, col) = (self.line, self.col);
         self.advance(); // @
@@ -814,7 +814,7 @@ mod namespace_tests {
     fn unknown_or_bare_at_is_an_error() {
         assert!(matches!(Lexer::new("@mth.x").tokenize(), Err(LexError::UnknownNamespace { .. })));
         assert!(matches!(Lexer::new("@ ").tokenize(), Err(LexError::UnknownNamespace { .. })));
-        // the old spellings are plain identifiers now
+        // the old spellings are plain identifiers now. they're just words.
         let toks = Lexer::new("math").tokenize().unwrap();
         assert_eq!(toks[0].kind, TokenKind::Ident("math".into()));
     }
@@ -833,7 +833,7 @@ mod utf8_tests {
 
     #[test]
     fn columns_count_chars_not_bytes() {
-        // `é` is 2 bytes; the `x` after it must still be column 8
+        // `é` is 2 bytes. the `x` after it must still be column 8. counting matters.
         let toks = Lexer::new("\"é\" + x").tokenize().unwrap();
         let x = toks.iter().find(|t| t.kind == TokenKind::Ident("x".into())).unwrap();
         assert_eq!((x.line, x.col), (1, 7));
@@ -862,16 +862,16 @@ mod raw_string_and_range_tests {
 
     #[test]
     fn raw_string_has_no_escapes() {
-        // backslash-n stays as two characters; backslash does not hide the closing quote
+        // backslash-n stays as two characters. backslash doesn't hide the closing quote
         assert_eq!(kinds("'a\\nb'")[0], TokenKind::Str("a\\nb".into()));
         assert_eq!(kinds("'a\\'")[0], TokenKind::Str("a\\".into()));
     }
 
     #[test]
     fn raw_string_closes_at_the_first_quote_and_never_looks_ahead() {
-        // `'print('` is already a complete string; `hi` is a plain identifier;
-        // `')'` is another string. The lexer never skips ahead to a "better"
-        // closing quote: the parser is the one that rejects this sequence.
+        // `'print('` is already a complete string. `hi` is a plain identifier.
+        // `')'` is another string. the lexer never skips ahead to a "better"
+        // closing quote. the parser is the one that rejects this sequence.
         assert_eq!(
             kinds("'print('hi')'"),
             vec![
@@ -881,7 +881,7 @@ mod raw_string_and_range_tests {
                 TokenKind::Eof
             ]
         );
-        // with an odd number of quotes the last one is left open
+        // with an odd number of quotes the last one is left open. good luck, user.
         assert!(matches!(
             Lexer::new("'print('hi')").tokenize(),
             Err(LexError::UnterminatedString { line: 1, col: 11 })
@@ -914,7 +914,7 @@ mod raw_string_and_range_tests {
     }
 }
 
-/// the directive header of a file, read on its own: the CLI uses it to decide
+/// the directive header of a file, read on its own. the CLI uses it to decide
 /// how to show errors, even when the rest of the file is broken
 pub fn read_file_spec(source: &str) -> Result<FileSpec, LexError> {
     let mut lexer = Lexer::new(source);

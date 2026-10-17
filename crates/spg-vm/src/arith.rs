@@ -1,9 +1,9 @@
-//! Integer arithmetic with ONE defined behaviour on overflow.
+//! Integer arithmetic with ONE defined behaviour on overflow. (pick one, we picked.)
 //!
-//! Without `#> strict` an int that does not fit in 64 bits wraps around (two's
-//! complement); with it, the same case is a runtime error. The check is one
-//! well-predicted branch on the hot path; the flag is only read once an
-//! overflow has actually happened.
+//! Without `#> strict`, an int that doesn't fit in 64 bits wraps around (two's
+//! complement). with `#> strict`, same case = runtime error. the check is one
+//! well-predicted branch on the hot path. the flag only gets read once an
+//! overflow has actually happened. so it's basically free. basically.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -11,7 +11,7 @@ use crate::error::RuntimeError;
 
 static STRICT: AtomicBool = AtomicBool::new(false);
 
-/// `#> strict`: int overflow becomes a runtime error instead of wrapping
+/// `#> strict`: int overflow becomes a runtime error instead of wrapping. you asked for it.
 pub fn set_strict(on: bool) {
     STRICT.store(on, Ordering::Relaxed);
 }
@@ -50,7 +50,7 @@ pub(crate) fn mul(a: i64, b: i64) -> Result<i64, RuntimeError> {
     }
 }
 
-/// `MIN / -1` is the only overflowing division
+/// `MIN / -1` is the only overflowing division. the one that bites.
 #[inline(always)]
 pub(crate) fn div(a: i64, b: i64) -> Result<i64, RuntimeError> {
     if b == 0 {
@@ -62,7 +62,7 @@ pub(crate) fn div(a: i64, b: i64) -> Result<i64, RuntimeError> {
     }
 }
 
-/// `MIN % -1` is mathematically 0, so it is not an overflow
+/// `MIN % -1` is mathematically 0, so it's not an overflow. Rust panics on it anyway, so we special case it. ugh.
 #[inline(always)]
 pub(crate) fn rem(a: i64, b: i64) -> Result<i64, RuntimeError> {
     if b == 0 {
@@ -88,8 +88,8 @@ pub(crate) fn abs(a: i64) -> Result<i64, RuntimeError> {
     }
 }
 
-/// a negative exponent is a valid spg program, so it is clamped to 0; an
-/// exponent past `u32::MAX` is clamped too (any |base| >= 2 overflows long before)
+/// a negative exponent is a valid spg program, so it gets clamped to 0. an
+/// exponent past `u32::MAX` gets clamped too (any |base| >= 2 overflows way earlier)
 #[inline(always)]
 pub(crate) fn pow(a: i64, b: i64) -> Result<i64, RuntimeError> {
     let e = b.max(0).min(u32::MAX as i64) as u32;
@@ -104,7 +104,7 @@ mod tests {
     use super::*;
 
     // one test on purpose: the strict flag is global, so two tests flipping it
-    // could run in parallel and trip each other
+    // could run in parallel and wreck each other. global state is a menace.
     #[test]
     fn wraps_by_default_and_errors_in_strict() {
         set_strict(false);

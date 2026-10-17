@@ -1,11 +1,11 @@
-//! Hover and go-to-definition, read from the document's tokens (like the
-//! completion and signature help: no full resolve, so it works while the
+//! hover and go-to-definition, read from the document's tokens (like the
+//! completion and signature help. no full resolve, so it works while the
 //! buffer is half-typed).
 //!
 //! `declarations` lists everything a name can refer to in one file: functions,
-//! methods, structs and their fields, enums, `let`/`const`, and parameters.
+//! methods, structs and their fields, enums, `let`/`const`, and params.
 //! `target` picks the one a name at the cursor means: the nearest declaration
-//! before it, else a file-level one, else the file it is imported from.
+//! before it, else a file-level one, else the file it's imported from.
 
 use crate::signature::{self, read_type, Signature};
 use spg_lexer::{Token, TokenKind as T};
@@ -31,11 +31,11 @@ pub struct Decl {
     pub line: usize,
     pub col: usize,
     /// type text (`int`, `Point`, `function(int) -> int`), or the signature label
-    /// for a callable. Empty when nothing is known
+    /// for a callable. empty when nothing is known
     pub ty: String,
     /// the struct a method or field belongs to
     pub owner: Option<String>,
-    /// for callables: the parameters and return type, for signature help
+    /// for callables: the params and return type, for signature help
     pub sig: Option<Signature>,
 }
 
@@ -56,7 +56,7 @@ fn decl(name: &str, kind: Kind, tokens: &[Token], index: usize, ty: String, owne
     }
 }
 
-/// the type a `let` gets from its value when there is no annotation: literals,
+/// the type a `let` gets from its value when there's no annotation: literals,
 /// struct literals (`Point { .. }`) and lambdas / function values
 fn inferred(tokens: &[Token], i: usize) -> String {
     match kind_at(tokens, i) {
@@ -64,7 +64,7 @@ fn inferred(tokens: &[Token], i: usize) -> String {
         Some(T::Float(_)) => "float".into(),
         Some(T::Str(_)) => "string".into(),
         Some(T::Bool(_)) => "bool".into(),
-        // a lambda: its parameter TYPES, which read_type does not take from `x: T` pairs
+        // a lambda: its param TYPES, which read_type doesn't take from `x: T` pairs
         Some(T::Function) if kind_at(tokens, i + 1) == Some(&T::LParen) => {
             let Some((params, close)) = signature::read_params(tokens, i + 1) else {
                 return String::new();
@@ -81,7 +81,7 @@ fn inferred(tokens: &[Token], i: usize) -> String {
 /// every declaration in the file, in source order
 pub fn declarations(tokens: &[Token]) -> Vec<Decl> {
     let mut out = Vec::new();
-    // brace depth, and the struct bodies we are inside (name, depth of their `{`)
+    // brace depth, and the struct bodies we're inside (name, depth of their `{`)
     let mut depth = 0usize;
     let mut structs: Vec<(String, usize)> = Vec::new();
 
@@ -136,7 +136,7 @@ pub fn declarations(tokens: &[Token]) -> Vec<Decl> {
                         let kind = if owner.is_some() { Kind::Method } else { Kind::Function };
                         out.push(decl(&name, kind, tokens, name_index, sig.label(), owner.clone(), Some(sig)));
                     }
-                    // the parameters, each with its own token position
+                    // the params, each with its own token position
                     let mut j = open + 1;
                     while j < close {
                         if let (Some(T::Ident(p)), Some(T::Colon)) = (kind_at(tokens, j), kind_at(tokens, j + 1)) {
@@ -188,8 +188,8 @@ pub enum Target {
     Imported { name: String, file: String },
 }
 
-/// the struct a receiver names: `me` is the struct of the method we are in, a
-/// variable or parameter is its declared type
+/// the struct a receiver names: `me` is the struct of the method we're in, a
+/// variable or param is its declared type
 fn receiver_struct(tokens: &[Token], decls: &[Decl], receiver: &str, before: usize) -> Option<String> {
     if receiver == "me" {
         return decls
@@ -210,8 +210,8 @@ fn receiver_struct(tokens: &[Token], decls: &[Decl], receiver: &str, before: usi
     }
 }
 
-/// what the identifier at `at` refers to. After a dot it is a field or method
-/// of the receiver's struct; otherwise the nearest variable or parameter before
+/// what the identifier at `at` refers to. after a dot it's a field or method
+/// of the receiver's struct. otherwise the nearest variable or param before
 /// it, then a file-level function, struct or enum, then an import
 pub fn target(tokens: &[Token], decls: &[Decl], at: usize) -> Option<Target> {
     let name = match kind_at(tokens, at)? {
@@ -287,7 +287,7 @@ pub fn describe(d: &Decl) -> String {
     }
 }
 
-/// for a method call `recv.f(`: the method's signature and the active argument.
+/// for a method call `recv.f(`: the method's signature and the active arg.
 /// `at` is the number of tokens before the cursor, as in `signature::call_site`
 pub fn method_signature(tokens: &[Token], decls: &[Decl], at: usize) -> Option<(Signature, usize)> {
     let (callee, active) = signature::call_site(tokens, at)?;

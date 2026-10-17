@@ -1,14 +1,14 @@
-//! Out-of-line bodies of the fused array-index opcodes (`IndexGetDupLocals`,
+//! out-of-line bodies of the fused array-index opcodes (`IndexGetDupLocals`,
 //! `IndexAddConstLocals`, `Index<Add|Sub|Mul>[Float]LocalLocals`,
-//! `IndexSetLocals*`). Each one is the exact behavior of the instruction
-//! sequence it replaces, including the order of the checks, so the optimized
-//! and `--no-opt` programs fail the same way.
+//! `IndexSetLocals*`). each one is the exact behavior of the instruction
+//! sequence it replaces, check order included, so the optimized
+//! and `--no-opt` programs fail the same way. yes, I keep saying this.
 //!
-//! They are `#[inline(never)]` on purpose. `Vm::step` is one huge `match`, and
+//! they're `#[inline(never)]` on purpose. `Vm::step` is one huge `match`, and
 //! pasting these bodies into it made plain arithmetic loops 3-8% slower
-//! (measured: `loop_arith` 852 -> 922 ms) even though no index op runs in
-//! them: a bigger function means worse register allocation for every arm. A
-//! call costs a couple of ns and keeps `step` small.
+//! (measured: `loop_arith` 852 -> 922 ms). even though no index op runs in
+//! them. a bigger function = worse register allocation for every arm. a
+//! call costs a couple of ns. worth it. keeps `step` small. rust compiler, you're welcome.
 
 use crate::error::RuntimeError;
 use crate::value::Value;
@@ -30,7 +30,7 @@ fn out_of_bounds(index: i64, len: usize) -> RuntimeError {
 }
 
 /// `GetLocal(arr); GetLocal(i); Dup2; IndexGet`: pushes the array, the index and
-/// the current element.
+/// the current element. three things for the price of one.
 #[inline(never)]
 pub(crate) fn get_dup_locals(locals: &[Value], stack: &mut Vec<Value>, arr: usize, i: usize) -> Result<(), RuntimeError> {
     let index = local_int(locals, i)?;
@@ -50,7 +50,7 @@ pub(crate) fn get_dup_locals(locals: &[Value], stack: &mut Vec<Value>, arr: usiz
     Ok(())
 }
 
-/// `IndexGetDupLocals; AddConst(k); IndexSet`: `arr[idx] += k` in place.
+/// `IndexGetDupLocals; AddConst(k); IndexSet`: `arr[idx] += k`, in place.
 #[inline(never)]
 pub(crate) fn add_const_locals(locals: &[Value], arr: usize, idx: usize, k: i64) -> Result<(), RuntimeError> {
     let index = local_int(locals, idx)?;
@@ -70,9 +70,9 @@ pub(crate) fn add_const_locals(locals: &[Value], arr: usize, idx: usize, k: i64)
     }
 }
 
-/// `IndexGetDupLocals; GetLocal(x); <op>; IndexSet`: `arr[idx] OP= x` in place.
-/// Order of checks as in the sequence: the operand's type, the index's type,
-/// the array's type, the bounds, the element's type.
+/// `IndexGetDupLocals; GetLocal(x); <op>; IndexSet`: `arr[idx] OP= x`, in place.
+/// order of checks, same as the sequence: operand type, index type,
+/// array type, bounds, element type. the bounds check is the one that hurts.
 macro_rules! op_locals {
     ($name:ident, $local:ident, $variant:ident, $expected:literal, $f:expr) => {
         #[inline(never)]
@@ -109,7 +109,7 @@ pub(crate) fn set_locals_local(locals: &[Value], arr: usize, idx: usize, v: usiz
     store(locals, arr, idx, locals[v].clone())
 }
 
-/// `GetLocal(arr); GetLocal(idx); Const(c); IndexSet`: `arr[idx] = <constant>`.
+/// `GetLocal(arr); GetLocal(idx); Const(c); IndexSet`: `arr[idx] = <const>`.
 #[inline(never)]
 pub(crate) fn set_locals_const(locals: &[Value], constants: &[Value], arr: usize, idx: usize, c: usize) -> Result<(), RuntimeError> {
     store(locals, arr, idx, constants[c].clone())
@@ -117,7 +117,7 @@ pub(crate) fn set_locals_const(locals: &[Value], constants: &[Value], arr: usize
 
 #[inline(always)]
 fn store(locals: &[Value], arr: usize, idx: usize, value: Value) -> Result<(), RuntimeError> {
-    // same order as `IndexSet`: index type, then array type, then bounds
+    // same order as `IndexSet`: index type, then array type, then bounds. don't reorder it.
     let index = local_int(locals, idx)?;
     match &locals[arr] {
         Value::Array(a) => {
@@ -133,7 +133,7 @@ fn store(locals: &[Value], arr: usize, idx: usize, value: Value) -> Result<(), R
 }
 
 /// `GetLocal(idx); GetLocal(v); IndexSet` with the array already on the stack
-/// (`m[i][j] = v`).
+/// (`m[i][j] = v`). nested arrays: the usual pain, now faster.
 #[inline(never)]
 pub(crate) fn set_local_local(locals: &[Value], stack: &mut Vec<Value>, idx: usize, v: usize) -> Result<(), RuntimeError> {
     let index = local_int(locals, idx)?;
