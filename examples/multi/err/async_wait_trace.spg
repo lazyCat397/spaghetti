@@ -1,0 +1,8 @@
+// the error doesn't show up at the call. it waits for someone to ask for the result.
+function divide(n: int) -> task<int> {
+    return 10 / n
+}
+
+let r = divide(0)
+print("before wait")
+print(r.wait())              // the trace starts from inside the task, and goes up through here

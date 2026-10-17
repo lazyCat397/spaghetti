@@ -39,6 +39,8 @@ pub enum Ty {
     Optional(Box<Ty>),
     /// the type of the literal `none` on its own. fits every optional type. easygoing.
     NoneLit,
+    /// `task<T>`: the handle a `-> task<T>` call gives back. `.wait()` gets the T out.
+    Task(Box<Ty>),
 }
 
 impl Ty {
@@ -93,6 +95,7 @@ impl PartialEq for Ty {
             (Ty::Named(a), Ty::Named(b)) => a == b,
             (Ty::Function { params: p1, ret: r1 }, Ty::Function { params: p2, ret: r2 }) => p1 == p2 && r1 == r2,
             (Ty::Optional(a), Ty::Optional(b)) => a == b,
+            (Ty::Task(a), Ty::Task(b)) => a == b,
             (Ty::NoneLit, Ty::NoneLit) => true,
             (Ty::Map(k1, v1), Ty::Map(k2, v2)) => {
                 self.is_empty_map() || other.is_empty_map() || (k1 == k2 && v1 == v2)
@@ -124,6 +127,7 @@ impl std::fmt::Display for Ty {
             Ty::AnyArray => write!(f, "array<any>"),
             Ty::AnyMap => write!(f, "map<any, any>"),
             Ty::Optional(inner) => write!(f, "{}?", inner),
+            Ty::Task(inner) => write!(f, "task<{}>", inner),
             Ty::NoneLit => write!(f, "none"),
             Ty::Function { params, ret } => {
                 let list: Vec<String> = params.iter().map(|p| p.to_string()).collect();

@@ -55,6 +55,9 @@ pub enum TypeExpr {
     Function { params: Vec<TypeExpr>, ret: Box<TypeExpr> },
     /// `T?`: a value of type T, or `none`. the question mark again.
     Optional(Box<TypeExpr>),
+    /// `task<T>`: the result of a `-> task<T>` function. a `task` only means
+    /// this when followed by `<` (contextual, like `map`). the body runs at call time.
+    Task(Box<TypeExpr>),
 }
 
 // expressions. always produce a value

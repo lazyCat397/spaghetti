@@ -498,13 +498,16 @@ impl<W: Write> Server<W> {
             "let", "const", "function", "return", "if", "else", "while", "for", "in", "try", "catch", "throw", "break",
             "continue", "when", "elif", "import", "export", "from", "install", "struct", "enum", "true", "false", "none",
         ];
-        const TYPES: &[&str] = &["int", "float", "bool", "string", "void", "array", "map"];
+        const TYPES: &[&str] = &["int", "float", "bool", "string", "void", "array", "map", "task"];
         let edit_range = self.namespace_edit_range(uri, pos);
 
-        let item = |label: &str, kind: i64, detail: Option<String>| {
+        let item = |label: &str, kind: i64, detail: Option<String>, doc: Option<&str>| {
             let mut f = vec![("label", Json::str(label)), ("kind", Json::int(kind))];
             if let Some(d) = detail {
                 f.push(("detail", Json::Str(d)));
+            }
+            if let Some(d) = doc {
+                f.push(("documentation", Json::str(d)));
             }
             Json::obj(f)
         };
@@ -517,6 +520,7 @@ impl<W: Write> Server<W> {
                 ("label", Json::Str(label.clone())),
                 ("kind", Json::int(9)),
                 ("detail", Json::Str(format!("namespace {}", label))),
+                ("documentation", Json::str(spg_typecheck::docs::namespace_doc(ns).unwrap_or(""))),
                 ("insertText", Json::Str(format!("{}.", label))),
                 ("filterText", Json::Str(label.clone())),
                 (
@@ -549,15 +553,18 @@ impl<W: Write> Server<W> {
             if let Some(ins) = &m.insert {
                 f.push(("insertText", Json::Str(ins.clone())));
             }
+            if let Some(d) = m.doc {
+                f.push(("documentation", Json::str(d)));
+            }
             Json::obj(f)
         };
 
         let mut items: Vec<Json> = Vec::new();
         for k in KEYWORDS {
-            items.push(item(k, 14, None));
+            items.push(item(k, 14, None, None));
         }
         for t in TYPES {
-            items.push(item(t, 25, None));
+            items.push(item(t, 25, None, None));
         }
 
         let mut builtins: Vec<(String, String)> = spg_typecheck::builtins::builtin_signatures()
@@ -592,7 +599,8 @@ impl<W: Write> Server<W> {
                     .into_iter()
                     .filter_map(|(name, detail)| {
                         let member = name.strip_prefix(&prefix)?.to_string();
-                        Some(item(&member, 3, Some(detail)))
+                        let doc = spg_typecheck::docs::builtin_doc(&name);
+                        Some(item(&member, 3, Some(detail), doc))
                     })
                     .collect();
             }
@@ -602,7 +610,8 @@ impl<W: Write> Server<W> {
                     .into_iter()
                     .filter_map(|(name, detail)| {
                         let member = name.strip_prefix(&prefix)?.to_string();
-                        Some(item(&member, 3, Some(detail)))
+                        let doc = spg_typecheck::docs::builtin_doc(&name);
+                        Some(item(&member, 3, Some(detail), doc))
                     })
                     .collect();
             }
@@ -611,7 +620,7 @@ impl<W: Write> Server<W> {
                     .enum_variants(uri, &name)
                     .unwrap_or_default()
                     .iter()
-                    .map(|v| item(v, 20, Some(format!("{}.{}", name, v))))
+                    .map(|v| item(v, 20, Some(format!("{}.{}", name, v)), None))
                     .collect();
             }
             DotContext::Other => {
@@ -636,7 +645,7 @@ impl<W: Write> Server<W> {
             // namespaced members only show up after `ns.`. globally we
             // offer just the un-namespaced builtins (print, len, ...)
             if !name.contains('.') {
-                items.push(item(&name, 3, Some(detail)));
+                items.push(item(&name, 3, Some(detail), spg_typecheck::docs::builtin_doc(&name)));
             }
         }
         // the namespaces themselves
@@ -687,7 +696,7 @@ impl<W: Write> Server<W> {
                     };
                     if let T::Ident(name) = &w[1].kind {
                         if seen.insert(name.clone()) {
-                            items.push(item(name, kind, labels.get(name).cloned()));
+                            items.push(item(name, kind, labels.get(name).cloned(), None));
                         }
                     }
                 }
@@ -723,7 +732,7 @@ impl<W: Write> Server<W> {
                             for n in names {
                                 if seen.insert(n.clone()) {
                                     let kind = known.iter().find(|(k, _)| *k == n).map(|(_, k)| *k).unwrap_or(3);
-                                    items.push(item(&n, kind, from.as_ref().map(|f| format!("from {}", f))));
+                                    items.push(item(&n, kind, from.as_ref().map(|f| format!("from {}", f)), None));
                                 }
                             }
                             i = j;
@@ -732,7 +741,7 @@ impl<W: Write> Server<W> {
                             if let (Some(d), Some(T::Str(f))) = (&dir, tokens.get(i + 1).map(|t| &t.kind)) {
                                 for (n, kind) in self.exports_of(&d.join(f)) {
                                     if seen.insert(n.clone()) {
-                                        items.push(item(&n, kind, Some(format!("installed from {}", f))));
+                                        items.push(item(&n, kind, Some(format!("installed from {}", f)), None));
                                     }
                                 }
                             }
@@ -746,7 +755,7 @@ impl<W: Write> Server<W> {
                 // everywhere in the file (like the other names here), typed
                 for (name, ty) in crate::signature::all_params(&tokens) {
                     if seen.insert(name.clone()) {
-                        items.push(item(&name, 6, Some(format!("parameter: {}", ty))));
+                        items.push(item(&name, 6, Some(format!("parameter: {}", ty)), None));
                     }
                 }
             }
@@ -1194,16 +1203,27 @@ mod tests {
         assert!(!global.iter().any(|l| l.contains('.')), "qualified names must not be offered globally");
     }
 
+    #[test]
+    fn builtins_carry_a_one_line_description() {
+        let items = complete_at("doc_math", "@math.\n", 0, 6);
+        let abs = items.iter().find(|i| i.get("label").and_then(Json::as_str) == Some("abs")).expect("@math.abs is offered");
+        let doc = abs.get("documentation").and_then(Json::as_str).expect("abs has a description");
+        assert!(doc.contains("absolute value"), "{}", doc);
+        let ns = complete_at("doc_ns", "@\n", 0, 1);
+        let math = ns.iter().find(|i| i.get("label").and_then(Json::as_str) == Some("@math")).expect("@math is offered");
+        assert!(math.get("documentation").and_then(Json::as_str).is_some_and(|d| !d.is_empty()));
+    }
+
     /// completion result items for `text` with the cursor at (line, col)
     #[test]
-    fn ps_dot_lists_the_native_members_only_when_installed() {
-        let with_install = "install <std: \"powershell\">\nps.\n";
-        let labels = labels_of(&complete_at("ps_dot_on", with_install, 1, 3));
+    fn ps_dot_lists_the_native_members() {
+        // `@ps.` is a built-in namespace now: no install line, and the members show up right away
+        let labels = labels_of(&complete_at("ps_dot_on", "@ps.\n", 0, 4));
         for member in ["run", "runFile", "version", "isAvailable"] {
             assert!(labels.iter().any(|l| l == member), "missing {member}: {:?}", labels);
         }
-        let without = "ps.\n";
-        let labels = labels_of(&complete_at("ps_dot_off", without, 0, 3));
+        // the old spelling is not a namespace anymore
+        let labels = labels_of(&complete_at("ps_dot_off", "ps.\n", 0, 3));
         assert!(!labels.iter().any(|l| l == "run"), "{:?}", labels);
     }
 

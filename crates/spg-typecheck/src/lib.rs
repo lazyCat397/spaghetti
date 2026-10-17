@@ -1,4 +1,5 @@
 pub mod builtins;
+pub mod docs;
 pub mod error;
 pub mod typed_ast;
 pub mod checker;

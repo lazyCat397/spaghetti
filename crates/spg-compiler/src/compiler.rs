@@ -141,6 +141,7 @@ pub fn compile_with(program: TypedProgram, optimize: bool) -> Result<Program, Co
                 fc.sink = sink.clone();
                 fc.chunk.cur_loc = loc;
                 fc.chunk.arity = params.len();
+                fc.chunk.is_task = matches!(return_type, spg_typecheck::typed_ast::Ty::Task(_));
                 fc.chunk.native_sig = {
                     use spg_parser::ast::TypeExpr;
                     use spg_vm::chunk::NativeKind;
@@ -439,6 +440,11 @@ impl<'a> FunctionCompiler<'a> {
     }
 
     fn emit_implicit_return(&mut self, return_type: &Ty) {
+        // a `task<void>` body falls off the end like a void one (its wrapping is done at call time)
+        let return_type = match return_type {
+            Ty::Task(inner) => inner.as_ref(),
+            other => other,
+        };
         match return_type {
             Ty::Void => {
                 self.chunk.emit(OpCode::PushVoid);
@@ -1160,6 +1166,7 @@ impl<'a> FunctionCompiler<'a> {
         fc.sink = self.sink.clone();
         fc.chunk.cur_loc = self.chunk.cur_loc.clone();
         fc.chunk.arity = params.len();
+        fc.chunk.is_task = matches!(return_type, spg_typecheck::typed_ast::Ty::Task(_));
         fc.begin_scope();
         // captured values arrive first, then the args (see OpCode::CallValue)
         for (name, _) in captures {

@@ -1,0 +1,17 @@
+// `@task.all` waits for every task, and gives the results back in list order, not finish order
+function nap(ms: int, name: string) -> task<string> {
+    @time.sleep(ms)
+    print("${name} done")
+    return name
+}
+
+let tasks: array<task<string>> = []
+tasks.push(nap(200, "a"))
+tasks.push(nap(50, "b"))
+tasks.push(nap(100, "c"))
+let names = @task.all(tasks)
+print(names)
+print(@array.len(names))
+
+let empty: array<task<int>> = []
+print(@task.all(empty))

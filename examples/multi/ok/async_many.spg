@@ -1,0 +1,14 @@
+// three hundred tasks, one thread each. a task is just a value you can keep in an array
+function one(i: int) -> task<int> {
+    return i * 2
+}
+
+let ts: array<task<int>> = []
+for i in 0..300 {
+    ts.push(one(i))
+}
+let total = 0
+for t in ts {
+    total = total + t.wait()
+}
+print(total)

@@ -9,6 +9,7 @@ pub mod error;
 mod arith;
 mod json;
 mod powershell;
+mod sched;
 mod field_ops;
 mod index_ops;
 pub mod value;

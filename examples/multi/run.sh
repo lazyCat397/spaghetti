@@ -196,7 +196,7 @@ err ns_reservado_param.spg  "'@array' is a reserved namespace"
 err ns_reservado_struct.spg "'@str' is a reserved namespace" '(line 1, column 8)'
 err ns_no_member.spg       "'@math' is a namespace; use '@math.<name>(...)'"
 err ns_membro_inexistente.spg "namespace '@math' has no member 'foo'"
-err ns_desconhecido.spg     "unknown namespace '@mth'" '(available: @str, @array, @map, @into, @math, @time, @file, @sys, @json)' 'line 1, column 7'
+err ns_desconhecido.spg     "unknown namespace '@mth'" '(available: @str, @array, @map, @into, @math, @time, @file, @sys, @json, @task, @ps)' 'line 1, column 7'
 err ns_arroba_solto.spg     "'@' must be followed by a namespace name" 'line 1, column 14'
 err ns_sintaxe_antiga.spg   "'math.sqrt' uses the old namespace spelling" "use '@math.sqrt'"
 err ns_string_antigo.spg    "'string.len' uses the old namespace spelling; use '@str.len'"
@@ -475,18 +475,27 @@ if [ "$got" = "$want" ] && spgrun fmt --check "$fdir/x.spg" >/dev/null 2>&1; the
     fail=$((fail+1)); echo "FAIL fmt/x.spg"; echo "  got: $got"; fi
 rm -rf "$fdir"
 
-# ps.*: the no-PowerShell path (runs with an empty PATH, so it works the same on every machine)
+# @ps.*: the no-PowerShell path (runs with an empty PATH, so it works the same on every machine)
 raw=$(timeout 30 env PATH=/nonexistent "$SPG" ok/ps_missing.spg </dev/null 2>&1); code=$?
-want=$(printf 'false\nps.run: PowerShell not found (tried pwsh and powershell)')
+want=$(printf 'false\n@ps.run: PowerShell not found (tried pwsh and powershell)')
 if [ "$code" = 0 ] && [ "$raw" = "$want" ]; then pass=$((pass+1)); else
     fail=$((fail+1)); echo "FAIL ok/ps_missing.spg (exit=$code)"; echo "  got: $raw"; fi
 
 raw=$(timeout 30 env PATH=/nonexistent "$SPG" ok/ps_safe.spg </dev/null 2>&1); code=$?
-want='ps.runFile: blocked by #> safe-party: runFile only takes a .ps1 inside the script'"'"'s folder (no absolute paths, no ..)'
+want='@ps.runFile: blocked by #> safe-party: runFile only takes a .ps1 inside the script'"'"'s folder (no absolute paths, no ..)'
 if [ "$code" = 0 ] && [ "$raw" = "$want" ]; then pass=$((pass+1)); else
     fail=$((fail+1)); echo "FAIL ok/ps_safe.spg (exit=$code)"; echo "  got: $raw"; fi
-err ps_sem_install.spg "undefined variable 'ps'"
-err ps_outro_modulo.spg "undefined variable 'ps'"
+err ps_sem_arroba.spg "undefined variable 'ps'"
+
+# async: `-> task<T>` runs eagerly, `.wait()` reads the result or re-throws the error
+ok async_basic.spg "double started with 21\ncreated, not waited yet\n<task>\n43\ncaught: too big\n1"
+err async_wait_trace.spg "division by zero" "at divide (" "before wait"
+ok async_overlap.spg "a starts\nb starts\nboth started\nb done\na done\nab"
+ok async_many.spg "89700"
+ok async_all.spg "b done\nc done\na done\n[a, b, c]\n3\n[]"
+ok async_lambda.spg "say: oi\ndepois\n[11, 12]"
+ok async_unwaited.spg "nobody waits on t\nwarning: a task failed and nobody called .wait() on it: unhandled exception: boom\n  at bad (ok/async_unwaited.spg:3)"
+err async_all_error.spg "unhandled exception: boom" "at bad ("
 
 echo "multi-file: $pass ok, $fail failed"
 [ "$fail" = 0 ]

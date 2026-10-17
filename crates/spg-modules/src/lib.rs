@@ -65,7 +65,7 @@ const NATIVE_LIBS: [&str; 1] = ["powershell"];
 fn native_prelude(natives: &[String]) -> Vec<Stmt> {
     let mut stmts = Vec::new();
     if natives.iter().any(|n| n == "powershell") {
-        let source = "struct PsResult {\n    success: bool,\n    code: int,\n    output: string,\n    error: string\n}\n";
+        let source = spg_lexer::PS_RESULT_SOURCE;
         let tokens = Lexer::new(source).tokenize().expect("the PowerShell prelude lexes");
         let parsed = Parser::new(tokens).parse_program().expect("the PowerShell prelude parses");
         stmts.extend(parsed.stmts);
@@ -251,6 +251,10 @@ impl Resolver {
 
         let is_entry = path == self.entry;
         let (mut program, source) = read_and_parse(path, &self.overlay, is_entry)?;
+        // `@ps.*` needs the PsResult struct in the program. a file that uses it brings the struct in
+        if source.contains("@ps.") && !self.natives.iter().any(|n| n == "powershell") {
+            self.natives.push("powershell".to_string());
+        }
         self.sources.push((path.to_path_buf(), source));
         let is_entry = path == self.entry;
         let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
@@ -357,17 +361,13 @@ impl Resolver {
         // (so a new export in the library can't break its installers). two
         // installs giving one name different meanings is only an error if
         // the name is USED (found while renaming, below). unused = fine.
-        let mut installs_native = false;
         let mut installed: HashMap<String, (String, spg_parser::ast::Pos, String)> = HashMap::new();
         let mut ambiguous: HashMap<String, ((spg_parser::ast::Pos, String), (spg_parser::ast::Pos, String))> = HashMap::new();
         for stmt in &program.stmts {
             let Stmt::Install { from, pos, std } = stmt else { continue };
-            // native libraries live in the engine, not in stdlib/. installing one enables it
+            // native libraries live in the engine, not in stdlib/. they're built in now
+            // (`@ps.run`), so an old `install <std: "powershell">` is accepted and does nothing
             if *std && NATIVE_LIBS.contains(&from.as_str()) {
-                if !self.natives.contains(from) {
-                    self.natives.push(from.clone());
-                }
-                installs_native = true;
                 continue;
             }
             // `install <std: "name">` points at the standard library folder.
@@ -403,14 +403,6 @@ impl Resolver {
             if !ambiguous.contains_key(name) {
                 name_map.insert(name.clone(), mangled.clone());
             }
-        }
-
-        // a native namespace belongs to the file that installed it. inside that file
-        // `ps` is renamed to a name a program can't spell (`ps#powershell`), so files
-        // that didn't install it never see it. variables named `ps` there follow the rename.
-        if installs_native {
-            let map: rename::NameMap = [("ps".to_string(), "ps#powershell".to_string())].into_iter().collect();
-            rename::Renamer::new(&map).rename_program(&mut program.stmts);
         }
 
         // 3) rewrite every declaration and use to the mangled names, drop

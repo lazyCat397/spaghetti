@@ -26,6 +26,11 @@ use crate::typed_ast::Ty;
 pub enum BuiltinId {
     Print,
 
+    // ---- tasks. `t.wait()` only, the checker builds it (the result type depends on T) ----
+    TaskWait,
+    /// `@task.all(tasks)`: waits for every task, gives back their results. the checker types it
+    TaskAll,
+
     // ---- @json (text in, text out, pain) ----
     JsonStringify,
     JsonPretty,
@@ -106,7 +111,7 @@ pub enum BuiltinId {
     SysCwd,
     SysClear,
 
-    // ---- ps: PowerShell, a native namespace turned on by `install <std: "powershell">` ----
+    // ---- ps: PowerShell, a native namespace (`@ps.run(...)`) ----
     PsRun,
     PsRunFile,
     PsVersion,
@@ -445,14 +450,14 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
     add("@sys.cwd", BuiltinSig { id: BuiltinId::SysCwd, params: vec![], return_type: s.clone() });
     add("@sys.clear", BuiltinSig { id: BuiltinId::SysClear, params: vec![], return_type: Ty::Void });
 
-    // ---- ps.* (only checked when `install <std: "powershell">` is around) ----
+    // ---- ps: PowerShell, always there (`@ps.run(...)`). the result is a PsResult struct ----
     let ps_result = Ty::Named("PsResult".to_string());
-    add("ps.run", BuiltinSig { id: BuiltinId::PsRun, params: vec![s.clone()], return_type: ps_result.clone() });
-    add("ps.run", BuiltinSig { id: BuiltinId::PsRun, params: vec![s.clone(), Ty::Int], return_type: ps_result.clone() });
-    add("ps.runFile", BuiltinSig { id: BuiltinId::PsRunFile, params: vec![s.clone()], return_type: ps_result.clone() });
-    add("ps.runFile", BuiltinSig { id: BuiltinId::PsRunFile, params: vec![s.clone(), Ty::Int], return_type: ps_result });
-    add("ps.version", BuiltinSig { id: BuiltinId::PsVersion, params: vec![], return_type: s.clone() });
-    add("ps.isAvailable", BuiltinSig { id: BuiltinId::PsIsAvailable, params: vec![], return_type: Ty::Bool });
+    add("@ps.run", BuiltinSig { id: BuiltinId::PsRun, params: vec![s.clone()], return_type: ps_result.clone() });
+    add("@ps.run", BuiltinSig { id: BuiltinId::PsRun, params: vec![s.clone(), Ty::Int], return_type: ps_result.clone() });
+    add("@ps.runFile", BuiltinSig { id: BuiltinId::PsRunFile, params: vec![s.clone()], return_type: ps_result.clone() });
+    add("@ps.runFile", BuiltinSig { id: BuiltinId::PsRunFile, params: vec![s.clone(), Ty::Int], return_type: ps_result });
+    add("@ps.version", BuiltinSig { id: BuiltinId::PsVersion, params: vec![], return_type: s.clone() });
+    add("@ps.isAvailable", BuiltinSig { id: BuiltinId::PsIsAvailable, params: vec![], return_type: Ty::Bool });
     add("@sys.readLine", BuiltinSig { id: BuiltinId::SysReadLine, params: vec![], return_type: s.clone() });
     add("@sys.readAll", BuiltinSig { id: BuiltinId::SysReadAll, params: vec![], return_type: s.clone() });
 
@@ -586,6 +591,9 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
     add("@time.unix", BuiltinSig { id: BuiltinId::TimeUnix, params: vec![], return_type: Ty::Int });
     add("@time.elapsed", BuiltinSig { id: BuiltinId::TimeElapsed, params: vec![], return_type: Ty::String });
     add("@time.sleep", BuiltinSig { id: BuiltinId::TimeSleep, params: vec![Ty::Int], return_type: Ty::Void });
+
+    // ---- tasks ----
+    add("@task.all", BuiltinSig { id: BuiltinId::TaskAll, params: vec![Ty::AnyArray], return_type: Ty::AnyArray });
 
     // ---- the one global shortcut: `len` (@str.len / @array.len). the only cheat code. ----
     add("len", BuiltinSig { id: BuiltinId::Len, params: vec![Ty::String], return_type: Ty::Int });

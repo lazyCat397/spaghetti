@@ -356,6 +356,7 @@ fn from_value(v: &Value, depth: usize) -> Result<Json, String> {
     }
     Ok(match v {
         Value::Func(_) => return Err("a function has no JSON form".to_string()),
+        Value::Task(_) => return Err("a task has no JSON form (call .wait() first)".to_string()),
         Value::Nil => Json::Null,
         Value::Int(n) => Json::Number(n.to_string()),
         Value::Float(x) => {

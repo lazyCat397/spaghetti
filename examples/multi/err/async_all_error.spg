@@ -1,0 +1,8 @@
+// one task fails: `@task.all` re-throws its error, the trace points inside the task
+function bad() -> task<int> {
+    throw "boom"
+}
+
+let xs: array<task<int>> = []
+xs.push(bad())
+print(@task.all(xs))

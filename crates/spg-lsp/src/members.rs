@@ -41,11 +41,19 @@ pub struct Member {
     pub kind: i64,
     /// text to insert when it differs from `name` (struct literal fields: `name: `)
     pub insert: Option<String>,
+    /// one line on what it does, for the built-in methods (see spg_typecheck::docs)
+    pub doc: Option<&'static str>,
 }
 
 impl Decls {
     pub fn from_tokens(tokens: &[Token]) -> Decls {
         let mut d = Decls::default();
+        // a file that calls `@ps.*` gets the PsResult struct too, as the engine gives it
+        if tokens.iter().any(|t| matches!(&t.kind, T::Namespace(n) if n == "ps")) {
+            if let Ok(prelude) = spg_lexer::Lexer::new(spg_lexer::PS_RESULT_SOURCE).tokenize() {
+                d = Decls::from_tokens(&prelude);
+            }
+        }
         let depth = depths(tokens);
         for i in 0..tokens.len() {
             match &tokens[i].kind {
@@ -294,6 +302,8 @@ fn native_namespace(ty: &str) -> Option<&'static str> {
         Some("array")
     } else if ty == "map" || ty.starts_with("map<") {
         Some("map")
+    } else if ty.starts_with("task<") {
+        Some("task")
     } else {
         None
     }
@@ -304,6 +314,16 @@ fn native_namespace(ty: &str) -> Option<&'static str> {
 /// that first param
 fn native_methods(ns: &str) -> Vec<Member> {
     use spg_typecheck::typed_ast::Ty;
+    // a task has one method: `t.wait()` gives back the T. `@task.all` takes a list, not a task
+    if ns == "task" {
+        return vec![Member {
+            name: "wait".to_string(),
+            detail: "wait() -> T".to_string(),
+            kind: KIND_METHOD,
+            insert: None,
+            doc: spg_typecheck::docs::builtin_doc("@task.wait"),
+        }];
+    }
     let prefix = format!("@{}.", ns);
     let mut out: Vec<Member> = Vec::new();
     for (name, overloads) in spg_typecheck::builtins::builtin_signatures() {
@@ -321,6 +341,7 @@ fn native_methods(ns: &str) -> Vec<Member> {
             detail: format!("{}({}) -> {}", short, params.join(", "), sig.return_type),
             kind: KIND_METHOD,
             insert: None,
+            doc: spg_typecheck::docs::builtin_doc(&format!("@{}.{}", ns, short)),
         });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
@@ -330,6 +351,19 @@ fn native_methods(ns: &str) -> Vec<Member> {
 /// `let|const <head> [: T] [= expr]` at token `i`: `Some(type)` when this
 /// declares `head` (the type may be unknown), `None` when it declares
 /// something else
+/// the result type of a built-in like `@ps.run`, as the user writes it. `None` when the
+/// result depends on the arguments (`@array.pop` gives back the element type, say)
+fn builtin_return(ns: &str, name: &str) -> Option<String> {
+    use spg_typecheck::typed_ast::Ty;
+    let full = format!("@{}.{}", ns, name);
+    let (_, overloads) = spg_typecheck::builtins::builtin_signatures().into_iter().find(|(n, _)| *n == full)?;
+    let ret = &overloads.first()?.return_type;
+    match ret {
+        Ty::Any | Ty::AnyArray | Ty::AnyMap | Ty::Void => None,
+        other => Some(other.to_string()),
+    }
+}
+
 fn decl_type(tokens: &[Token], i: usize, head: &str, decls: &Decls) -> Option<Option<String>> {
     if kind(tokens, i + 1) != Some(&T::Ident(head.to_string())) {
         return None;
@@ -340,6 +374,12 @@ fn decl_type(tokens: &[Token], i: usize, head: &str, decls: &Decls) -> Option<Op
             Some(if ty.is_empty() { None } else { Some(ty) })
         }
         Some(T::Eq) => {
+            // `let r = @ps.run(...)`: a built-in call gives its result type
+            if let (Some(T::Namespace(ns)), Some(T::Dot), Some(T::Ident(f)), Some(T::LParen)) =
+                (kind(tokens, i + 3), kind(tokens, i + 4), kind(tokens, i + 5), kind(tokens, i + 6))
+            {
+                return Some(builtin_return(ns, f));
+            }
             let found = match (kind(tokens, i + 3), kind(tokens, i + 4)) {
                 (Some(T::Ident(a)), Some(T::LBrace)) if decls.structs.contains_key(a) => Some(a.clone()),
                 (Some(T::Ident(a)), Some(T::LParen)) => decls.functions.get(a).cloned(),
@@ -463,7 +503,7 @@ fn members_of(ty: &str, decls: &Decls) -> Vec<Member> {
     out.retain(|m| !m.name.starts_with('_'));
     let mut shortcut = |name: &str, detail: &str| {
         if !out.iter().any(|m| m.name == name) {
-            out.push(Member { name: name.to_string(), detail: detail.to_string(), kind: KIND_METHOD, insert: None });
+            out.push(Member { name: name.to_string(), detail: detail.to_string(), kind: KIND_METHOD, insert: None, doc: None });
         }
     };
     shortcut("string", "text of this value (@into.string)");
@@ -499,15 +539,15 @@ fn members_of_own(ty: &str, decls: &Decls) -> Vec<Member> {
                 name,
                 kind: KIND_METHOD,
                 insert: None,
-            })
+             doc: None, })
             .collect();
     }
     if let Some(info) = decls.structs.get(ty) {
         for (n, t) in &info.fields {
-            out.push(Member { name: n.clone(), detail: t.clone(), kind: KIND_FIELD, insert: None });
+            out.push(Member { name: n.clone(), detail: t.clone(), kind: KIND_FIELD, insert: None, doc: None });
         }
         for (n, sig) in &info.methods {
-            out.push(Member { name: n.clone(), detail: format!("{}{}", n, sig), kind: KIND_METHOD, insert: None });
+            out.push(Member { name: n.clone(), detail: format!("{}{}", n, sig), kind: KIND_METHOD, insert: None, doc: None });
         }
     } else if decls.enums.contains(ty) {
         out.push(Member {
@@ -515,7 +555,7 @@ fn members_of_own(ty: &str, decls: &Decls) -> Vec<Member> {
             detail: "the value this variant was declared with".to_string(),
             kind: KIND_FIELD,
             insert: None,
-        });
+         doc: None, });
     }
     out
 }
@@ -619,7 +659,7 @@ pub fn literal_fields(tokens: &[Token], at: usize, decls: &Decls) -> Option<Vec<
                 detail: t.clone(),
                 kind: KIND_FIELD,
                 insert: Some(format!("{}: ", n)),
-            })
+             doc: None, })
             .collect(),
     )
 }
@@ -684,6 +724,24 @@ mod tests {
         assert!(names(&after_dot(&t, at, &["l".into(), "a".into(), "x".into()], &d)).iter().any(|n| n == "abs"), "an int field offers its @math methods");
         assert_eq!(names(&after_dot(&t, at, &["c".into()], &d)), ["value", "string"]);
         assert_eq!(names(&after_dot(&t, at, &["Color".into(), "Red".into()], &d)), ["value", "string"]);
+    }
+
+    #[test]
+    fn a_ps_result_offers_its_fields() {
+        // `@ps.run` gives back a PsResult, and its fields are there with no install line
+        let (t, at, d) = setup("let r = @ps.run(\"x\")\nr.\n", 1, 2);
+        let got = names(&after_dot(&t, at, &["r".into()], &d));
+        for want in ["success", "code", "output", "error"] {
+            assert!(got.iter().any(|n| n == want), "PsResult misses {}: {:?}", want, got);
+        }
+    }
+
+    #[test]
+    fn a_task_offers_wait_and_the_any_value_conversion() {
+        // `t.wait()` is the task's own method. `string` is the conversion every value gets, as with maps.
+        // `@task.all` takes a list, so it stays out
+        let (t, at, d) = setup("let k: task<int> = 0\nk.\n", 1, 2);
+        assert_eq!(names(&after_dot(&t, at, &["k".into()], &d)), ["wait", "string"]);
     }
 
     #[test]

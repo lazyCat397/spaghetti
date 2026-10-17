@@ -149,9 +149,31 @@ pub enum Value {
     /// a function value: a function (named or lambda) plus the values its
     /// lambda captured. shared like arrays, so copying copies a pointer
     Func(Rc<Closure>),
+    /// a `task<T>`: the outcome of a `-> task<T>` call. see `TaskCell`
+    Task(Rc<TaskCell>),
     /// `none`: the absent value of an optional type (`T?`). nothing here, nowhere.
     Nil,
     Void,
+}
+
+/// the outcome of a `-> task<T>` call. a task starts at once (the body runs until it
+/// blocks or ends), and `.wait()` reads the outcome. a failed task re-throws its
+/// error (and trace) there.
+#[derive(Debug)]
+pub struct TaskCell {
+    /// the task's thread id (see `sched`). waiting on it means waiting for this id
+    pub id: u64,
+    /// `None` while the task is still running (or blocked). set once, right before it finishes
+    pub outcome: RefCell<Option<TaskOutcome>>,
+    /// has anyone called `.wait()` (or `@task.all`) on it. a failed task nobody waited on gets a warning
+    pub waited: std::cell::Cell<bool>,
+}
+
+#[derive(Debug, Clone)]
+pub enum TaskOutcome {
+    Done(Value),
+    /// the error, and the trace it had when the task body gave up on it
+    Failed(crate::error::RuntimeError, Vec<crate::vm::TraceFrame>, usize),
 }
 
 /// the code of a function value: an index into `Program::functions`, and the
@@ -174,6 +196,7 @@ impl Value {
             Value::Struct(_) => "struct",
             Value::Enum(..) => "enum",
             Value::Func(_) => "function",
+            Value::Task(_) => "task",
             Value::Void => "void",
             Value::Nil => "none",
         }
@@ -263,6 +286,7 @@ impl fmt::Display for Value {
             Value::Void => write!(f, "void"),
             Value::Nil => write!(f, "none"),
             Value::Func(_) => write!(f, "<function>"),
+            Value::Task(_) => write!(f, "<task>"),
             Value::Enum(def, variant) => ENUM_DEFS.with(|d| {
                 match d.borrow().get(*def as usize).and_then(|e| e.variants.get(*variant as usize)) {
                     Some(name) => write!(f, "{}", name),

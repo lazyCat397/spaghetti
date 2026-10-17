@@ -1,2 +1,0 @@
-// `ps` only exists after `install <std: "powershell">`
-print(ps.version())

@@ -1,7 +1,11 @@
 //! The VM. A dumb loop over Vec<OpCode>. Synchronous on purpose.
 //! Threads? Later. Maybe. Don't ask me at 3am.
 
+use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
+
+use crate::sched::{Sched, Unsend};
 
 use crate::builtins::call_builtin_on_stack;
 use crate::field_ops;
@@ -9,7 +13,10 @@ use crate::index_ops;
 use crate::chunk::{Chunk, NativeKind, OpCode, Program};
 use crate::arith;
 use crate::error::RuntimeError;
-use crate::value::{Closure, Value};
+use crate::value::{Closure, TaskCell, TaskOutcome, Value};
+
+/// stack for a task's thread. the program's own thread has 1 GiB, a task gets this much.
+const TASK_STACK: usize = 256 * 1024 * 1024;
 
 /// One function call. Locals get their own Vec per frame.
 /// The operand stack is ONE shared Vec for the whole call chain, borrowed
@@ -66,6 +73,10 @@ pub struct Vm<'p> {
     native: Option<Box<dyn NativeCalls>>,
     /// how many frames are running right now (every spg call is a native recursion, yay)
     depth: usize,
+    /// who gets to run spg code right now. see `sched`
+    sched: Arc<Sched>,
+    /// tasks that ended with an error, for the unwaited-failure warning
+    failed_tasks: Vec<Rc<TaskCell>>,
 }
 
 /// Max spg call depth. The CLI gives the VM a 1 GiB stack, so this fits fine.
@@ -113,6 +124,8 @@ impl<'p> Vm<'p> {
             trace_omitted: 0,
             depth: 0,
             native: None,
+            sched: Arc::new(Sched::new()),
+            failed_tasks: Vec::new(),
         }
     }
 
@@ -201,6 +214,8 @@ impl<'p> Vm<'p> {
         let result = self.run_chunk(&self.program.main, Vec::new(), &mut value_stack);
         // buffered `print` output has to land before the caller reports anything. obviously.
         crate::builtins::flush_stdout();
+        // tasks still running or waiting in line are dropped here. they never get the baton again
+        self.sched.shutdown();
         result
     }
 
@@ -212,10 +227,10 @@ impl<'p> Vm<'p> {
     /// `value_stack` gets passed by ref instead of living
     /// on `Vm` itself, which avoids a borrow fight on the recursive
     /// call. the borrow checker and I have an understanding.
-    /// `ps.run(cmd [, timeout])` and `ps.runFile(path [, timeout])`: runs PowerShell and
+    /// `@ps.run(cmd [, timeout])` and `@ps.runFile(path [, timeout])`: runs PowerShell and
     /// builds the `PsResult` the program declared (success, code, output, error). in that order, don't swap.
     fn ps_run(&self, frame: &mut CallFrame<'p, '_>, id: spg_typecheck::BuiltinId, argc: usize) -> Result<Value, RuntimeError> {
-        let function = if id == spg_typecheck::BuiltinId::PsRunFile { "ps.runFile" } else { "ps.run" };
+        let function = if id == spg_typecheck::BuiltinId::PsRunFile { "@ps.runFile" } else { "@ps.run" };
         let mut args: Vec<Value> = (0..argc).map(|_| frame.pop()).collect::<Result<_, _>>()?;
         args.reverse();
         let text = match args.first() {
@@ -266,7 +281,113 @@ impl<'p> Vm<'p> {
         Ok(Value::Struct(Rc::new(std::cell::RefCell::new((def, values)))))
     }
 
+    /// every call goes through here. a `-> task<T>` function runs its body right
+    /// now (tasks are eager), then the result, or the error and its trace, goes
+    /// into the task. the caller never sees the error itself: `.wait()` throws it.
     fn run_chunk(&mut self, chunk: &'p Chunk, args: Vec<Value>, value_stack: &mut Vec<Value>) -> Result<Value, RuntimeError> {
+        if !chunk.is_task {
+            return self.run_chunk_body(chunk, args, value_stack);
+        }
+        self.spawn_task(chunk, args)
+    }
+
+    /// starts a task: its own thread runs the body, and the creator waits right here
+    /// until the task blocks or ends. eager, like before, just with its own stack now.
+    fn spawn_task(&mut self, chunk: &'p Chunk, args: Vec<Value>) -> Result<Value, RuntimeError> {
+        let creator = Sched::current();
+        let id = self.sched.new_id();
+        let cell = Rc::new(TaskCell { id, outcome: RefCell::new(None), waited: std::cell::Cell::new(false) });
+        // raw pointers, so the thread can use the VM. see `Unsend`: the baton makes it fine.
+        let payload = Unsend((
+            self as *mut Vm<'p> as *mut (),
+            chunk as *const Chunk as *const (),
+            args,
+            Rc::clone(&cell),
+        ));
+        let sched = Arc::clone(&self.sched);
+        let spawned = std::thread::Builder::new().stack_size(TASK_STACK).spawn(move || {
+            let (vm_ptr, chunk_ptr, args, cell) = payload.into_inner();
+            Sched::set_current(id);
+            sched.wait_turn(id);
+            // SAFETY: only the baton holder gets here, and the VM outlives every task
+            // (the program ends only after `shutdown`, which keeps the tasks parked).
+            let vm = unsafe { &mut *(vm_ptr as *mut Vm<'_>) };
+            let chunk = unsafe { &*(chunk_ptr as *const Chunk) };
+            let mut stack: Vec<Value> = Vec::with_capacity(64);
+            let outcome = match vm.run_chunk_body(chunk, args, &mut stack) {
+                Ok(v) => TaskOutcome::Done(v),
+                Err(e) => {
+                    let trace = std::mem::take(&mut vm.trace);
+                    let omitted = std::mem::take(&mut vm.trace_omitted);
+                    TaskOutcome::Failed(e, trace, omitted)
+                }
+            };
+            if matches!(outcome, TaskOutcome::Failed(..)) {
+                vm.failed_tasks.push(Rc::clone(&cell));
+            }
+            *cell.outcome.borrow_mut() = Some(outcome);
+            drop(cell); // still holding the baton: the Rc count is safe to touch
+            sched.finish(id);
+        });
+        if spawned.is_err() {
+            // nothing started, nothing handed over. the creator keeps the baton.
+            return Err(RuntimeError::Process { function: "task", reason: "could not start a thread".to_string() });
+        }
+        self.sched.handoff(creator, id);
+        self.sched.wait_turn(creator);
+        Ok(Value::Task(cell))
+    }
+
+    /// runs `f` with the baton given away: other tasks run while this one blocks.
+    fn blocking<T>(&self, f: impl FnOnce() -> T) -> T {
+        let me = Sched::current();
+        self.sched.release();
+        let out = f();
+        self.sched.reacquire(me);
+        out
+    }
+
+    /// failed tasks that nobody ever waited on. their errors would vanish otherwise
+    pub fn take_unwaited_failures(&mut self) -> Vec<(RuntimeError, (Vec<TraceFrame>, usize))> {
+        let mut out = Vec::new();
+        for cell in std::mem::take(&mut self.failed_tasks) {
+            if cell.waited.get() {
+                continue;
+            }
+            if let Some(TaskOutcome::Failed(e, trace, omitted)) = cell.outcome.borrow().clone() {
+                out.push((e, (trace, omitted)));
+            }
+        }
+        out
+    }
+
+    /// `.wait()`: the value of a finished task. a failed one re-throws its error
+    /// here, with the trace it had in the task, so the caller's frames go on top.
+    fn task_wait(&mut self, task: Value) -> Result<Value, RuntimeError> {
+        let found = task.type_name();
+        let Value::Task(cell) = task else {
+            return Err(RuntimeError::TypeMismatch { expected: "task", found });
+        };
+        cell.waited.set(true);
+        if cell.outcome.borrow().is_none() {
+            // still running (or blocked): let the others go until it's done. nothing is lost:
+            // a task only finishes while holding the baton, so it can't slip past us.
+            let me = Sched::current();
+            self.sched.release_until_finished(cell.id);
+            self.sched.reacquire(me);
+        }
+        let outcome = cell.outcome.borrow().clone().expect("a finished task has an outcome");
+        match outcome {
+            TaskOutcome::Done(v) => Ok(v),
+            TaskOutcome::Failed(e, trace, omitted) => {
+                self.trace = trace;
+                self.trace_omitted = omitted;
+                Err(e)
+            }
+        }
+    }
+
+    fn run_chunk_body(&mut self, chunk: &'p Chunk, args: Vec<Value>, value_stack: &mut Vec<Value>) -> Result<Value, RuntimeError> {
         if self.depth >= MAX_CALL_DEPTH {
             return Err(RuntimeError::StackOverflow { limit: MAX_CALL_DEPTH });
         }
@@ -672,6 +793,38 @@ impl<'p> Vm<'p> {
 
             OpCode::CallBuiltin { id, argc } if matches!(id, spg_typecheck::BuiltinId::PsRun | spg_typecheck::BuiltinId::PsRunFile) => {
                 let value = self.ps_run(frame, id, argc)?;
+                frame.push(value);
+            }
+            // `@time.sleep` gives the baton away while it sleeps, so other tasks can run
+            OpCode::CallBuiltin { id: spg_typecheck::BuiltinId::TimeSleep, .. } => {
+                let ms = match frame.pop()? {
+                    Value::Int(n) => n,
+                    other => return Err(RuntimeError::TypeMismatch { expected: "int", found: other.type_name() }),
+                };
+                if ms < 0 {
+                    return Err(RuntimeError::NegativeSleep(ms));
+                }
+                crate::builtins::flush_stdout();
+                self.blocking(|| std::thread::sleep(std::time::Duration::from_millis(ms as u64)));
+                frame.push(Value::Void);
+            }
+            OpCode::CallBuiltin { id: spg_typecheck::BuiltinId::TaskAll, .. } => {
+                let tasks = frame.pop()?;
+                let Value::Array(items) = tasks else {
+                    return Err(RuntimeError::TypeMismatch { expected: "array", found: tasks.type_name() });
+                };
+                // all of them are already running. waiting in order just collects the results,
+                // and the first failure (in list order) is the one that re-throws
+                let list: Vec<Value> = items.borrow().clone();
+                let mut results = Vec::with_capacity(list.len());
+                for task in list {
+                    results.push(self.task_wait(task)?);
+                }
+                frame.push(Value::Array(Rc::new(RefCell::new(results))));
+            }
+            OpCode::CallBuiltin { id: spg_typecheck::BuiltinId::TaskWait, .. } => {
+                let task = frame.pop()?;
+                let value = self.task_wait(task)?;
                 frame.push(value);
             }
             OpCode::CallBuiltin { id, argc } => call_builtin_on_stack(frame.value_stack, id, argc)?,

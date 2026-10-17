@@ -1,0 +1,12 @@
+// two sleeping tasks overlap: `a` naps for 200 ms, `b` for 50. the total is about 200, not 250
+function nap(ms: int, name: string) -> task<string> {
+    print("${name} starts")
+    @time.sleep(ms)
+    print("${name} done")
+    return name
+}
+
+let a = nap(200, "a")
+let b = nap(50, "b")
+print("both started")
+print(a.wait() + b.wait())

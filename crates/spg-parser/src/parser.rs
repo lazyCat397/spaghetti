@@ -1018,6 +1018,12 @@ impl Parser {
                 self.expect(TokenKind::Gt, "'>' (map<K, V>)")?;
                 Ok(TypeExpr::Map(Box::new(key), Box::new(value)))
             }
+            TokenKind::Ident(name) if name == "task" && self.check(&TokenKind::Lt) => {
+                self.advance(); // '<'
+                let inner = self.parse_type_expr()?;
+                self.expect(TokenKind::Gt, "'>' (task<T>)")?;
+                Ok(TypeExpr::Task(Box::new(inner)))
+            }
             TokenKind::Ident(name) => Ok(TypeExpr::Named(name)),
             other => {
                 let t = self.peek();

@@ -123,7 +123,7 @@
       ]
     },
     "types": {
-      "match": "\\b(int|float|bool|string|void|array)\\b|\\bmap\\b(?=\\s*<)",
+      "match": "\\b(int|float|bool|string|void|array)\\b|\\bmap\\b(?=\\s*<)|\\btask\\b(?=\\s*<)",
       "name": "support.type.primitive.spg"
     },
     "constants": {
@@ -141,7 +141,7 @@
     "namespaces": {
       "patterns": [
         {
-          "match": "(?<![.A-Za-z0-9_@])(@(?:str|array|map|into|math|time|file|sys|json))(\\.)([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
+          "match": "(?<![.A-Za-z0-9_@])(@(?:str|array|map|into|math|time|file|sys|json|task|ps))(\\.)([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
           "captures": {
             "1": { "name": "entity.name.namespace.spg" },
             "2": { "name": "punctuation.accessor.spg" },
@@ -149,7 +149,7 @@
           }
         },
         {
-          "match": "(?<![.A-Za-z0-9_@])@(?:str|array|map|into|math|time|file|sys|json)\\b(?=\\s*\\.)",
+          "match": "(?<![.A-Za-z0-9_@])@(?:str|array|map|into|math|time|file|sys|json|task|ps)\\b(?=\\s*\\.)",
           "name": "entity.name.namespace.spg"
         }
       ]

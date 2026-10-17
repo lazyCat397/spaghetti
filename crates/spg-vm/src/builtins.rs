@@ -585,9 +585,12 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             Value::Void
         }
         SysReadLine => Value::String(Rc::new(read_stdin_line("@sys.readLine")?)),
-        // ps.run / ps.runFile build a PsResult, which needs the program. the VM does those.
+        // @ps.run / @ps.runFile build a PsResult, which needs the program. the VM does those.
+        // `t.wait()` is handled in the VM loop (it may re-throw a task error). never gets here.
+        TaskWait => unreachable!("@task.wait is handled by the VM loop"),
+        TaskAll => unreachable!("@task.all is handled by the VM loop"),
         PsRun | PsRunFile => {
-            return Err(RuntimeError::Process { function: "ps.run", reason: "internal: ps.run is run by the VM".to_string() })
+            return Err(RuntimeError::Process { function: "@ps.run", reason: "internal: @ps.run is run by the VM".to_string() })
         }
         PsVersion => Value::String(Rc::new(crate::powershell::version()?)),
         PsIsAvailable => Value::Bool(crate::powershell::is_available()),
@@ -901,15 +904,8 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
         // "3s 250ms", "1h 2m". 
         TimeElapsed => Value::String(Rc::new(format_duration(program_start().elapsed().as_nanos()))),
         // @time.sleep(ms): blocks the script right here. like a wait(), but worse.
-        TimeSleep => {
-            let ms = as_int(args.remove(0));
-            if ms < 0 {
-                return Err(RuntimeError::NegativeSleep(ms));
-            }
-            flush_stdout();
-            std::thread::sleep(Duration::from_millis(ms as u64));
-            Value::Void
-        }
+        // `@time.sleep` is handled in the VM loop, where it can give the baton away. never gets here.
+        TimeSleep => unreachable!("@time.sleep is handled by the VM loop"),
     })
 }
 

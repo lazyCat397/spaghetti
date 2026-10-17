@@ -401,6 +401,8 @@ pub struct Chunk {
     /// param and return kinds, when all of them are `int`, `float` or `bool`
     /// (set by the compiler). only these can run as native (spg-jit). the rest suffer in the VM.
     pub native_sig: Option<(Vec<NativeKind>, NativeKind)>,
+    /// a `-> task<T>` function: its call hands back a task (see `TaskCell`), not the T
+    pub is_task: bool,
 }
 
 impl Chunk {
@@ -414,6 +416,7 @@ impl Chunk {
             num_locals: 0,
             arity: 0,
             native_sig: None,
+            is_task: false,
         }
     }
 

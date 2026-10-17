@@ -106,6 +106,11 @@ fn read_type_base(tokens: &[Token], i: usize) -> (String, usize) {
             let after = if kind(tokens, after) == Some(&T::Gt) { after + 1 } else { after };
             (format!("map<{}, {}>", key, value), after)
         }
+        Some(T::Ident(n)) if n == "task" && kind(tokens, i + 1) == Some(&T::Lt) => {
+            let (inner, after) = read_type(tokens, i + 2);
+            let after = if kind(tokens, after) == Some(&T::Gt) { after + 1 } else { after };
+            (format!("task<{}>", inner), after)
+        }
         Some(T::Ident(n)) => (n.clone(), i + 1),
         Some(T::TypeInt) => ("int".into(), i + 1),
         Some(T::TypeFloat) => ("float".into(), i + 1),

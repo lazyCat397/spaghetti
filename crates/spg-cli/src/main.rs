@@ -228,6 +228,11 @@ fn execute_program(bytecode: &Program, spec: &spg_lexer::FileSpec, program_args:
     let start = std::time::Instant::now();
     let result = vm.run();
     let elapsed = start.elapsed();
+    // a failed task nobody waited on: its error would vanish, so say so. the exit code doesn't change
+    for (e, trace) in vm.take_unwaited_failures() {
+        eprintln!("warning: a task failed and nobody called .wait() on it: {}", e);
+        print_trace(trace);
+    }
     if let Err(e) = result {
         // `@sys.exit(code)` is the program picking its exit code, not a failure
         if let spg_vm::RuntimeError::Exit { code } = e {

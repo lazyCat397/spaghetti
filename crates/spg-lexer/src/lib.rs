@@ -9,7 +9,11 @@ pub use token::{Token, TokenKind};
 /// because `@` can never be part of an identifier, a namespace can never
 /// collide with anything the user declares. `struct @math {}` is a lex-level
 /// namespace token in a name position, reported as a reserved-name error. don't.
-pub const NAMESPACES: [&str; 9] = ["str", "array", "map", "into", "math", "time", "file", "sys", "json"];
+/// the struct every `@ps.*` call returns. the engine injects it into a program that
+/// uses `@ps.` (spg-modules), and the editor reads the same text for completions
+pub const PS_RESULT_SOURCE: &str = "struct PsResult {\n    success: bool,\n    code: int,\n    output: string,\n    error: string\n}\n";
+
+pub const NAMESPACES: [&str; 11] = ["str", "array", "map", "into", "math", "time", "file", "sys", "json", "task", "ps"];
 
 pub fn is_namespace(name: &str) -> bool {
     NAMESPACES.contains(&name)

@@ -532,6 +532,8 @@ impl Checker {
                     self.check_map_call(sig.id, &name, &arg_types, pos)?
                 } else if sig.id.is_array_checked() {
                     self.check_array_call(sig.id, &name, &arg_types, pos)?
+                } else if sig.id == BuiltinId::TaskAll {
+                    self.check_task_all(&name, &arg_types, pos)?
                 } else {
                     resolve_wildcard_return(&sig.return_type, &sig.params, &arg_types)
                 };
@@ -647,6 +649,15 @@ impl Checker {
                 pos: pos.clone(),
             });
             return None;
+        }
+        // `t.wait()`: the value of a task. the result type is the task's own T
+        if let (Ty::Task(inner), "wait", true) = (typed_object.ty().clone(), method, args.is_empty()) {
+            return Some(TypedExpr::Call {
+                callee: Box::new(TypedExpr::Ident { name: "@task.wait".to_string(), ty: Ty::Void }),
+                args: vec![typed_object],
+                ty: *inner,
+                builtin: Some(BuiltinId::TaskWait),
+            });
         }
         // `s.len()`, `xs.push(1)`, `m.has(k)`, `n.abs()`, `f.sqrt()`: the methods of a
         // value are the builtins of the method namespaces that take it first
@@ -1173,12 +1184,17 @@ impl Checker {
                 let saved_loop_depth = self.loop_depth;
                 self.loop_depth = 0;
                 let saved_return = self.current_return.take();
+                // a `-> task<T>` body returns a plain T: the task wrapping happens at call time
+                let body_return = match &expected_return {
+                    Ty::Task(inner) => inner.as_ref().clone(),
+                    other => other.clone(),
+                };
                 if !self.uninferrable_functions.contains(name) {
-                    self.current_return = Some(expected_return.clone());
+                    self.current_return = Some(body_return.clone());
                 }
                 let typed_body = self.check_block(body);
                 self.current_return = saved_return;
-                self.check_all_paths_return(&body.stmts, &expected_return, name, pos);
+                self.check_all_paths_return(&body.stmts, &body_return, name, pos);
                 self.loop_depth = saved_loop_depth;
 
                 self.pop_scope();
@@ -1509,6 +1525,28 @@ impl Checker {
     /// other array) must agree with the array's type. `fill`/`concat` know
     /// their own result type. an `array<void>` (the unannotated `[]`) accepts
     /// any element, same as `push` always did. chaos, but polite.
+    /// `@task.all(tasks)`: the tasks must be an `array<task<T>>`, and the result is an `array<T>`
+    fn check_task_all(&mut self, name: &str, args: &[&Ty], pos: &p::Pos) -> Option<Ty> {
+        match args[0] {
+            Ty::Array(elem) if matches!(**elem, Ty::Void) => Some(Ty::Array(Box::new(Ty::Void))),
+            Ty::Array(elem) => match elem.as_ref() {
+                Ty::Task(inner) => Some(Ty::Array(inner.clone())),
+                _ => None,
+            },
+            _ => None,
+        }
+        .or_else(|| {
+            self.errors.push(TypeError::ArgTypeMismatch {
+                function_name: name.to_string(),
+                param_index: 0,
+                expected: Ty::Array(Box::new(Ty::Task(Box::new(Ty::Any)))),
+                found: args[0].clone(),
+                pos: pos.clone(),
+            });
+            None
+        })
+    }
+
     fn check_array_call(&mut self, id: BuiltinId, name: &str, args: &[&Ty], pos: &p::Pos) -> Option<Ty> {
         let mismatch = |errors: &mut Vec<TypeError>, i: usize, expected: &Ty| {
             errors.push(TypeError::ArgTypeMismatch {
@@ -1792,14 +1830,6 @@ impl Checker {
                 }
                 let name = match callee.as_ref() {
                     Expr::Ident(n, _) => n.clone(),
-                    // `ps.run(...)`: the native namespace of a file that installed PowerShell
-                    // (the resolver renames its `ps` to `ps#powershell`. see spg-modules)
-                    Expr::Field { object, field, .. }
-                        if matches!(object.as_ref(), Expr::Ident(ns, _) if ns == "ps#powershell")
-                            && self.lookup_var("ps#powershell").is_none() =>
-                    {
-                        format!("ps.{}", field)
-                    }
                     // `math.sqrt(x)`: the pre-`@` namespace spelling. only when
                     // `math` isn't a variable the user declared (a struct
                     // field holding... nothing callable, but `math.x` is a
@@ -2030,10 +2060,15 @@ impl Checker {
 
                 let saved_loop_depth = self.loop_depth;
                 self.loop_depth = 0;
-                let saved_return = self.current_return.replace(ret.clone());
+                // `-> task<T>`: the body returns a plain T, the task wrapping happens at call time
+                let body_return = match &ret {
+                    Ty::Task(inner) => inner.as_ref().clone(),
+                    other => other.clone(),
+                };
+                let saved_return = self.current_return.replace(body_return.clone());
                 let typed_body = self.check_block(body);
                 self.current_return = saved_return;
-                self.check_all_paths_return(&body.stmts, &ret, "<lambda>", pos);
+                self.check_all_paths_return(&body.stmts, &body_return, "<lambda>", pos);
                 self.loop_depth = saved_loop_depth;
 
                 self.pop_scope();
@@ -2310,6 +2345,7 @@ pub fn resolve_type_expr(t: &TypeExpr) -> Ty {
             ret: Box::new(resolve_type_expr(ret)),
         },
         TypeExpr::Optional(inner) => Ty::Optional(Box::new(resolve_type_expr(inner))),
+        TypeExpr::Task(inner) => Ty::Task(Box::new(resolve_type_expr(inner))),
     }
 }
 

@@ -1,0 +1,25 @@
+// `-> task<T>` runs its body right at the call. eager, no event loop. nice and boring.
+function double(n: int) -> task<int> {
+    print("double started with ${n}")
+    return n * 2
+}
+
+function failIfBig(n: int) -> task<int> {
+    if (n > 1) {
+        throw "too big"
+    }
+    return n
+}
+
+let t = double(21)            // the body already ran. the task just holds the result
+print("created, not waited yet")
+print(t)                      // <task>
+print(t.wait() + 1)           // 43
+
+let f = failIfBig(5)
+try {
+    print(f.wait())           // the error re-throws HERE, not at the call
+} catch (e) {
+    print("caught: ${e}")
+}
+print(failIfBig(1).wait())    // 1

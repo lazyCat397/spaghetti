@@ -1,0 +1,2 @@
+// `ps` alone isn't a namespace anymore: it's `@ps`, like every built-in
+print(ps.version())

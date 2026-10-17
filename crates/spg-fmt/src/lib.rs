@@ -225,8 +225,8 @@ fn needs_space(prev: &Atom, next: &Atom, prev_unary: bool, generic: usize) -> bo
     if n == "[" {
         return !matches!(prev.class, Class::Ident | Class::Namespace) && !matches!(p, ")" | "]");
     }
-    // generic brackets: array<int>, map<string, int>
-    if n == "<" && (p == "array" || p == "map") {
+    // generic brackets: array<int>, map<string, int>, task<int>
+    if n == "<" && (p == "array" || p == "map" || p == "task") {
         return false;
     }
     if (p == "<" || n == ">") && generic > 0 {
@@ -300,7 +300,7 @@ pub fn format_source(src: &str) -> String {
                     ")" | "]" => paren -= 1,
                     _ => {}
                 }
-                if atom.text == "<" && prev.as_ref().is_some_and(|p| p.text == "array" || p.text == "map") {
+                if atom.text == "<" && prev.as_ref().is_some_and(|p| matches!(p.text.as_str(), "array" | "map" | "task")) {
                     generic += 1;
                 } else if atom.text == ">" && generic > 0 {
                     generic -= 1;
