@@ -10,27 +10,29 @@ SPG=${SPG:-../../target/release/spg}
 norm() { sed -E 's#[^ ()]*(err|ok)[\\/]#\1/#g'; }
 # the normalizer itself: Windows-style paths (with and without the \\?\ prefix) must match the expectations
 if [ "$(printf '%s' 'at f (C:\a\b\err\x.spg:2) and \\?\C:\a\err\y.spg, keep a\nb' | norm)" != 'at f (err/x.spg:2) and err/y.spg, keep a\nb' ]; then
-    echo "FAIL norm: the path normalizer changed the wrong text"; exit 1
+    printf "\n"; echo "FAIL norm: the path normalizer changed the wrong text"; exit 1
 fi
 spgrun() {   # stdin: a pipe from the caller is passed through; a terminal is cut off (a program that reads input would otherwise wait on the keyboard for the whole 30 s)
     if [ -t 0 ]; then timeout 30 "$SPG" "$@" </dev/null; else timeout 30 "$SPG" "$@"; fi
 }   # a hung program (infinite loop) becomes a clean FAIL (exit 124), not a stuck suite
 exec </dev/null   # no test may wait on the keyboard (tests that need input pipe it in)
 pass=0; fail=0
+TOTAL=$(( $(grep -cE "^(ok|err|exact1|lines|diag|exit124|check) " run.sh) + $(ls ok/*.spg ../*.spg 2>/dev/null | wc -l) ))
+tick() { printf "\r[progress] %d passed out of %d, %d failed   " "$pass" "$TOTAL" "$fail"; }
 
 ok() {   # ok <file> <expected output, with \n>
     raw=$(spgrun "ok/$1" 2>&1); code=$?; got=$(printf '%s' "$raw" | norm)
     want=$(printf "$2")
-    if [ "$code" = 0 ] && [ "$got" = "$want" ]; then pass=$((pass+1)); else
-        fail=$((fail+1)); echo "FAIL ok/$1 (exit=$code)"; echo "  want: $(echo "$want" | tr '\n' '|')"; echo "  got:  $(echo "$got" | tr '\n' '|')"; fi
+    if [ "$code" = 0 ] && [ "$got" = "$want" ]; then pass=$((pass+1)); tick; else
+        fail=$((fail+1)); tick; printf "\n"; echo "FAIL ok/$1 (exit=$code)"; echo "  want: $(echo "$want" | tr '\n' '|')"; echo "  got:  $(echo "$got" | tr '\n' '|')"; fi
 }
 err() {  # err <file> <fragment> [<fragment>...]  — ALL must appear
     f="$1"; shift
     raw=$(spgrun "err/$f" 2>&1); code=$?; got=$(printf '%s' "$raw" | norm)
     miss=""
     for want in "$@"; do echo "$got" | grep -qF -- "$want" || miss="$want"; done
-    if [ "$code" = 1 ] && [ -z "$miss" ]; then pass=$((pass+1)); else
-        fail=$((fail+1)); echo "FAIL err/$f (exit=$code)"; echo "  faltou: $miss"; echo "  got: $got"; fi
+    if [ "$code" = 1 ] && [ -z "$miss" ]; then pass=$((pass+1)); tick; else
+        fail=$((fail+1)); tick; printf "\n"; echo "FAIL err/$f (exit=$code)"; echo "  faltou: $miss"; echo "  got: $got"; fi
 }
 
 ok basic.spg            '42\n6.28\n0\n7\n42'
@@ -58,14 +60,14 @@ ok str_chars.spg         '5\n5\n3\nï\naç\nNAÏVE\n5\ná|é|í\nééé\n3\ntrue
 exact1() {  # exact1 <file> <expected output> — exit code 1 and EXACT output (stdout+stderr), in order
     raw=$(spgrun "err/$1" 2>&1); code=$?; got=$(printf '%s' "$raw" | norm)
     want=$(printf "$2")
-    if [ "$code" = 1 ] && [ "$got" = "$want" ]; then pass=$((pass+1)); else
-        fail=$((fail+1)); echo "FAIL err/$1 (exit=$code)"; echo "  want: $(echo "$want" | tr '\n' '|')"; echo "  got:  $(echo "$got" | tr '\n' '|')"; fi
+    if [ "$code" = 1 ] && [ "$got" = "$want" ]; then pass=$((pass+1)); tick; else
+        fail=$((fail+1)); tick; printf "\n"; echo "FAIL err/$1 (exit=$code)"; echo "  want: $(echo "$want" | tr '\n' '|')"; echo "  got:  $(echo "$got" | tr '\n' '|')"; fi
 }
 lines() {  # lines <file> <number of lines> <last line> — nothing may be lost beyond the buffer
     raw=$(spgrun "ok/$1" 2>&1); code=$?; got=$(printf '%s' "$raw" | norm)
     n=$(echo "$got" | wc -l); last=$(echo "$got" | tail -1)
-    if [ "$code" = 0 ] && [ "$n" = "$2" ] && [ "$last" = "$3" ]; then pass=$((pass+1)); else
-        fail=$((fail+1)); echo "FAIL ok/$1 (exit=$code, lines=$n, last=$last)"; fi
+    if [ "$code" = 0 ] && [ "$n" = "$2" ] && [ "$last" = "$3" ]; then pass=$((pass+1)); tick; else
+        fail=$((fail+1)); tick; printf "\n"; echo "FAIL ok/$1 (exit=$code, lines=$n, last=$last)"; fi
 }
 ok enum_scope.spg  '7\nGreen\n1\n2\nRed'
 ok float_display.spg           '3.0\n2.0\n4.0\n-0.0\n0.5'
@@ -108,7 +110,7 @@ ok field_fused.spg       '57\n14\n0.875\n7\n99\n0.5\n8\n297\n100\n200\n9.5\n305'
 lines print_stress.spg 300000 299999
 # ...and nothing held back: the first print must reach a pipe while the program is still crunching
 # (the program is killed as soon as it shows up, so this takes ~15 ms)
-if [[ "$OSTYPE" == msys* || "$OSTYPE" == cygwin* ]]; then echo "skip timing/flush_latency (Windows: select() does not work em pipes)"
+if [[ "$OSTYPE" == msys* || "$OSTYPE" == cygwin* ]]; then printf "\n"; echo "skip timing/flush_latency (Windows: select() does not work em pipes)"
 elif command -v python3 >/dev/null 2>&1; then
     if python3 - "$SPG" timing/flush_latency.spg <<'PYEOF'
 import subprocess, sys, time, select
@@ -122,8 +124,8 @@ while time.perf_counter() - st < 2.0:
 p.kill(); p.wait()
 sys.exit(0 if got == b"one\n" and still and time.perf_counter() - st < 1.0 else 1)
 PYEOF
-    then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL timing/flush_latency.spg: o 1o print nao chegou ao pipe enquanto o programa calculava"; fi
-else echo "skip timing/flush_latency (no python3)"; fi
+    then pass=$((pass+1)); tick; else fail=$((fail+1)); tick; printf "\n"; echo "FAIL timing/flush_latency.spg: o 1o print nao chegou ao pipe enquanto o programa calculava"; fi
+else printf "\n"; echo "skip timing/flush_latency (no python3)"; fi
 
 # optimizer regressions (hand-verified expected values)
 ok opt_jump_targets.spg  'true\nfalse\n13\n6\n8\n18\n1\n0\n1'
@@ -228,8 +230,8 @@ diag() {  # diag <file> <error count> <fragment> [<fragment>...] — ALL must ap
     bad=$(echo "$got" | grep -E 'Named\(|Array\(|[a-z]#[0-9a-f]+::|::' | head -1)
     miss=""
     for want in "$@"; do echo "$got" | grep -qF -- "$want" || miss="$want"; done
-    if [ "$code" = 1 ] && [ "$n" = "$n_esperado" ] && [ -z "$miss" ] && [ -z "$bad" ]; then pass=$((pass+1)); else
-        fail=$((fail+1)); echo "FAIL diag/$f (exit=$code, errors=$n, expected=$n_esperado)"; [ -n "$bad" ] && echo "  vazou: $bad"; [ -n "$miss" ] && echo "  faltou: $miss"; echo "  got: $got"; fi
+    if [ "$code" = 1 ] && [ "$n" = "$n_esperado" ] && [ -z "$miss" ] && [ -z "$bad" ]; then pass=$((pass+1)); tick; else
+        fail=$((fail+1)); tick; printf "\n"; echo "FAIL diag/$f (exit=$code, errors=$n, expected=$n_esperado)"; [ -n "$bad" ] && echo "  vazou: $bad"; [ -n "$miss" ] && echo "  faltou: $miss"; echo "  got: $got"; fi
 }
 
 diag dup_field.spg      1 "struct 'P' has no field 'y'"
@@ -356,8 +358,8 @@ err catch_type.spg                 "'catch' receives the thrown string" "not int
 
 # ---- @file / @sys: real files (temporary directory), exit code, arguments after `--`, stdin ----
 check() {   # check <label> <expected code> <expected output> <actual code> <actual output>
-    if [ "$4" = "$2" ] && [ "$5" = "$3" ]; then pass=$((pass+1)); else
-        fail=$((fail+1)); echo "FAIL $1 (exit=$4, expected $2)"; echo "  want: $(echo "$3" | tr '\n' '|')"; echo "  got:  $(echo "$5" | tr '\n' '|')"; fi
+    if [ "$4" = "$2" ] && [ "$5" = "$3" ]; then pass=$((pass+1)); tick; else
+        fail=$((fail+1)); tick; printf "\n"; echo "FAIL $1 (exit=$4, expected $2)"; echo "  want: $(echo "$3" | tr '\n' '|')"; echo "  got:  $(echo "$5" | tr '\n' '|')"; fi
 }
 tmpd=$(mktemp -d)
 got=$(spgrun sys/file_ops.spg -- "$tmpd" 2>&1); code=$?
@@ -386,8 +388,8 @@ for f in ok/*.spg ../*.spg; do
     case "$f" in *time_test*|*sleep*|*ps_missing*) continue;; esac
     a=$(spgrun "$f" 2>&1); ca=$?
     b=$(spgrun --no-opt "$f" 2>&1); cb=$?
-    if [ "$a" = "$b" ] && [ "$ca" = "$cb" ]; then pass=$((pass+1)); else
-        fail=$((fail+1)); echo "FAIL same/$f: optimized and --no-opt differ"; fi
+    if [ "$a" = "$b" ] && [ "$ca" = "$cb" ]; then pass=$((pass+1)); tick; else
+        fail=$((fail+1)); tick; printf "\n"; echo "FAIL same/$f: optimized and --no-opt differ"; fi
 done
 
 
@@ -395,8 +397,8 @@ done
 exit124() {  # exit124 <file> <expected output before the cut> — the engine ITSELF cuts with exit 124 and the message
     # (the suite's `timeout 30` also gives 124 on a hang: without the engine's message this is a FAIL)
     raw=$(spgrun "err/$1" 2>&1); code=$?; got=$(printf '%s' "$raw" | norm)
-    if [ "$code" = 124 ] && echo "$got" | grep -qF "timeout: the program ran for more than 300 ms" && echo "$got" | head -1 | grep -qF -- "$2"; then pass=$((pass+1)); else
-        fail=$((fail+1)); echo "FAIL err/$1 (exit=$code)"; echo "  got: $(echo "$got" | tr '\n' '|')"; fi
+    if [ "$code" = 124 ] && echo "$got" | grep -qF "timeout: the program ran for more than 300 ms" && echo "$got" | head -1 | grep -qF -- "$2"; then pass=$((pass+1)); tick; else
+        fail=$((fail+1)); tick; printf "\n"; echo "FAIL err/$1 (exit=$code)"; echo "  got: $(echo "$got" | tr '\n' '|')"; fi
 }
 ok dir_strict_overflow_try.spg  'caught'
 ok dir_timeout_ok.spg           'rapido'
@@ -459,10 +461,10 @@ cp ok/interpolation.spg ok/subpastas.spg "$bdir"/ 2>/dev/null
 if timeout 60 "$SPG" build ok/interpolation.spg -o "$bdir/app" >/dev/null 2>&1; then
     got=$(cd / && "$bdir/app" 2>&1); code=$?
     want=$(printf 'hi Ana, I am 30 years old\nsum 31 and 3 items\nnested: xAnay / 1\nraw ${name} and $5 and 6\n1.5|true|[1, 2, 3]\n3')
-    if [ "$code" = 0 ] && [ "$got" = "$want" ]; then pass=$((pass+1)); else
-        fail=$((fail+1)); echo "FAIL build/interpolation (exit=$code)"; echo "  got: $got"; fi
+    if [ "$code" = 0 ] && [ "$got" = "$want" ]; then pass=$((pass+1)); tick; else
+        fail=$((fail+1)); tick; printf "\n"; echo "FAIL build/interpolation (exit=$code)"; echo "  got: $got"; fi
 else
-    fail=$((fail+1)); echo "FAIL build: spg build did not produce an executable"
+    fail=$((fail+1)); tick; printf "\n"; echo "FAIL build: spg build did not produce an executable"
 fi
 rm -rf "$bdir"
 
@@ -471,20 +473,20 @@ fdir=$(mktemp -d)
 printf 'let a=1+2\nprint(a)   // sum\n' > "$fdir/x.spg"
 spgrun fmt "$fdir/x.spg" >/dev/null 2>&1
 got=$(cat "$fdir/x.spg"); want=$(printf 'let a = 1 + 2\nprint(a)  // sum')
-if [ "$got" = "$want" ] && spgrun fmt --check "$fdir/x.spg" >/dev/null 2>&1; then pass=$((pass+1)); else
-    fail=$((fail+1)); echo "FAIL fmt/x.spg"; echo "  got: $got"; fi
+if [ "$got" = "$want" ] && spgrun fmt --check "$fdir/x.spg" >/dev/null 2>&1; then pass=$((pass+1)); tick; else
+    fail=$((fail+1)); tick; printf "\n"; echo "FAIL fmt/x.spg"; echo "  got: $got"; fi
 rm -rf "$fdir"
 
 # @ps.*: the no-PowerShell path (runs with an empty PATH, so it works the same on every machine)
 raw=$(timeout 30 env PATH=/nonexistent "$SPG" ok/ps_missing.spg </dev/null 2>&1); code=$?
 want=$(printf 'false\n@ps.run: PowerShell not found (tried pwsh and powershell)')
-if [ "$code" = 0 ] && [ "$raw" = "$want" ]; then pass=$((pass+1)); else
-    fail=$((fail+1)); echo "FAIL ok/ps_missing.spg (exit=$code)"; echo "  got: $raw"; fi
+if [ "$code" = 0 ] && [ "$raw" = "$want" ]; then pass=$((pass+1)); tick; else
+    fail=$((fail+1)); tick; printf "\n"; echo "FAIL ok/ps_missing.spg (exit=$code)"; echo "  got: $raw"; fi
 
 raw=$(timeout 30 env PATH=/nonexistent "$SPG" ok/ps_safe.spg </dev/null 2>&1); code=$?
 want='@ps.runFile: blocked by #> safe-party: runFile only takes a .ps1 inside the script'"'"'s folder (no absolute paths, no ..)'
-if [ "$code" = 0 ] && [ "$raw" = "$want" ]; then pass=$((pass+1)); else
-    fail=$((fail+1)); echo "FAIL ok/ps_safe.spg (exit=$code)"; echo "  got: $raw"; fi
+if [ "$code" = 0 ] && [ "$raw" = "$want" ]; then pass=$((pass+1)); tick; else
+    fail=$((fail+1)); tick; printf "\n"; echo "FAIL ok/ps_safe.spg (exit=$code)"; echo "  got: $raw"; fi
 err ps_sem_arroba.spg "undefined variable 'ps'"
 
 # async: `-> task<T>` runs eagerly, `.wait()` reads the result or re-throws the error
@@ -511,5 +513,5 @@ err static_enum_clash.spg "clashes with the variant"
 err static_enum_on_value.spg "is an associated function of"
 err static_enum_missing.spg "has no associated function"
 
-echo "multi-file: $pass ok, $fail failed"
+printf "\n"; echo "multi-file: $pass ok, $fail failed"
 [ "$fail" = 0 ]
