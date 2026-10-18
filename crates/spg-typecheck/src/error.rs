@@ -171,6 +171,8 @@ pub enum TypeError {
     AssociatedCalledOnValue { type_name: String, name: String, pos: Pos },
     /// `Tipo.bar()` where `Tipo` is a struct with no associated function `bar`
     NoAssociatedFunction { type_name: String, name: String, pos: Pos },
+    /// `function Cor.Vermelho()` where `Vermelho` is already a variant of enum `Cor`
+    AssociatedNameIsVariant { type_name: String, name: String, pos: Pos },
 
     /// `throw 5`: exceptions carry a string. not a number. not a struct. a string.
     ThrowNotString { found: Ty, pos: Pos },
@@ -244,6 +246,7 @@ impl TypeError {
             | TypeError::AssociatedOnUnknownType { pos, .. }
             | TypeError::AssociatedCalledOnValue { pos, .. }
             | TypeError::NoAssociatedFunction { pos, .. }
+            | TypeError::AssociatedNameIsVariant { pos, .. }
             | TypeError::MethodNotCalled { pos, .. }
             | TypeError::NoSuchNativeMethod { pos, .. }
             | TypeError::ThrowNotString { pos, .. }
@@ -516,6 +519,11 @@ impl TypeError {
                 f,
                 "'{}' is an associated function of '{}': call it as {}.{}(), not on a value",
                 name, type_name, type_name, name
+            ),
+            TypeError::AssociatedNameIsVariant { type_name, name, .. } => write!(
+                f,
+                "associated function '{}.{}' clashes with the variant '{}' of enum '{}': pick another name",
+                type_name, name, name, type_name
             ),
             TypeError::NoAssociatedFunction { type_name, name, .. } => {
                 write!(f, "'{}' has no associated function '{}'", type_name, name)

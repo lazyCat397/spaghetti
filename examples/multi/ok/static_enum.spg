@@ -1,0 +1,12 @@
+enum Cor { Vermelho, Verde, Azul }
+function Cor.padrao() -> Cor {
+    return Cor.Verde
+}
+function Cor.de_numero(n: int) -> Cor {
+    if (n == 0) {
+        return Cor.Vermelho
+    }
+    return Cor.Azul
+}
+let c = Cor.padrao()
+print(c == Cor.Verde, Cor.de_numero(0) == Cor.Vermelho, Cor.de_numero(9) == Cor.Azul)

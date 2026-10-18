@@ -571,9 +571,43 @@ fn members_of_own(ty: &str, decls: &Decls) -> Vec<Member> {
 /// what to offer after `chain.`. `chain` is the dotted names before the dot
 /// (`["p"]`, `["a", "pos"]`, `["Color", "Red"]`). `at` is the number of
 /// tokens before the word being typed
+/// the associated functions of type `ty`, read from `function ty.name(...)` declarations
+fn associated_of(tokens: &[Token], ty: &str) -> Vec<Member> {
+    let mut out = Vec::new();
+    for i in 0..tokens.len() {
+        let header = (
+            kind(tokens, i),
+            kind(tokens, i + 1),
+            kind(tokens, i + 2),
+            kind(tokens, i + 3),
+            kind(tokens, i + 4),
+        );
+        if let (Some(T::Function), Some(T::Ident(t)), Some(T::Dot), Some(T::Ident(name)), Some(T::LParen)) = header {
+            if t == ty {
+                out.push(Member {
+                    name: name.clone(),
+                    detail: format!("{}.{}(...)", ty, name),
+                    kind: 3,
+                    insert: None,
+                    doc: Some("associated function: no instance, call it as Type.name()"),
+                });
+            }
+        }
+    }
+    out
+}
+
 pub fn after_dot(tokens: &[Token], at: usize, chain: &[String], decls: &Decls) -> Vec<Member> {
     if chain.is_empty() {
         return Vec::new();
+    }
+    // `Ponto.` where Ponto is a struct or enum name: its associated functions
+    // (`function Ponto.nome(...)`), the way they are called. not a variable of that name
+    if chain.len() == 1 && (decls.structs.contains_key(&chain[0]) || decls.enums.contains(&chain[0])) {
+        let depth = depths(tokens);
+        if resolve_head(tokens, &depth, at, &chain[0], decls).is_none() {
+            return associated_of(tokens, &chain[0]);
+        }
     }
     let depth = depths(tokens);
     let mut ty = if decls.enums.contains(&chain[0]) {
@@ -691,6 +725,14 @@ mod tests {
     const SRC: &str = "struct Point {\n    x: int,\n    y: int\n    function len2() -> int { return me.x * me.x + me.y * me.y }\n    function shift(dx: int, dy: int) { me.x += dx }\n}\nstruct Line { a: Point, b: Point, tag: array<string> }\nenum Color { Red, Green }\nfunction origin() -> Point { return Point { x: 0, y: 0 } }\n";
 
     #[test]
+    #[test]
+    fn type_name_dot_lists_its_associated_functions() {
+        let text = "struct Ponto { x: int }\nfunction Ponto.origem() -> Ponto { return Ponto { x: 0 } }\nfunction Ponto.de(x: int) -> Ponto { return Ponto { x: x } }\n";
+        let (tokens, at, decls) = setup(text, 3, 0);
+        let got = names(&after_dot(&tokens, at, &["Ponto".to_string()], &decls));
+        assert!(got.contains(&"origem".to_string()) && got.contains(&"de".to_string()), "{:?}", got);
+    }
+
     fn struct_table_has_fields_methods_and_signatures() {
         let (_, _, d) = setup(SRC, 0, 0);
         let p = &d.structs["Point"];

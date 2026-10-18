@@ -199,10 +199,16 @@ impl Checker {
                 if let Some((type_name, _)) = name.split_once('.') {
                     let is_method = params.first().map_or(false, |p| p.name == "me");
                     if !is_method {
-                        if !self.struct_defs.contains_key(type_name) {
+                        if !self.is_type_name(type_name) {
                             self.errors.push(TypeError::AssociatedOnUnknownType {
                                 type_name: type_name.to_string(),
                                 name: name.clone(),
+                                pos: pos.clone(),
+                            });
+                        } else if self.enum_defs.get(type_name).map_or(false, |vs| vs.iter().any(|v| v == member_of(name))) {
+                            self.errors.push(TypeError::AssociatedNameIsVariant {
+                                type_name: type_name.to_string(),
+                                name: member_of(name).to_string(),
                                 pos: pos.clone(),
                             });
                         }
@@ -400,6 +406,11 @@ impl Checker {
 
     /// same lookup, but returns the full VarInfo. used by Assign, which
     /// (unlike every other read site) also needs to know about mutability
+    /// a struct or enum declared in this program: the types that take associated functions
+    fn is_type_name(&self, name: &str) -> bool {
+        self.struct_defs.contains_key(name) || self.enum_defs.contains_key(name)
+    }
+
     fn lookup_var(&self, name: &str) -> Option<&VarInfo> {
         for scope in self.scopes.iter().rev() {
             if let Some(info) = scope.get(name) {
@@ -659,13 +670,15 @@ impl Checker {
             // `Foo.bar()` where `Foo` is not a struct, and a `function Foo.x` was already
             // reported as an unknown type: the declaration error is the one to show, so
             // the name is not also reported as an undefined variable here
-            let declared_for_unknown = !self.struct_defs.contains_key(type_name)
+            let declared_for_unknown = !self.is_type_name(type_name)
                 && self.lookup_var(type_name).is_none()
                 && self.associated.iter().any(|f| f.split_once('.').map_or(false, |(t, _)| t == type_name));
             if declared_for_unknown {
                 return None;
             }
-            if self.lookup_var(type_name).is_none() && self.struct_defs.contains_key(type_name) {
+            // `Cor.Vermelho()` on an enum is a variant, not a static call: it keeps its own path
+            let is_variant = self.enum_defs.get(type_name).map_or(false, |vs| vs.iter().any(|v| v == method));
+            if self.lookup_var(type_name).is_none() && self.is_type_name(type_name) && !is_variant {
                 let full = format!("{}.{}", type_name, method);
                 if !self.associated.contains(&full) {
                     self.errors.push(TypeError::NoAssociatedFunction {
@@ -2481,4 +2494,9 @@ fn unify_optional(a: &Ty, b: &Ty) -> Option<Ty> {
         (Ty::NoneLit, other) | (other, Ty::NoneLit) if !matches!(other, Ty::Void) => Some(Ty::Optional(Box::new(other.clone()))),
         _ => None,
     }
+}
+
+/// `Tipo.nome` -> `nome`
+fn member_of(qualified: &str) -> &str {
+    qualified.split_once('.').map_or(qualified, |(_, m)| m)
 }

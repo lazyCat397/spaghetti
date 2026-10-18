@@ -506,6 +506,10 @@ err static_on_value.spg "is an associated function of"
 err static_missing.spg "has no associated function"
 err static_unknown_type.spg "needs a struct named"
 err static_with_me.spg "associated functions have none"
+ok static_enum.spg "true true true"
+err static_enum_clash.spg "clashes with the variant"
+err static_enum_on_value.spg "is an associated function of"
+err static_enum_missing.spg "has no associated function"
 
 echo "multi-file: $pass ok, $fail failed"
 [ "$fail" = 0 ]

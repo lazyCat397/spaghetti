@@ -1,0 +1,4 @@
+enum Cor { Vermelho, Verde }
+function Cor.Verde() -> Cor {
+    return Cor.Vermelho
+}
