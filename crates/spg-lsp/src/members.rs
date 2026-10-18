@@ -572,7 +572,7 @@ fn members_of_own(ty: &str, decls: &Decls) -> Vec<Member> {
 /// (`["p"]`, `["a", "pos"]`, `["Color", "Red"]`). `at` is the number of
 /// tokens before the word being typed
 /// the associated functions of type `ty`, read from `function ty.name(...)` declarations
-fn associated_of(tokens: &[Token], ty: &str) -> Vec<Member> {
+pub fn associated_of(tokens: &[Token], ty: &str) -> Vec<Member> {
     let mut out = Vec::new();
     for i in 0..tokens.len() {
         let header = (

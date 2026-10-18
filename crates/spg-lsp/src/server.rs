@@ -620,12 +620,17 @@ impl<W: Write> Server<W> {
                     .collect();
             }
             DotContext::Enum(name) => {
-                return self
+                // `Color.`: its variants, then the functions declared as `function Color.nome(...)`
+                let mut items: Vec<Json> = self
                     .enum_variants(uri, &name)
                     .unwrap_or_default()
                     .iter()
                     .map(|v| item(v, 20, Some(format!("{}.{}", name, v)), None))
                     .collect();
+                if let Some((tokens, _, _)) = self.member_context(uri, pos) {
+                    items.extend(crate::members::associated_of(&tokens, &name).iter().map(member_item));
+                }
+                return items;
             }
             DotContext::Other => {
                 // `p.` / `a.pos.`: the fields and methods of the struct `p` was
@@ -1199,6 +1204,14 @@ mod tests {
     }
 
     #[test]
+    fn completion_after_enum_dot_lists_variants_and_associated_functions() {
+        let text = "enum Cor { Vermelho, Verde }\nfunction Cor.padrao() -> Cor {\n    return Cor.Verde\n}\nlet c = Cor.\n";
+        let items = complete_at("compl_enum", text, 4, 12);
+        let labels: Vec<String> = items.iter().filter_map(|i| i.get("label").and_then(Json::as_str).map(String::from)).collect();
+        assert!(labels.iter().any(|l| l == "Verde"), "variants missing: {:?}", labels);
+        assert!(labels.iter().any(|l| l == "padrao"), "associated function missing: {:?}", labels);
+    }
+
     fn completion_after_namespace_dot_lists_only_members() {
         let (_f, uri) = tmp_file("compl_ns", "let x = 1\n");
         let text = "let a: float = @math.\n";
