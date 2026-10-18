@@ -1,0 +1,10 @@
+struct Ponto { x: int, y: int }
+function Ponto.origem() -> Ponto {
+    return Ponto { x: 0, y: 0 }
+}
+function Ponto.de(x: int, y: int) -> Ponto {
+    return Ponto { x: x, y: y }
+}
+let o = Ponto.origem()
+let p = Ponto.de(3, 4)
+print(o.x, o.y, p.x, p.y)

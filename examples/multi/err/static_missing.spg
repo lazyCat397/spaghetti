@@ -1,0 +1,2 @@
+struct Ponto { x: int, y: int }
+print(Ponto.nada())

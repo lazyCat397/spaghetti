@@ -165,6 +165,13 @@ pub enum TypeError {
     /// `x.f()` where `x` isn't a struct at all (an int, a string, an array...)
     NoMethodsOnType { found: Ty, method: String, pos: Pos },
 
+    /// `function Foo.bar()` where `Foo` is not a struct of this program
+    AssociatedOnUnknownType { type_name: String, name: String, pos: Pos },
+    /// `p.bar()` where `bar` is an associated function: it is called as `Tipo.bar()`
+    AssociatedCalledOnValue { type_name: String, name: String, pos: Pos },
+    /// `Tipo.bar()` where `Tipo` is a struct with no associated function `bar`
+    NoAssociatedFunction { type_name: String, name: String, pos: Pos },
+
     /// `throw 5`: exceptions carry a string. not a number. not a struct. a string.
     ThrowNotString { found: Ty, pos: Pos },
     /// `catch (e: Point)`: what `catch` gets is the thrown string. Point is not a string.
@@ -234,6 +241,9 @@ impl TypeError {
             | TypeError::NoSuchField { pos, .. }
             | TypeError::NoSuchMethod { pos, .. }
             | TypeError::NoMethodsOnType { pos, .. }
+            | TypeError::AssociatedOnUnknownType { pos, .. }
+            | TypeError::AssociatedCalledOnValue { pos, .. }
+            | TypeError::NoAssociatedFunction { pos, .. }
             | TypeError::MethodNotCalled { pos, .. }
             | TypeError::NoSuchNativeMethod { pos, .. }
             | TypeError::ThrowNotString { pos, .. }
@@ -497,6 +507,19 @@ impl TypeError {
                 f, "{}type {} has no fields (not a struct)",
                 self.location(), found
             ),
+            TypeError::AssociatedOnUnknownType { type_name, name, .. } => write!(
+                f,
+                "associated function '{}' needs a struct named '{}' declared in this program",
+                name, type_name
+            ),
+            TypeError::AssociatedCalledOnValue { type_name, name, .. } => write!(
+                f,
+                "'{}' is an associated function of '{}': call it as {}.{}(), not on a value",
+                name, type_name, type_name, name
+            ),
+            TypeError::NoAssociatedFunction { type_name, name, .. } => {
+                write!(f, "'{}' has no associated function '{}'", type_name, name)
+            }
             TypeError::NoMethodsOnType { found, method, .. } => write!(
                 f, "{}type {} has no methods (cannot call '.{}()' on it)",
                 self.location(), found, method

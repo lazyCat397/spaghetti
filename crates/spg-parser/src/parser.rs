@@ -639,7 +639,13 @@ impl Parser {
         let pos = self.peek_pos();
         self.advance(); // function
 
-        let name = self.parse_binding_name()?;
+        let mut name = self.parse_binding_name()?;
+        // `function Tipo.nome(...)`: an associated function (no `me`). the name keeps the
+        // dot, so the typechecker and the VM see it as `Tipo.nome`, like a method
+        if self.match_kind(&TokenKind::Dot) {
+            let member = self.parse_binding_name()?;
+            name = format!("{}.{}", name, member);
+        }
         self.expect(TokenKind::LParen, "'('")?;
 
         let mut params = Vec::new();
@@ -650,6 +656,16 @@ impl Parser {
             }
         }
         self.expect(TokenKind::RParen, "')'")?;
+        // an associated function has no `me`. with one it would be a method declared
+        // outside its struct, which is not how methods are written
+        if name.contains('.') && params.first().map_or(false, |p| p.name == "me") {
+            return Err(ParseError::Unexpected {
+                expected: "no `me` parameter here (methods go inside the struct; associated functions have none)".to_string(),
+                found: TokenKind::RParen,
+                line: pos.line,
+                col: pos.col,
+            });
+        }
         // a param with a default may only be followed by others that have one,
         // otherwise a call couldn't tell which arg was left out
         if let Some(gap) = params.iter().position(|p| p.default.is_some()) {
@@ -827,6 +843,15 @@ impl Parser {
     /// (the typechecker relies on exactly that to find a method from its struct).
     fn parse_method(&mut self, struct_name: &str, exported: bool) -> Result<Stmt, ParseError> {
         match self.parse_function_decl(exported)? {
+            Stmt::FunctionDecl { name, .. } if name.contains('.') => {
+                let pos = self.peek_pos();
+                Err(ParseError::Unexpected {
+                    expected: "a method name inside the struct (associated functions go outside: function Tipo.nome())".to_string(),
+                    found: TokenKind::Dot,
+                    line: pos.line,
+                    col: pos.col,
+                })
+            }
             Stmt::FunctionDecl { name, mut params, return_type, body, exported, pos } => {
                 params.insert(0, Param { name: "me".to_string(), type_ann: TypeExpr::Named(struct_name.to_string()), default: None });
                 Ok(Stmt::FunctionDecl {

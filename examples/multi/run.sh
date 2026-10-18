@@ -501,6 +501,11 @@ err pipe_no_call.spg "expected a function call after the pipe"
 ok logic_words.spg "true\ntrue\nfalse"
 err http_refused.spg "@http.get: io: Connection refused"
 err http_timeout_zero.spg "the timeout must be at least 1 second"
+ok static_basic.spg "0 0 3 4"
+err static_on_value.spg "is an associated function of"
+err static_missing.spg "has no associated function"
+err static_unknown_type.spg "needs a struct named"
+err static_with_me.spg "associated functions have none"
 
 echo "multi-file: $pass ok, $fail failed"
 [ "$fail" = 0 ]

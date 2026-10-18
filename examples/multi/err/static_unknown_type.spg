@@ -1,0 +1,4 @@
+function Foo.bar() -> int {
+    return 1
+}
+print(Foo.bar())
