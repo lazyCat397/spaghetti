@@ -1,0 +1,7 @@
+let dir = @sys.args()[0]
+let f = @file.join(dir, "lines.txt")
+@file.writeLines(f, ["a", "b"])
+@file.appendLine(f, "c")
+print(@file.readLines(f))
+print(@file.readOr(f, "none").len())
+print(@file.readOr(@file.join(dir, "nope.txt"), "fallback"))

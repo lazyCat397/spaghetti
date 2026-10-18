@@ -381,8 +381,8 @@ impl<W: Write> Server<W> {
         } else if !head.ends_with('.') && !head.ends_with('@') && !ns.is_empty() && self.enum_variants(uri, &ns).is_some() {
             // `Color.`: the name of an enum declared in this document
             DotContext::Enum(ns)
-        } else if ns == "ps" && !head.ends_with('.') && !head.ends_with('@') && self.installs_native(uri, "powershell") {
-            // `ps.`: the native namespace, while this document installs PowerShell
+        } else if spg_lexer::is_install_namespace(&ns) && !head.ends_with('.') && !head.ends_with('@') && self.installs_native(uri, &ns) {
+            // `ps.` / `http.`: a native library's namespace, while this document installs it
             DotContext::Native(ns)
         } else {
             DotContext::Other
@@ -609,7 +609,7 @@ impl<W: Write> Server<W> {
                     .collect();
             }
             DotContext::Native(ns) => {
-                let prefix = format!("{}.", ns);
+                let prefix = format!("@{}.", ns);
                 return builtins
                     .into_iter()
                     .filter_map(|(name, detail)| {
@@ -627,8 +627,8 @@ impl<W: Write> Server<W> {
                     .iter()
                     .map(|v| item(v, 20, Some(format!("{}.{}", name, v)), None))
                     .collect();
-                if let Some((tokens, _, _)) = self.member_context(uri, pos) {
-                    items.extend(crate::members::associated_of(&tokens, &name).iter().map(member_item));
+                if let Some((_, _, decls)) = self.member_context(uri, pos) {
+                    items.extend(crate::members::associated_of(&decls, &name).iter().map(member_item));
                 }
                 return items;
             }
@@ -823,13 +823,53 @@ impl<W: Write> Server<W> {
     }
 
     fn hover(&self, uri: &str, pos: Option<(usize, usize)>) -> Option<Json> {
-        let (target, _) = self.resolve_at(uri, pos)?;
-        let (_, decl) = self.locate(uri, &target)?;
-        let text = crate::navigate::describe(&decl);
+        // a declaration of this program (or an import) wins; otherwise a builtin
+        // (`@math.sqrt`) or a keyword (`then`) explains itself
+        let value = match self.resolve_at(uri, pos).and_then(|(target, _)| self.locate(uri, &target)) {
+            Some((_, decl)) => format!("```spg\n{}\n```", crate::navigate::describe(&decl)),
+            None => self.builtin_or_keyword_hover(uri, pos)?,
+        };
         Some(Json::obj(vec![(
             "contents",
-            Json::obj(vec![("kind", Json::str("markdown")), ("value", Json::Str(format!("```spg\n{}\n```", text)))]),
+            Json::obj(vec![("kind", Json::str("markdown")), ("value", Json::Str(value))]),
         )]))
+    }
+
+    /// the markdown for the word under the cursor when it is a builtin (`@math.sqrt`,
+    /// looked up with its namespace) or a keyword. None for anything else
+    fn builtin_or_keyword_hover(&self, uri: &str, pos: Option<(usize, usize)>) -> Option<String> {
+        let (line, col) = pos?;
+        let text_line = self.docs.get(uri)?.text.split('\n').nth(line)?.trim_end_matches('\r').to_string();
+        let chars: Vec<char> = text_line.chars().collect();
+        let is_word = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '@';
+        let col = col.min(chars.len());
+        let mut start = col;
+        while start > 0 && is_word(chars[start - 1]) {
+            start -= 1;
+        }
+        let mut end = col;
+        while end < chars.len() && is_word(chars[end]) {
+            end += 1;
+        }
+        if start == end {
+            return None;
+        }
+        let word: String = chars[start..end].iter().collect();
+        // `@math.sqrt`: the namespace before the dot is part of the name
+        let name = if start >= 2 && chars[start - 1] == '.' {
+            let mut ns_start = start - 1;
+            while ns_start > 0 && is_word(chars[ns_start - 1]) {
+                ns_start -= 1;
+            }
+            let ns: String = chars[ns_start..start - 1].iter().collect();
+            format!("{}.{}", ns, word)
+        } else {
+            word.clone()
+        };
+        if let Some(doc) = spg_typecheck::docs::builtin_doc(&name) {
+            return Some(format!("```spg\n{}\n```\n\n{}", name, doc));
+        }
+        keyword_doc(&word).map(|doc| format!("```spg\n{}\n```\n\n{}", word, doc))
     }
 
     fn definition(&self, uri: &str, pos: Option<(usize, usize)>) -> Option<Json> {
@@ -1204,6 +1244,31 @@ mod tests {
     }
 
     #[test]
+    fn hover_explains_builtins_and_keywords() {
+        let (_f, uri) = tmp_file("hover_builtin", "let x = 1\n");
+        let text = "let r = @math.sqrt(4.0)\nlet t = 1 then\n";
+        let at = |id: i64, line: i64, character: i64| {
+            req(id, "textDocument/hover", Json::obj(vec![
+                ("textDocument", Json::obj(vec![("uri", Json::str(&uri))])),
+                ("position", Json::obj(vec![("line", Json::int(line)), ("character", Json::int(character))])),
+            ]))
+        };
+        let (_, out) = session(vec![
+            note("textDocument/didOpen", Json::obj(vec![(
+                "textDocument", Json::obj(vec![("uri", Json::str(&uri)), ("text", Json::str(text)), ("version", Json::int(1))]))])),
+            at(9, 0, 16),
+            at(10, 1, 11),
+            note("exit", Json::Null),
+        ]);
+        let value = |id: f64| -> String {
+            let resp = out.iter().find(|m| m.get("id").and_then(Json::as_f64) == Some(id)).unwrap();
+            resp.get("result").unwrap().get("contents").unwrap().get("value").unwrap().as_str().unwrap().to_string()
+        };
+        assert!(value(9.0).contains("square root"), "builtin hover: {}", value(9.0));
+        assert!(value(10.0).contains("pipe"), "keyword hover: {}", value(10.0));
+    }
+
+    #[test]
     fn completion_after_enum_dot_lists_variants_and_associated_functions() {
         let text = "enum Cor { Vermelho, Verde }\nfunction Cor.padrao() -> Cor {\n    return Cor.Verde\n}\nlet c = Cor.\n";
         let items = complete_at("compl_enum", text, 4, 12);
@@ -1212,6 +1277,7 @@ mod tests {
         assert!(labels.iter().any(|l| l == "padrao"), "associated function missing: {:?}", labels);
     }
 
+    #[test]
     fn completion_after_namespace_dot_lists_only_members() {
         let (_f, uri) = tmp_file("compl_ns", "let x = 1\n");
         let text = "let a: float = @math.\n";
@@ -1256,13 +1322,15 @@ mod tests {
     /// completion result items for `text` with the cursor at (line, col)
     #[test]
     fn ps_dot_lists_the_native_members() {
-        // `@ps.` is a built-in namespace now: no install line, and the members show up right away
-        let labels = labels_of(&complete_at("ps_dot_on", "@ps.\n", 0, 4));
+        // `ps` is an installed library: with the install line its members show up after `ps.`
+        let labels = labels_of(&complete_at("ps_dot_on", "install <std: \"ps\">\nps.\n", 1, 3));
         for member in ["run", "runFile", "version", "isAvailable"] {
             assert!(labels.iter().any(|l| l == member), "missing {member}: {:?}", labels);
         }
-        // the old spelling is not a namespace anymore
+        // without the install line `ps.` offers nothing, and `@ps.` is not a namespace anymore
         let labels = labels_of(&complete_at("ps_dot_off", "ps.\n", 0, 3));
+        assert!(!labels.iter().any(|l| l == "run"), "{:?}", labels);
+        let labels = labels_of(&complete_at("ps_dot_at", "@ps.\n", 0, 4));
         assert!(!labels.iter().any(|l| l == "run"), "{:?}", labels);
     }
 
@@ -1402,17 +1470,17 @@ mod tests {
     fn dot_after_a_standard_module_lists_its_members() {
         // the standard library folder of this checkout (the compiler finds it the same way)
         std::env::set_var("SPG_STD", concat!(env!("CARGO_MANIFEST_DIR"), "/../../stdlib"));
-        let labels = labels_of(&complete_at("compl_std_fork", "install <std: \"fork\">\nfork.\n", 1, 5));
-        for want in ["box", "center", "rule", "askInt", "readLines"] {
+        let labels = labels_of(&complete_at("compl_std_terminal", "install <std: \"terminal\">\nterminal.\n", 1, 9));
+        for want in ["box", "center", "rule", "askInt", "askYesNo"] {
             assert!(labels.iter().any(|l| l == want), "missing {} in {:?}", want, labels);
         }
         // the name with the extension works the same way
-        let with_ext = labels_of(&complete_at("compl_std_ext", "install <std: \"fork.spg\">\nfork.\n", 1, 5));
-        assert!(with_ext.iter().any(|l| l == "box"), "fork.spg form lists nothing: {:?}", with_ext);
+        let with_ext = labels_of(&complete_at("compl_std_ext", "install <std: \"terminal.spg\">\nterminal.\n", 1, 9));
+        assert!(with_ext.iter().any(|l| l == "box"), "terminal.spg form lists nothing: {:?}", with_ext);
         // private members (`_v`, the struct's filler field) aren't offered
         assert!(!labels.iter().any(|l| l.starts_with('_')), "private member offered: {:?}", labels);
         // a name that isn't a standard module offers nothing (and doesn't crash)
-        assert!(complete_at("compl_std_none", "install <std: \"nope\">\nfork.\n", 1, 5).is_empty());
+        assert!(complete_at("compl_std_none", "install <std: \"nope\">\nterminal.\n", 1, 9).is_empty());
     }
 
     #[test]
@@ -1489,4 +1557,34 @@ mod tests {
         let plain = labels_of(&complete_at("compl_plain", "let a = pr\n", 0, 10));
         assert!(plain.iter().any(|l| l == "print") && plain.iter().any(|l| l == "while"));
     }
+}
+
+/// one line on what each keyword does, for hover
+fn keyword_doc(word: &str) -> Option<&'static str> {
+    Some(match word {
+        "let" => "declares a variable",
+        "const" => "declares a constant, fixed for the whole program",
+        "function" => "declares a function. `function Tipo.nome()` declares an associated function of a struct or enum",
+        "return" => "leaves the function with a value",
+        "if" => "runs a block when the condition holds (the condition goes in parentheses)",
+        "elif" | "else" => "the other branches of an `if`",
+        "while" => "repeats a block while the condition holds",
+        "for" => "walks the items of an array, map or range",
+        "try" => "runs a block and catches the error it may throw",
+        "catch" => "receives the message of an error raised inside its `try`. always a string",
+        "throw" => "raises an error with a message",
+        "break" | "continue" => "leaves or skips the current loop iteration",
+        "when" => "matches a value against cases",
+        "import" | "from" | "export" => "shares names between files",
+        "install" => "brings another file or a standard module into the program",
+        "struct" => "declares a record with named fields; its methods go inside the block",
+        "enum" => "declares a type with a fixed set of variants",
+        "then" => "pipe: `x then f()` is `f(x)`. the same as `|>`",
+        "and" => "logical and, the same as `&&`",
+        "or" => "logical or, the same as `||`",
+        "not" => "logical not, the same as `!`",
+        "true" | "false" => "the boolean values",
+        "none" => "the absence of a value",
+        _ => return None,
+    })
 }

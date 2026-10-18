@@ -275,7 +275,7 @@
     "namespaces": {
       "patterns": [
         {
-          "match": "(?<![.A-Za-z0-9_@])(@(?:str|array|map|into|math|time|file|sys|json|task|ps))(\\.)([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
+          "match": "(?<![.A-Za-z0-9_@])(@(?:str|array|map|into|math|time|file|sys|json|task))(\\.)([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
           "captures": {
             "1": {
               "name": "entity.name.namespace.spg"
@@ -289,8 +289,16 @@
           }
         },
         {
-          "match": "(?<![.A-Za-z0-9_@])@(?:str|array|map|into|math|time|file|sys|json|task|ps)\\b(?=\\s*\\.)",
+          "match": "(?<![.A-Za-z0-9_@])@(?:str|array|map|into|math|time|file|sys|json|task)\\b(?=\\s*\\.)",
           "name": "entity.name.namespace.spg"
+        },
+        {
+          "match": "(?<![.A-Za-z0-9_@])((?:ps|http|terminal))(\\.)([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
+          "captures": {
+            "1": { "name": "entity.name.namespace.spg" },
+            "2": { "name": "punctuation.accessor.spg" },
+            "3": { "name": "support.function.builtin.spg" }
+          }
         }
       ]
     },

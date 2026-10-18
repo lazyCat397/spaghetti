@@ -1,7 +1,8 @@
 // #> safe-party refuses a runFile outside the script's folder before PowerShell is even looked for
 #> safe-party
+install <std: "ps">
 try {
-    @ps.runFile("/etc/x.ps1")
+    ps.runFile("/etc/x.ps1")
 } catch (e: string) {
     print(e)
 }

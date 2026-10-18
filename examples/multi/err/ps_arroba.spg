@@ -1,0 +1,3 @@
+// ...and it never had an `@`: `@` is only for what the engine always gives you
+install <std: "ps">
+print(@ps.version())

@@ -1,7 +1,7 @@
 pub mod lexer;
 pub mod token;
 
-pub use lexer::{read_file_spec, FileSpec, LexError, Lexer, DIRECTIVES};
+pub use lexer::{apply_installed_namespaces, read_file_spec, FileSpec, LexError, Lexer, DIRECTIVES};
 pub use token::{Token, TokenKind};
 
 /// builtin namespaces. in source they always carry a leading `@`
@@ -17,10 +17,21 @@ pub const HTTP_RESPONSE_SOURCE: &str = "struct HttpResponse {\n    status: int,\
 
 pub const PS_RESULT_SOURCE: &str = "struct PsResult {\n    success: bool,\n    code: int,\n    output: string,\n    error: string\n}\n";
 
-pub const NAMESPACES: [&str; 12] = ["str", "array", "map", "into", "math", "time", "file", "sys", "json", "task", "ps", "http"];
+/// the CORE namespaces: always there, always written with `@` (`@math.sqrt`).
+pub const NAMESPACES: [&str; 10] = ["str", "array", "map", "into", "math", "time", "file", "sys", "json", "task"];
+
+/// native (Rust) libraries that need `install <std: "name">` first. once installed, their
+/// namespace is written WITHOUT `@` (`ps.run(...)`): `@` means "the engine gives you this
+/// for free", no `@` means "you installed it". the lexer turns `ps.` into a namespace token
+/// only in a file that installs `ps` (see `apply_installed_namespaces`).
+pub const INSTALL_NAMESPACES: [&str; 2] = ["ps", "http"];
 
 pub fn is_namespace(name: &str) -> bool {
     NAMESPACES.contains(&name)
+}
+
+pub fn is_install_namespace(name: &str) -> bool {
+    INSTALL_NAMESPACES.contains(&name)
 }
 
 /// hints for the friendly tone (`#> friendly-terminal`), one per stage

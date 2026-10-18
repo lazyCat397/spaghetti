@@ -1927,6 +1927,19 @@ impl Checker {
                         });
                         return None;
                     }
+                    // `ps.run(...)` with no `install <std: "ps">` (with it, the lexer already made
+                    // it a namespace call). tell them what's missing instead of "undefined ps"
+                    Expr::Field { object, .. }
+                        if matches!(object.as_ref(), Expr::Ident(ns, _)
+                            if spg_lexer::is_install_namespace(ns) && self.lookup_var(ns).is_none()) =>
+                    {
+                        let lib = match object.as_ref() {
+                            Expr::Ident(ns, _) => ns.clone(),
+                            _ => unreachable!(),
+                        };
+                        self.errors.push(TypeError::NeedsInstall { lib, pos: pos.clone() });
+                        return None;
+                    }
                     // `obj.method(args)`: the only way a struct member gets called
                     Expr::Field { object, field, .. } => {
                         return self.check_method_call(object, field, args, pos);

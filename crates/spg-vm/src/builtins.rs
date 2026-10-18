@@ -460,6 +460,44 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             let text = std::fs::read_to_string(p.as_str()).map_err(|e| io_error("@file.lines", &p, e))?;
             string_array(text.lines().map(String::from))
         }
+        FileReadLines => {
+            let p = as_string(args.remove(0));
+            let text = std::fs::read_to_string(p.as_str()).map_err(|e| io_error("@file.readLines", &p, e))?;
+            string_array(text.lines().map(String::from))
+        }
+        FileWriteLines => {
+            let p = as_string(args.remove(0));
+            let items = as_array(args.remove(0));
+            let mut text = String::new();
+            for v in items.borrow().iter() {
+                text.push_str(as_string(v.clone()).as_str());
+                text.push('\n');
+            }
+            std::fs::write(p.as_str(), text.as_bytes()).map_err(|e| io_error("@file.writeLines", &p, e))?;
+            Value::Void
+        }
+        FileAppendLine => {
+            let p = as_string(args.remove(0));
+            let line = as_string(args.remove(0));
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(p.as_str())
+                .map_err(|e| io_error("@file.appendLine", &p, e))?;
+            file.write_all(line.as_bytes()).map_err(|e| io_error("@file.appendLine", &p, e))?;
+            file.write_all(b"\n").map_err(|e| io_error("@file.appendLine", &p, e))?;
+            Value::Void
+        }
+        FileReadOr => {
+            let p = as_string(args.remove(0));
+            let fallback = as_string(args.remove(0));
+            // a missing file is the whole point of the fallback; any other failure still errors
+            match std::fs::read_to_string(p.as_str()) {
+                Ok(text) => Value::String(Rc::new(text)),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Value::String(fallback),
+                Err(e) => return Err(io_error("@file.readOr", &p, e)),
+            }
+        }
         FileExists => Value::Bool(std::path::Path::new(as_string(args.remove(0)).as_str()).exists()),
         FileIsDir => Value::Bool(std::path::Path::new(as_string(args.remove(0)).as_str()).is_dir()),
         FileList => {
@@ -591,10 +629,10 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
         TaskAll => unreachable!("@task.all is handled by the VM loop"),
         // the VM builds the HttpResponse struct. see Vm::http_get
         HttpGet | HttpPost => {
-            return Err(RuntimeError::Process { function: "@http.get", reason: "internal: @http.get is run by the VM".to_string() })
+            return Err(RuntimeError::Process { function: "http.get", reason: "internal: http.get is run by the VM".to_string() })
         }
         PsRun | PsRunFile => {
-            return Err(RuntimeError::Process { function: "@ps.run", reason: "internal: @ps.run is run by the VM".to_string() })
+            return Err(RuntimeError::Process { function: "ps.run", reason: "internal: ps.run is run by the VM".to_string() })
         }
         PsVersion => Value::String(Rc::new(crate::powershell::version()?)),
         PsIsAvailable => Value::Bool(crate::powershell::is_available()),

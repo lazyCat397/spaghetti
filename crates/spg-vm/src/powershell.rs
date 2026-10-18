@@ -103,7 +103,7 @@ pub fn exec(function: &'static str, mode: &str, arg: &str, timeout_secs: i64) ->
 
 /// true only when PowerShell starts and answers a trivial command with exit 0. vibes check.
 pub fn is_available() -> bool {
-    match exec("@ps.isAvailable", "cmd", "$PSVersionTable.PSVersion.ToString()", 10) {
+    match exec("ps.isAvailable", "cmd", "$PSVersionTable.PSVersion.ToString()", 10) {
         Ok(done) => done.code == 0 && !done.output.trim().is_empty(),
         Err(_) => false,
     }
@@ -122,13 +122,13 @@ pub fn safe_party() -> bool {
 
 /// the version of the PowerShell that `exec` would pick
 pub fn version() -> Result<String, RuntimeError> {
-    let outcome = exec("@ps.version", "cmd", "$PSVersionTable.PSVersion.ToString()", 10)?;
+    let outcome = exec("ps.version", "cmd", "$PSVersionTable.PSVersion.ToString()", 10)?;
     let text = outcome.output.trim().to_string();
     if outcome.code == 0 && !text.is_empty() {
         Ok(text)
     } else {
         Err(RuntimeError::Process {
-            function: "@ps.version",
+            function: "ps.version",
             reason: format!("PowerShell did not report a version (exit code {})", outcome.code),
         })
     }

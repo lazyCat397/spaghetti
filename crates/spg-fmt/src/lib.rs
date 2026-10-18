@@ -313,7 +313,8 @@ pub fn format_source(src: &str) -> String {
                     ")" | "]" => paren -= 1,
                     _ => {}
                 }
-                if atom.text == "<" && prev.as_ref().is_some_and(|p| matches!(p.text.as_str(), "array" | "map" | "task")) {
+                // `install <std: "ps">` has angle brackets too, and they hug the contents like generics do
+                if atom.text == "<" && prev.as_ref().is_some_and(|p| matches!(p.text.as_str(), "array" | "map" | "task" | "install")) {
                     generic += 1;
                 } else if atom.text == ">" && generic > 0 {
                     generic -= 1;
@@ -468,6 +469,12 @@ mod tests {
         assert_eq!(fmt("let a = x - 3\n"), "let a = x - 3\n");
         assert_eq!(fmt("let m: map<string,int> = [:]\n"), "let m: map<string, int> = [:]\n");
         assert_eq!(fmt("let xs: array<int> = []\n"), "let xs: array<int> = []\n");
+    }
+
+    #[test]
+    fn install_std_brackets_are_tight() {
+        assert_eq!(fmt("install <std: \"ps\">\n"), "install <std: \"ps\">\n");
+        assert_eq!(fmt("install < std:\"ps\" >\n"), "install <std: \"ps\">\n");
     }
 
     #[test]

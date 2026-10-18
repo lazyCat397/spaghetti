@@ -230,7 +230,7 @@ impl<'p> Vm<'p> {
     /// `@ps.run(cmd [, timeout])` and `@ps.runFile(path [, timeout])`: runs PowerShell and
     /// builds the `PsResult` the program declared (success, code, output, error). in that order, don't swap.
     fn ps_run(&self, frame: &mut CallFrame<'p, '_>, id: spg_typecheck::BuiltinId, argc: usize) -> Result<Value, RuntimeError> {
-        let function = if id == spg_typecheck::BuiltinId::PsRunFile { "@ps.runFile" } else { "@ps.run" };
+        let function = if id == spg_typecheck::BuiltinId::PsRunFile { "ps.runFile" } else { "ps.run" };
         let mut args: Vec<Value> = (0..argc).map(|_| frame.pop()).collect::<Result<_, _>>()?;
         args.reverse();
         let text = match args.first() {
@@ -288,7 +288,7 @@ impl<'p> Vm<'p> {
     /// only a failure to get an answer is an error; a 404 or 500 is a normal response.
     fn http_request(&self, frame: &mut CallFrame<'p, '_>, id: spg_typecheck::BuiltinId, argc: usize) -> Result<Value, RuntimeError> {
         let post = id == spg_typecheck::BuiltinId::HttpPost;
-        let function = if post { "@http.post" } else { "@http.get" };
+        let function = if post { "http.post" } else { "http.get" };
         let mut args: Vec<Value> = (0..argc).map(|_| frame.pop()).collect::<Result<_, _>>()?;
         args.reverse();
         let mut rest = args.into_iter();

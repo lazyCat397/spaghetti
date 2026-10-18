@@ -44,6 +44,9 @@ pub enum TypeError {
     /// `replacement` is the current name, when there is one.
     OldNamespace { name: String, replacement: Option<String>, pos: Pos },
 
+    /// `ps.run(...)` / `http.get(...)` in a file with no `install <std: "ps">`.
+    NeedsInstall { lib: String, pos: Pos },
+
     /// a call whose callee isn't a plain function name (`p.x()`, `f()()`,
     /// `(a + b)()`). only named functions and builtins can be called. don't get fancy.
     NotCallable { pos: Pos },
@@ -205,6 +208,7 @@ impl TypeError {
             | TypeError::UndefinedFunction { pos, .. }
             | TypeError::RemovedBuiltin { pos, .. }
             | TypeError::OldNamespace { pos, .. }
+            | TypeError::NeedsInstall { pos, .. }
             | TypeError::NotCallable { pos, .. }
             | TypeError::CaptureAssign { pos, .. }
             | TypeError::ArityMismatch { pos, .. }
@@ -343,6 +347,10 @@ impl TypeError {
             TypeError::UndefinedVariable { name, .. } => write!(
                 f, "{}undefined variable '{}'",
                 self.location(), display_name(name)
+            ),
+            TypeError::NeedsInstall { lib, .. } => write!(
+                f, "{}'{}' is not built in; add `install <std: \"{}\">` at the top of the file to use it",
+                self.location(), lib, lib
             ),
             TypeError::OldNamespace { name, replacement, .. } => match replacement {
                 Some(r) => write!(

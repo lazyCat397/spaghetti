@@ -30,9 +30,12 @@ pub struct Decls {
     pub enums: HashSet<String>,
     /// free function name -> return type as written
     pub functions: HashMap<String, String>,
-    /// exported `const`/`let` with a written type (`export const fork: Fork`), taken
+    /// exported `const`/`let` with a written type (`export const terminal: Terminal`), taken
     /// from the installed/imported files so their members can be listed
     pub globals: HashMap<String, String>,
+    /// `function Tipo.nome(...) -> R` declarations, as (type, name, signature). they travel
+    /// with `merge`, so an imported type's associated functions are listed too
+    pub associated: Vec<(String, String, String)>,
 }
 
 pub struct Member {
@@ -48,6 +51,15 @@ pub struct Member {
 impl Decls {
     pub fn from_tokens(tokens: &[Token]) -> Decls {
         let mut d = Decls::default();
+        for i in 0..tokens.len() {
+            if let (Some(T::Function), Some(T::Ident(ty)), Some(T::Dot), Some(T::Ident(name)), Some(T::LParen)) =
+                (kind(tokens, i), kind(tokens, i + 1), kind(tokens, i + 2), kind(tokens, i + 3), kind(tokens, i + 4))
+            {
+                if let Some((sig, _)) = signature_at(tokens, i + 4) {
+                    d.associated.push((ty.clone(), name.clone(), sig));
+                }
+            }
+        }
         // a file that calls `@ps.*` gets the PsResult struct too, as the engine gives it
         // both prelude structs go in ONE token stream, so a file using @ps and @http gets both
         let mut prelude_src = String::new();
@@ -108,6 +120,7 @@ impl Decls {
             self.structs.entry(k).or_insert(v);
         }
         self.enums.extend(other.enums);
+        self.associated.extend(other.associated);
         for (k, v) in other.functions {
             self.functions.entry(k).or_insert(v);
         }
@@ -571,30 +584,40 @@ fn members_of_own(ty: &str, decls: &Decls) -> Vec<Member> {
 /// what to offer after `chain.`. `chain` is the dotted names before the dot
 /// (`["p"]`, `["a", "pos"]`, `["Color", "Red"]`). `at` is the number of
 /// tokens before the word being typed
-/// the associated functions of type `ty`, read from `function ty.name(...)` declarations
-pub fn associated_of(tokens: &[Token], ty: &str) -> Vec<Member> {
-    let mut out = Vec::new();
-    for i in 0..tokens.len() {
-        let header = (
-            kind(tokens, i),
-            kind(tokens, i + 1),
-            kind(tokens, i + 2),
-            kind(tokens, i + 3),
-            kind(tokens, i + 4),
-        );
-        if let (Some(T::Function), Some(T::Ident(t)), Some(T::Dot), Some(T::Ident(name)), Some(T::LParen)) = header {
-            if t == ty {
-                out.push(Member {
-                    name: name.clone(),
-                    detail: format!("{}.{}(...)", ty, name),
-                    kind: 3,
-                    insert: None,
-                    doc: Some("associated function: no instance, call it as Type.name()"),
-                });
-            }
+/// `(params) -> R` for the parameter list opening at `open`, and the index after it
+fn signature_at(tokens: &[Token], open: usize) -> Option<(String, usize)> {
+    let close = matching_paren(tokens, open)?;
+    let mut params = String::new();
+    for t in &tokens[open + 1..close] {
+        match &t.kind {
+            T::Ident(n) => params.push_str(n),
+            k => params.push_str(tok_text(k)),
         }
     }
-    out
+    let mut sig = format!("({})", params);
+    let mut next = close + 1;
+    if kind(tokens, next) == Some(&T::Arrow) {
+        let (ret, after) = read_type(tokens, next + 1);
+        sig.push_str(&format!(" -> {}", ret));
+        next = after;
+    }
+    Some((sig, next))
+}
+
+/// the associated functions of type `ty` known to this program (its own file and imports)
+pub fn associated_of(decls: &Decls, ty: &str) -> Vec<Member> {
+    decls
+        .associated
+        .iter()
+        .filter(|(t, _, _)| t == ty)
+        .map(|(t, name, sig)| Member {
+            name: name.clone(),
+            detail: format!("{}.{}{}", t, name, sig),
+            kind: 3,
+            insert: None,
+            doc: Some("associated function: no instance, call it as Type.name()"),
+        })
+        .collect()
 }
 
 pub fn after_dot(tokens: &[Token], at: usize, chain: &[String], decls: &Decls) -> Vec<Member> {
@@ -606,7 +629,7 @@ pub fn after_dot(tokens: &[Token], at: usize, chain: &[String], decls: &Decls) -
     if chain.len() == 1 && (decls.structs.contains_key(&chain[0]) || decls.enums.contains(&chain[0])) {
         let depth = depths(tokens);
         if resolve_head(tokens, &depth, at, &chain[0], decls).is_none() {
-            return associated_of(tokens, &chain[0]);
+            return associated_of(decls, &chain[0]);
         }
     }
     let depth = depths(tokens);
@@ -725,7 +748,6 @@ mod tests {
     const SRC: &str = "struct Point {\n    x: int,\n    y: int\n    function len2() -> int { return me.x * me.x + me.y * me.y }\n    function shift(dx: int, dy: int) { me.x += dx }\n}\nstruct Line { a: Point, b: Point, tag: array<string> }\nenum Color { Red, Green }\nfunction origin() -> Point { return Point { x: 0, y: 0 } }\n";
 
     #[test]
-    #[test]
     fn type_name_dot_lists_its_associated_functions() {
         let text = "struct Ponto { x: int }\nfunction Ponto.origem() -> Ponto { return Ponto { x: 0 } }\nfunction Ponto.de(x: int) -> Ponto { return Ponto { x: x } }\n";
         let (tokens, at, decls) = setup(text, 3, 0);
@@ -733,6 +755,18 @@ mod tests {
         assert!(got.contains(&"origem".to_string()) && got.contains(&"de".to_string()), "{:?}", got);
     }
 
+    #[test]
+    fn associated_functions_of_imported_files_are_listed() {
+        let lex = |t: &str| spg_lexer::Lexer::new(t).tokenize().unwrap();
+        let mut here = Decls::from_tokens(&lex("struct Ponto { x: int }\nlet p = 1\n"));
+        let there = Decls::from_tokens(&lex("struct Ponto { x: int }\nfunction Ponto.origem() -> Ponto { return Ponto { x: 0 } }\n"));
+        here.merge(there);
+        let got = names(&associated_of(&here, "Ponto"));
+        assert_eq!(got, vec!["origem".to_string()]);
+        assert_eq!(associated_of(&here, "Outro").len(), 0);
+    }
+
+    #[test]
     fn struct_table_has_fields_methods_and_signatures() {
         let (_, _, d) = setup(SRC, 0, 0);
         let p = &d.structs["Point"];
@@ -778,8 +812,8 @@ mod tests {
 
     #[test]
     fn a_ps_result_offers_its_fields() {
-        // `@ps.run` gives back a PsResult, and its fields are there with no install line
-        let (t, at, d) = setup("let r = @ps.run(\"x\")\nr.\n", 1, 2);
+        // `ps.run` gives back a PsResult, and its fields are there once `ps` is installed
+        let (t, at, d) = setup("install <std: \"ps\">\nlet r = ps.run(\"x\")\nr.\n", 2, 2);
         let got = names(&after_dot(&t, at, &["r".into()], &d));
         for want in ["success", "code", "output", "error"] {
             assert!(got.iter().any(|n| n == want), "PsResult misses {}: {:?}", want, got);

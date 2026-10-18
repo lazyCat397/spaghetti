@@ -55,6 +55,11 @@ impl fmt::Display for LexError {
             LexError::UnterminatedBlockComment { line, col } => {
                 write!(f, "unterminated block comment, started at line {}, column {} (close it with //]])", line, col)
             }
+            LexError::UnknownNamespace { name, line, col } if crate::is_install_namespace(name) => write!(
+                f,
+                "'@{0}' is not built in (line {1}, column {2}); add `install <std: \"{0}\">` and write it without the '@': {0}.member(...)",
+                name, line, col
+            ),
             LexError::UnknownNamespace { name, line, col } => {
                 let list: Vec<String> = crate::NAMESPACES.iter().map(|n| format!("@{}", n)).collect();
                 if name.is_empty() {
@@ -115,6 +120,10 @@ impl LexError {
             LexError::UnterminatedString { line, col } => format!(
                 "Oops! Unterminated string in `{}` at line {}, column {}. Check for a missing closing quote.",
                 file, line, col
+            ),
+            LexError::UnknownNamespace { name, line, col } if crate::is_install_namespace(name) => format!(
+                "Oops! `@{0}` is not built in, in `{1}` at line {2}, column {3}. Add `install <std: \"{0}\">` at the top and write it without the '@': `{0}.member(...)`.",
+                name, file, line, col
             ),
             LexError::UnknownNamespace { name, line, col } => {
                 let list: Vec<String> = crate::NAMESPACES.iter().map(|n| format!("@{}", n)).collect();
@@ -184,6 +193,37 @@ enum Part {
     Expr(Vec<Token>),
 }
 
+/// `install <std: "ps">` makes `ps.run(...)` a namespace call (no `@`). this pass finds the
+/// installs of native libraries in a token stream and turns each `ps` `.` (not itself a
+/// member, like `x.ps.y`) into a `Namespace` token, so the parser, checker and VM keep seeing
+/// the usual qualified name. interpolated expressions are already spliced into the stream.
+/// public so the editor tooling (which lexes on its own) can reuse it.
+pub fn apply_installed_namespaces(tokens: &mut [Token]) {
+    let mut installed: Vec<String> = Vec::new();
+    for w in tokens.windows(6) {
+        if let [Token { kind: TokenKind::Install, .. }, Token { kind: TokenKind::Lt, .. }, Token { kind: TokenKind::Ident(std), .. }, Token { kind: TokenKind::Colon, .. }, Token { kind: TokenKind::Str(name), .. }, Token { kind: TokenKind::Gt, .. }] = w
+        {
+            if std == "std" && crate::is_install_namespace(name) && !installed.contains(name) {
+                installed.push(name.clone());
+            }
+        }
+    }
+    if installed.is_empty() {
+        return;
+    }
+    for i in 0..tokens.len().saturating_sub(1) {
+        let TokenKind::Ident(name) = &tokens[i].kind else { continue };
+        if !installed.contains(name) || tokens[i + 1].kind != TokenKind::Dot {
+            continue;
+        }
+        if i > 0 && tokens[i - 1].kind == TokenKind::Dot {
+            continue;
+        }
+        let name = name.clone();
+        tokens[i].kind = TokenKind::Namespace(name);
+    }
+}
+
 /// tokenizes a piece of source at a known position (an interpolated
 /// expression, or a fake wrapper), so its tokens report real positions
 fn fragment_tokens(src: &str, line: usize, col: usize) -> Result<Vec<Token>, LexError> {
@@ -225,6 +265,7 @@ impl<'a> Lexer<'a> {
     pub fn tokenize_with_spec(mut self) -> Result<(Vec<Token>, FileSpec), LexError> {
         self.read_header()?;
         let mut tokens = self.lex_tokens()?;
+        apply_installed_namespaces(&mut tokens);
         let (line, col) = (self.line, self.col);
         tokens.push(Token::new(TokenKind::Eof, line, col));
         Ok((tokens, self.spec))

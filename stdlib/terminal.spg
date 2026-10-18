@@ -1,7 +1,8 @@
-// a few helpers for dealing with user input
+// `install <std: "terminal">`: questions and a bit of console output
 // because apparently readLine isn't quite enough for everything
+// (file helpers live in @file now: @file.readLines, @file.writeLines, ...)
 
-struct Fork {
+struct Terminal {
     _v: int
 
     // the simplest one. ask, receive, done.
@@ -88,36 +89,6 @@ struct Fork {
         }
     }
 
-    // file stuff!
-    // reading lines without having to split the whole file yourself
-    function readLines(path: string) -> array<string> {
-        return @file.lines(path)
-    }
-
-    // write a list of lines back to a file
-    // we'll take care of the newlines, don't worry
-    function writeLines(path: string, lines: array<string>) -> void {
-        let text = ""
-        for line in lines {
-            text += line + "\n"
-        }
-        @file.write(path, text)
-    }
-
-    // add a line at the end. that's it, that's the feature.
-    function appendLine(path: string, line: string) -> void {
-        @file.append(path, line + "\n")
-    }
-
-    // if the file doesn't exist, just use the fallback
-    // no need to make a whole thing out of it
-    function readOr(path: string, fallback: string) -> string {
-        if (@file.exists(path)) {
-            return @file.read(path)
-        }
-        return fallback
-    }
-
     // and a couple of formatting helpers for nicer console output
     // nothing too fancy, just the basics
 
@@ -146,4 +117,4 @@ struct Fork {
 
 }
 
-export const fork: Fork = Fork { _v: 0 }
+export const terminal: Terminal = Terminal { _v: 0 }

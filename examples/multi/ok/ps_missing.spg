@@ -1,7 +1,8 @@
-// without PowerShell on the PATH, @ps.* must say so instead of crashing. no install needed
-print(@ps.isAvailable())
+// without PowerShell on the PATH, ps.* must say so instead of crashing. needs `install <std: "ps">`
+install <std: "ps">
+print(ps.isAvailable())
 try {
-    @ps.run("Get-Date")
+    ps.run("Get-Date")
 } catch (e: string) {
     print(e)
 }

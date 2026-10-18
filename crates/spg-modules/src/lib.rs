@@ -59,12 +59,12 @@ struct Symbol {
 }
 
 /// libraries written in Rust, enabled by `install <std: "name">` (no file gets read)
-const NATIVE_LIBS: [&str; 2] = ["powershell", "http"];
+const NATIVE_LIBS: [&str; 2] = ["ps", "http"];
 
 /// the declarations a native library needs in the program (the struct its calls return)
 fn native_prelude(natives: &[String]) -> Vec<Stmt> {
     let mut stmts = Vec::new();
-    if natives.iter().any(|n| n == "powershell") {
+    if natives.iter().any(|n| n == "ps") {
         let source = spg_lexer::PS_RESULT_SOURCE;
         let tokens = Lexer::new(source).tokenize().expect("the PowerShell prelude lexes");
         let parsed = Parser::new(tokens).parse_program().expect("the PowerShell prelude parses");
@@ -121,7 +121,7 @@ pub fn standard_module(name: &str) -> Result<PathBuf, String> {
     let dir = std_dir().ok_or_else(|| {
         "standard library folder not found (set SPG_STD, or put a 'stdlib' folder next to spg)".to_string()
     })?;
-    // the name is written without the extension (`<std: "fork">`). `"fork.spg"` works too
+    // the name is written without the extension (`<std: "terminal">`). `"terminal.spg"` works too
     let stem = name.strip_suffix(".spg").unwrap_or(name);
     let file = dir.join(format!("{stem}.spg"));
     if file.is_file() {
@@ -256,13 +256,6 @@ impl Resolver {
 
         let is_entry = path == self.entry;
         let (mut program, source) = read_and_parse(path, &self.overlay, is_entry)?;
-        // `@ps.*` needs the PsResult struct in the program. a file that uses it brings the struct in
-        if source.contains("@ps.") && !self.natives.iter().any(|n| n == "powershell") {
-            self.natives.push("powershell".to_string());
-        }
-        if source.contains("@http.") && !self.natives.iter().any(|n| n == "http") {
-            self.natives.push("http".to_string());
-        }
         self.sources.push((path.to_path_buf(), source));
         let is_entry = path == self.entry;
         let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
@@ -373,9 +366,12 @@ impl Resolver {
         let mut ambiguous: HashMap<String, ((spg_parser::ast::Pos, String), (spg_parser::ast::Pos, String))> = HashMap::new();
         for stmt in &program.stmts {
             let Stmt::Install { from, pos, std } = stmt else { continue };
-            // native libraries live in the engine, not in stdlib/. they're built in now
-            // (`@ps.run`), so an old `install <std: "powershell">` is accepted and does nothing
+            // native libraries live in the engine, not in stdlib/. `install <std: "ps">` turns
+            // them on (and brings the struct their calls return into the program)
             if *std && NATIVE_LIBS.contains(&from.as_str()) {
+                if !self.natives.iter().any(|n| n == from) {
+                    self.natives.push(from.clone());
+                }
                 continue;
             }
             // `install <std: "name">` points at the standard library folder.

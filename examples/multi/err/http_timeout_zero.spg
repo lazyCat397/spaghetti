@@ -1,1 +1,2 @@
-let r = @http.get("http://127.0.0.1:8766/a", 0)
+install <std: "http">
+let r = http.get("http://127.0.0.1:8766/a", 0)

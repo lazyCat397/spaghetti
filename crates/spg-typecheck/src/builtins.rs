@@ -88,6 +88,10 @@ pub enum BuiltinId {
     FileWrite,
     FileAppend,
     FileLines,
+    FileReadLines,
+    FileWriteLines,
+    FileAppendLine,
+    FileReadOr,
     FileExists,
     FileIsDir,
     FileList,
@@ -422,6 +426,10 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
     add("@file.write", BuiltinSig { id: BuiltinId::FileWrite, params: vec![s.clone(), s.clone()], return_type: Ty::Void });
     add("@file.append", BuiltinSig { id: BuiltinId::FileAppend, params: vec![s.clone(), s.clone()], return_type: Ty::Void });
     add("@file.lines", BuiltinSig { id: BuiltinId::FileLines, params: vec![s.clone()], return_type: strs() });
+    add("@file.readLines", BuiltinSig { id: BuiltinId::FileReadLines, params: vec![s.clone()], return_type: strs() });
+    add("@file.writeLines", BuiltinSig { id: BuiltinId::FileWriteLines, params: vec![s.clone(), strs()], return_type: Ty::Void });
+    add("@file.appendLine", BuiltinSig { id: BuiltinId::FileAppendLine, params: vec![s.clone(), s.clone()], return_type: Ty::Void });
+    add("@file.readOr", BuiltinSig { id: BuiltinId::FileReadOr, params: vec![s.clone(), s.clone()], return_type: s.clone() });
     add("@file.exists", BuiltinSig { id: BuiltinId::FileExists, params: vec![s.clone()], return_type: Ty::Bool });
     add("@file.isDir", BuiltinSig { id: BuiltinId::FileIsDir, params: vec![s.clone()], return_type: Ty::Bool });
     add("@file.list", BuiltinSig { id: BuiltinId::FileList, params: vec![s.clone()], return_type: strs() });

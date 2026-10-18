@@ -110,6 +110,10 @@ pub fn builtin_doc(name: &str) -> Option<&'static str> {
         "@file.readBytes" => "the bytes of a file, as an array of ints",
         "@file.write" => "replace the file's content with the text",
         "@file.writeBytes" => "replace the file's content with the bytes",
+        "@file.readLines" => "the lines of a file, as an array of strings",
+        "@file.writeLines" => "replace the file's content with the lines, each ended with a newline",
+        "@file.appendLine" => "add the line (plus a newline) at the end of the file",
+        "@file.readOr" => "the whole text of a file, or the fallback if the file doesn't exist",
         "@file.append" => "add the text at the end of the file",
         "@file.lines" => "the lines of a file, as an array of strings",
         "@file.exists" => "true if a file or folder is there",
@@ -165,7 +169,7 @@ pub fn namespace_doc(ns: &str) -> Option<&'static str> {
         "sys" => "the system: args, env, input, exit",
         "json" => "read and write JSON",
         "task" => "tasks: wait for background work",
-        "ps" => "PowerShell, always available",
+        "ps" => "PowerShell (install <std: \"ps\">)",
         _ => return None,
     })
 }
