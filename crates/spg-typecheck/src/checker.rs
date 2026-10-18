@@ -656,6 +656,15 @@ impl Checker {
         // `Tipo.nome(args)`: a call to an associated function. the object is a struct NAME,
         // not a value. a local variable with that name wins (then it's a plain method call)
         if let Expr::Ident(type_name, _) = object {
+            // `Foo.bar()` where `Foo` is not a struct, and a `function Foo.x` was already
+            // reported as an unknown type: the declaration error is the one to show, so
+            // the name is not also reported as an undefined variable here
+            let declared_for_unknown = !self.struct_defs.contains_key(type_name)
+                && self.lookup_var(type_name).is_none()
+                && self.associated.iter().any(|f| f.split_once('.').map_or(false, |(t, _)| t == type_name));
+            if declared_for_unknown {
+                return None;
+            }
             if self.lookup_var(type_name).is_none() && self.struct_defs.contains_key(type_name) {
                 let full = format!("{}.{}", type_name, method);
                 if !self.associated.contains(&full) {
