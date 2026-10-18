@@ -2,7 +2,7 @@
   "name": "spaghetti",
   "displayName": "Spaghetti",
   "description": "Spaghetti (.spg) language support: syntax highlighting, live errors, completion, formatting, snippets and a Run button.",
-  "version": "1.29.0",
+  "version": "1.30.0",
   "publisher": "spaghetti",
   "license": "UNLICENSED",
   "private": true,

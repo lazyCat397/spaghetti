@@ -196,7 +196,7 @@ err ns_reservado_param.spg  "'@array' is a reserved namespace"
 err ns_reservado_struct.spg "'@str' is a reserved namespace" '(line 1, column 8)'
 err ns_no_member.spg       "'@math' is a namespace; use '@math.<name>(...)'"
 err ns_membro_inexistente.spg "namespace '@math' has no member 'foo'"
-err ns_desconhecido.spg     "unknown namespace '@mth'" '(available: @str, @array, @map, @into, @math, @time, @file, @sys, @json, @task, @ps)' 'line 1, column 7'
+err ns_desconhecido.spg     "unknown namespace '@mth'" '(available: @str, @array, @map, @into, @math, @time, @file, @sys, @json, @task, @ps, @http)' 'line 1, column 7'
 err ns_arroba_solto.spg     "'@' must be followed by a namespace name" 'line 1, column 14'
 err ns_sintaxe_antiga.spg   "'math.sqrt' uses the old namespace spelling" "use '@math.sqrt'"
 err ns_string_antigo.spg    "'string.len' uses the old namespace spelling; use '@str.len'"
@@ -499,6 +499,8 @@ err async_all_error.spg "unhandled exception: boom" "at bad ("
 ok pipe_basic.spg "6\n6\n13\n6\n7\n106"
 err pipe_no_call.spg "expected a function call after the pipe"
 ok logic_words.spg "true\ntrue\nfalse"
+err http_refused.spg "@http.get: io: Connection refused"
+err http_timeout_zero.spg "the timeout must be at least 1 second"
 
 echo "multi-file: $pass ok, $fail failed"
 [ "$fail" = 0 ]

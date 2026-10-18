@@ -11,9 +11,13 @@ pub use token::{Token, TokenKind};
 /// namespace token in a name position, reported as a reserved-name error. don't.
 /// the struct every `@ps.*` call returns. the engine injects it into a program that
 /// uses `@ps.` (spg-modules), and the editor reads the same text for completions
+/// the struct every `@http.*` call returns. same deal as PsResult: the engine injects it
+/// into a program that uses `@http.`, and the editor reads the same text.
+pub const HTTP_RESPONSE_SOURCE: &str = "struct HttpResponse {\n    status: int,\n    headers: map<string, string>,\n    body: string\n}\n";
+
 pub const PS_RESULT_SOURCE: &str = "struct PsResult {\n    success: bool,\n    code: int,\n    output: string,\n    error: string\n}\n";
 
-pub const NAMESPACES: [&str; 11] = ["str", "array", "map", "into", "math", "time", "file", "sys", "json", "task", "ps"];
+pub const NAMESPACES: [&str; 12] = ["str", "array", "map", "into", "math", "time", "file", "sys", "json", "task", "ps", "http"];
 
 pub fn is_namespace(name: &str) -> bool {
     NAMESPACES.contains(&name)

@@ -59,7 +59,7 @@ struct Symbol {
 }
 
 /// libraries written in Rust, enabled by `install <std: "name">` (no file gets read)
-const NATIVE_LIBS: [&str; 1] = ["powershell"];
+const NATIVE_LIBS: [&str; 2] = ["powershell", "http"];
 
 /// the declarations a native library needs in the program (the struct its calls return)
 fn native_prelude(natives: &[String]) -> Vec<Stmt> {
@@ -68,6 +68,11 @@ fn native_prelude(natives: &[String]) -> Vec<Stmt> {
         let source = spg_lexer::PS_RESULT_SOURCE;
         let tokens = Lexer::new(source).tokenize().expect("the PowerShell prelude lexes");
         let parsed = Parser::new(tokens).parse_program().expect("the PowerShell prelude parses");
+        stmts.extend(parsed.stmts);
+    }
+    if natives.iter().any(|n| n == "http") {
+        let tokens = Lexer::new(spg_lexer::HTTP_RESPONSE_SOURCE).tokenize().expect("the HTTP prelude lexes");
+        let parsed = Parser::new(tokens).parse_program().expect("the HTTP prelude parses");
         stmts.extend(parsed.stmts);
     }
     stmts
@@ -254,6 +259,9 @@ impl Resolver {
         // `@ps.*` needs the PsResult struct in the program. a file that uses it brings the struct in
         if source.contains("@ps.") && !self.natives.iter().any(|n| n == "powershell") {
             self.natives.push("powershell".to_string());
+        }
+        if source.contains("@http.") && !self.natives.iter().any(|n| n == "http") {
+            self.natives.push("http".to_string());
         }
         self.sources.push((path.to_path_buf(), source));
         let is_entry = path == self.entry;

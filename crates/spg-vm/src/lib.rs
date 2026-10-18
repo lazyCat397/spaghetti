@@ -8,6 +8,7 @@ pub mod chunk;
 pub mod error;
 mod arith;
 mod json;
+mod http;
 mod powershell;
 mod sched;
 mod field_ops;

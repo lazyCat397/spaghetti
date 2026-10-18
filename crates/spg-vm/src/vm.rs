@@ -281,6 +281,66 @@ impl<'p> Vm<'p> {
         Ok(Value::Struct(Rc::new(std::cell::RefCell::new((def, values)))))
     }
 
+    /// `@http.get(url, ...)` and `@http.post(url, body, ...)`. the optional arguments
+    /// come in any order the typechecker allowed: an int is the timeout (seconds), a map
+    /// is the headers, and for POST the string after the url is the body. builds the
+    /// `HttpResponse` the program declared (status, headers, body), in that order.
+    /// only a failure to get an answer is an error; a 404 or 500 is a normal response.
+    fn http_request(&self, frame: &mut CallFrame<'p, '_>, id: spg_typecheck::BuiltinId, argc: usize) -> Result<Value, RuntimeError> {
+        let post = id == spg_typecheck::BuiltinId::HttpPost;
+        let function = if post { "@http.post" } else { "@http.get" };
+        let mut args: Vec<Value> = (0..argc).map(|_| frame.pop()).collect::<Result<_, _>>()?;
+        args.reverse();
+        let mut rest = args.into_iter();
+        let url = match rest.next() {
+            Some(Value::String(s)) => s.to_string(),
+            _ => return Err(RuntimeError::TypeMismatch { expected: "string", found: "other" }),
+        };
+        let mut body: Option<String> = None;
+        let mut headers: Vec<(String, String)> = Vec::new();
+        let mut timeout: i64 = 30;
+        for extra in rest {
+            match extra {
+                Value::String(s) if post && body.is_none() => body = Some(s.to_string()),
+                Value::Int(n) => timeout = n,
+                Value::Map(m) => {
+                    for (k, v) in m.borrow().entries() {
+                        match (k, v) {
+                            (Value::String(k), Value::String(v)) => headers.push((k.to_string(), v.to_string())),
+                            _ => return Err(RuntimeError::TypeMismatch { expected: "string headers", found: "other" }),
+                        }
+                    }
+                }
+                _ => return Err(RuntimeError::TypeMismatch { expected: "timeout, headers or body", found: "other" }),
+            }
+        }
+        if timeout <= 0 {
+            return Err(RuntimeError::Process { function, reason: "the timeout must be at least 1 second".to_string() });
+        }
+        if post && body.is_none() {
+            body = Some(String::new());
+        }
+        let answer = crate::http::request(&url, body.as_deref(), &headers, timeout as u64)
+            .map_err(|reason| RuntimeError::Process { function, reason })?;
+        let def = self
+            .program
+            .struct_defs
+            .iter()
+            .find(|d| d.name == "HttpResponse")
+            .cloned()
+            .ok_or(RuntimeError::Process { function, reason: "HttpResponse is not declared (internal error)".to_string() })?;
+        let mut out_headers = crate::value::SpgMap::default();
+        for (name, value) in answer.headers {
+            out_headers.insert(Value::String(Rc::new(name)), Value::String(Rc::new(value)));
+        }
+        let values = vec![
+            Value::Int(answer.status as i64),
+            Value::Map(Rc::new(std::cell::RefCell::new(out_headers))),
+            Value::String(Rc::new(answer.body)),
+        ];
+        Ok(Value::Struct(Rc::new(std::cell::RefCell::new((def, values)))))
+    }
+
     /// every call goes through here. a `-> task<T>` function runs its body right
     /// now (tasks are eager), then the result, or the error and its trace, goes
     /// into the task. the caller never sees the error itself: `.wait()` throws it.
@@ -791,6 +851,10 @@ impl<'p> Vm<'p> {
                 return Ok(Some(FrameOutcome::Returned(v)));
             }
 
+            OpCode::CallBuiltin { id, argc } if matches!(id, spg_typecheck::BuiltinId::HttpGet | spg_typecheck::BuiltinId::HttpPost) => {
+                let value = self.http_request(frame, id, argc)?;
+                frame.push(value);
+            }
             OpCode::CallBuiltin { id, argc } if matches!(id, spg_typecheck::BuiltinId::PsRun | spg_typecheck::BuiltinId::PsRunFile) => {
                 let value = self.ps_run(frame, id, argc)?;
                 frame.push(value);

@@ -49,8 +49,16 @@ impl Decls {
     pub fn from_tokens(tokens: &[Token]) -> Decls {
         let mut d = Decls::default();
         // a file that calls `@ps.*` gets the PsResult struct too, as the engine gives it
+        // both prelude structs go in ONE token stream, so a file using @ps and @http gets both
+        let mut prelude_src = String::new();
         if tokens.iter().any(|t| matches!(&t.kind, T::Namespace(n) if n == "ps")) {
-            if let Ok(prelude) = spg_lexer::Lexer::new(spg_lexer::PS_RESULT_SOURCE).tokenize() {
+            prelude_src.push_str(spg_lexer::PS_RESULT_SOURCE);
+        }
+        if tokens.iter().any(|t| matches!(&t.kind, T::Namespace(n) if n == "http")) {
+            prelude_src.push_str(spg_lexer::HTTP_RESPONSE_SOURCE);
+        }
+        if !prelude_src.is_empty() {
+            if let Ok(prelude) = spg_lexer::Lexer::new(&prelude_src).tokenize() {
                 d = Decls::from_tokens(&prelude);
             }
         }

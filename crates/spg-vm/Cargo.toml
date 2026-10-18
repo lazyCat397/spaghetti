@@ -6,3 +6,5 @@ edition.workspace = true
 [dependencies]
 spg-lexer = { path = "../spg-lexer" }
 spg-typecheck = { path = "../spg-typecheck" }
+# @http: blocking client with rustls (TLS). pinned: 3.2.1 is the last release that builds on Rust 1.75
+ureq = { version = "=3.2.1", default-features = false, features = ["rustls", "platform-verifier", "gzip"] }

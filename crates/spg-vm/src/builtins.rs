@@ -589,6 +589,10 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
         // `t.wait()` is handled in the VM loop (it may re-throw a task error). never gets here.
         TaskWait => unreachable!("@task.wait is handled by the VM loop"),
         TaskAll => unreachable!("@task.all is handled by the VM loop"),
+        // the VM builds the HttpResponse struct. see Vm::http_get
+        HttpGet | HttpPost => {
+            return Err(RuntimeError::Process { function: "@http.get", reason: "internal: @http.get is run by the VM".to_string() })
+        }
         PsRun | PsRunFile => {
             return Err(RuntimeError::Process { function: "@ps.run", reason: "internal: @ps.run is run by the VM".to_string() })
         }

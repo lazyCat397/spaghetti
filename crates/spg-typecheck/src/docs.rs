@@ -143,6 +143,8 @@ pub fn builtin_doc(name: &str) -> Option<&'static str> {
         // ---- @ps: PowerShell ----
         "@ps.run" => "run a PowerShell command. gives back a PsResult",
         "@ps.runFile" => "run a .ps1 script. gives back a PsResult",
+        "@http.get" => "GET a url, optional headers map and timeout in seconds (default 30). gives back an HttpResponse (status, headers, body). a 404 is a normal answer; only no answer at all throws",
+        "@http.post" => "POST a body to a url, optional headers map and timeout in seconds. gives back an HttpResponse",
         "@ps.version" => "the PowerShell version, as text",
         "@ps.isAvailable" => "true if PowerShell can be found on this machine",
 

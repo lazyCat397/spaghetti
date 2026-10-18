@@ -114,6 +114,8 @@ pub enum BuiltinId {
     // ---- ps: PowerShell, a native namespace (`@ps.run(...)`) ----
     PsRun,
     PsRunFile,
+    HttpGet,
+    HttpPost,
     PsVersion,
     PsIsAvailable,
     SysReadLine,
@@ -458,6 +460,17 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
     add("@ps.runFile", BuiltinSig { id: BuiltinId::PsRunFile, params: vec![s.clone(), Ty::Int], return_type: ps_result });
     add("@ps.version", BuiltinSig { id: BuiltinId::PsVersion, params: vec![], return_type: s.clone() });
     add("@ps.isAvailable", BuiltinSig { id: BuiltinId::PsIsAvailable, params: vec![], return_type: Ty::Bool });
+    // ---- http: `@http.get(url)` gives an HttpResponse struct (status, headers, body) ----
+    let http = Ty::Named("HttpResponse".to_string());
+    let headers = Ty::Map(Box::new(Ty::String), Box::new(Ty::String));
+    add("@http.get", BuiltinSig { id: BuiltinId::HttpGet, params: vec![s.clone()], return_type: http.clone() });
+    add("@http.get", BuiltinSig { id: BuiltinId::HttpGet, params: vec![s.clone(), Ty::Int], return_type: http.clone() });
+    add("@http.get", BuiltinSig { id: BuiltinId::HttpGet, params: vec![s.clone(), headers.clone()], return_type: http.clone() });
+    add("@http.get", BuiltinSig { id: BuiltinId::HttpGet, params: vec![s.clone(), headers.clone(), Ty::Int], return_type: http.clone() });
+    add("@http.post", BuiltinSig { id: BuiltinId::HttpPost, params: vec![s.clone(), s.clone()], return_type: http.clone() });
+    add("@http.post", BuiltinSig { id: BuiltinId::HttpPost, params: vec![s.clone(), s.clone(), Ty::Int], return_type: http.clone() });
+    add("@http.post", BuiltinSig { id: BuiltinId::HttpPost, params: vec![s.clone(), s.clone(), headers.clone()], return_type: http.clone() });
+    add("@http.post", BuiltinSig { id: BuiltinId::HttpPost, params: vec![s.clone(), s.clone(), headers, Ty::Int], return_type: http });
     add("@sys.readLine", BuiltinSig { id: BuiltinId::SysReadLine, params: vec![], return_type: s.clone() });
     add("@sys.readAll", BuiltinSig { id: BuiltinId::SysReadAll, params: vec![], return_type: s.clone() });
 
