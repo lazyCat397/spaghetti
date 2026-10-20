@@ -505,3 +505,18 @@ impl ElemKind {
         }
     }
 }
+
+#[cfg(test)]
+mod size_tests {
+    use super::OpCode;
+
+    /// the interpreter loop copies opcodes around all day. a library call (`BuiltinId::Lib(u16)`)
+    /// must not make the id bigger than 4 bytes, so `CallBuiltin` never sets the size of `OpCode`
+    /// (its largest variants are others; the id plus a `usize` argc fit in 16 bytes).
+    #[test]
+    fn library_calls_do_not_grow_opcodes() {
+        assert!(std::mem::size_of::<spg_typecheck::BuiltinId>() <= 4);
+        let call = OpCode::CallBuiltin { id: spg_typecheck::BuiltinId::Lib(0), argc: 0 };
+        assert!(matches!(call, OpCode::CallBuiltin { .. }));
+    }
+}

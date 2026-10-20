@@ -1,2 +1,2 @@
-install <std: "http">
+install #http
 let r = http.get("http://127.0.0.1:8766/a", 0)

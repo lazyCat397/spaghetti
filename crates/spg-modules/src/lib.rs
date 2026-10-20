@@ -58,22 +58,17 @@ struct Symbol {
     pos: spg_parser::ast::Pos,
 }
 
-/// libraries written in Rust, enabled by `install <std: "name">` (no file gets read)
-const NATIVE_LIBS: [&str; 2] = ["ps", "http"];
-
-/// the declarations a native library needs in the program (the struct its calls return)
+/// the declarations a native library needs in the program (the structs its calls return),
+/// straight from the library's own descriptor in `spg-libs`
 fn native_prelude(natives: &[String]) -> Vec<Stmt> {
     let mut stmts = Vec::new();
-    if natives.iter().any(|n| n == "ps") {
-        let source = spg_lexer::PS_RESULT_SOURCE;
-        let tokens = Lexer::new(source).tokenize().expect("the PowerShell prelude lexes");
-        let parsed = Parser::new(tokens).parse_program().expect("the PowerShell prelude parses");
-        stmts.extend(parsed.stmts);
-    }
-    if natives.iter().any(|n| n == "http") {
-        let tokens = Lexer::new(spg_lexer::HTTP_RESPONSE_SOURCE).tokenize().expect("the HTTP prelude lexes");
-        let parsed = Parser::new(tokens).parse_program().expect("the HTTP prelude parses");
-        stmts.extend(parsed.stmts);
+    for name in natives {
+        let Some(module) = spg_libs::module(name) else { continue };
+        for source in module.structs {
+            let tokens = Lexer::new(source).tokenize().expect("a library prelude lexes");
+            let parsed = Parser::new(tokens).parse_program().expect("a library prelude parses");
+            stmts.extend(parsed.stmts);
+        }
     }
     stmts
 }
@@ -115,13 +110,13 @@ pub fn std_dir() -> Option<PathBuf> {
         .and_then(|p| p.canonicalize().ok())
 }
 
-/// path of a standard module (`<std: "name">` -> `<std dir>/name.spg`),
+/// path of a standard module (`#name` -> `<std dir>/name.spg`),
 /// or a message saying where it was looked for. the search party report.
 pub fn standard_module(name: &str) -> Result<PathBuf, String> {
     let dir = std_dir().ok_or_else(|| {
         "standard library folder not found (set SPG_STD, or put a 'stdlib' folder next to spg)".to_string()
     })?;
-    // the name is written without the extension (`<std: "terminal">`). `"terminal.spg"` works too
+    // the name is written without the extension (`#terminal`). `"terminal.spg"` works too
     let stem = name.strip_suffix(".spg").unwrap_or(name);
     let file = dir.join(format!("{stem}.spg"));
     if file.is_file() {
@@ -366,15 +361,15 @@ impl Resolver {
         let mut ambiguous: HashMap<String, ((spg_parser::ast::Pos, String), (spg_parser::ast::Pos, String))> = HashMap::new();
         for stmt in &program.stmts {
             let Stmt::Install { from, pos, std } = stmt else { continue };
-            // native libraries live in the engine, not in stdlib/. `install <std: "ps">` turns
+            // native libraries live in the engine, not in stdlib/. `install #ps` turns
             // them on (and brings the struct their calls return into the program)
-            if *std && NATIVE_LIBS.contains(&from.as_str()) {
+            if *std && spg_lexer::is_install_namespace(from) {
                 if !self.natives.iter().any(|n| n == from) {
                     self.natives.push(from.clone());
                 }
                 continue;
             }
-            // `install <std: "name">` points at the standard library folder.
+            // `install #name` points at the standard library folder.
             // `install "path"` is a path relative to this file, as before
             let target = if *std {
                 let file = standard_module(from).map_err(|message| ModuleError::Io {

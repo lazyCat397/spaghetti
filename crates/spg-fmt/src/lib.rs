@@ -152,6 +152,16 @@ fn scan(src: &str) -> Vec<Piece> {
             i = end;
             continue;
         }
+        // `#name` (right after `install`): a standard library, one atom like `@name`
+        if ch == '#' && c.get(i + 1).is_some_and(|n| is_word_char(*n)) {
+            let start = i;
+            i += 1;
+            while i < c.len() && is_word_char(c[i]) {
+                i += 1;
+            }
+            out.push(Piece::Atom(Atom { text: c[start..i].iter().collect(), class: Class::Namespace }));
+            continue;
+        }
         if ch == '@' {
             let start = i;
             i += 1;
@@ -313,8 +323,7 @@ pub fn format_source(src: &str) -> String {
                     ")" | "]" => paren -= 1,
                     _ => {}
                 }
-                // `install <std: "ps">` has angle brackets too, and they hug the contents like generics do
-                if atom.text == "<" && prev.as_ref().is_some_and(|p| matches!(p.text.as_str(), "array" | "map" | "task" | "install")) {
+                if atom.text == "<" && prev.as_ref().is_some_and(|p| matches!(p.text.as_str(), "array" | "map" | "task")) {
                     generic += 1;
                 } else if atom.text == ">" && generic > 0 {
                     generic -= 1;
@@ -472,9 +481,10 @@ mod tests {
     }
 
     #[test]
-    fn install_std_brackets_are_tight() {
-        assert_eq!(fmt("install <std: \"ps\">\n"), "install <std: \"ps\">\n");
-        assert_eq!(fmt("install < std:\"ps\" >\n"), "install <std: \"ps\">\n");
+    fn install_std_hash_stays_tight() {
+        assert_eq!(fmt("install #ps\n"), "install #ps\n");
+        assert_eq!(fmt("install   #ps\n"), "install #ps\n");
+        assert_eq!(fmt("install \"./a.spg\"\n"), "install \"./a.spg\"\n");
     }
 
     #[test]

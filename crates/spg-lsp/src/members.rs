@@ -60,14 +60,15 @@ impl Decls {
                 }
             }
         }
-        // a file that calls `@ps.*` gets the PsResult struct too, as the engine gives it
-        // both prelude structs go in ONE token stream, so a file using @ps and @http gets both
+        // a file that uses an installed library gets the structs its calls return, as the engine gives them.
+        // all of them go in ONE token stream
         let mut prelude_src = String::new();
-        if tokens.iter().any(|t| matches!(&t.kind, T::Namespace(n) if n == "ps")) {
-            prelude_src.push_str(spg_lexer::PS_RESULT_SOURCE);
-        }
-        if tokens.iter().any(|t| matches!(&t.kind, T::Namespace(n) if n == "http")) {
-            prelude_src.push_str(spg_lexer::HTTP_RESPONSE_SOURCE);
+        for module in spg_libs::modules() {
+            if tokens.iter().any(|t| matches!(&t.kind, T::Namespace(n) if n == module.name)) {
+                for source in module.structs {
+                    prelude_src.push_str(source);
+                }
+            }
         }
         if !prelude_src.is_empty() {
             if let Ok(prelude) = spg_lexer::Lexer::new(&prelude_src).tokenize() {
@@ -813,7 +814,7 @@ mod tests {
     #[test]
     fn a_ps_result_offers_its_fields() {
         // `ps.run` gives back a PsResult, and its fields are there once `ps` is installed
-        let (t, at, d) = setup("install <std: \"ps\">\nlet r = ps.run(\"x\")\nr.\n", 2, 2);
+        let (t, at, d) = setup("install #ps\nlet r = ps.run(\"x\")\nr.\n", 2, 2);
         let got = names(&after_dot(&t, at, &["r".into()], &d));
         for want in ["success", "code", "output", "error"] {
             assert!(got.iter().any(|n| n == want), "PsResult misses {}: {:?}", want, got);

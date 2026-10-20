@@ -1,0 +1,10 @@
+[package]
+name = "spg-libs"
+version.workspace = true
+edition.workspace = true
+
+# the libraries that ship with the engine but are NOT part of the language (ps, http, ...).
+# this crate depends on no other spg crate: a lib only knows plain Rust values (`LibValue`).
+[dependencies]
+# http: blocking client with rustls (TLS). pinned: 3.2.1 is the last release that builds on Rust 1.75
+ureq = { version = "=3.2.1", default-features = false, features = ["rustls", "platform-verifier", "gzip"] }

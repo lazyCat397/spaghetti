@@ -275,6 +275,13 @@
     "namespaces": {
       "patterns": [
         {
+          "match": "\\b(install)\\s+(#[A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.control.spg" },
+            "2": { "name": "entity.name.namespace.spg" }
+          }
+        },
+        {
           "match": "(?<![.A-Za-z0-9_@])(@(?:str|array|map|into|math|time|file|sys|json|task))(\\.)([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
           "captures": {
             "1": {

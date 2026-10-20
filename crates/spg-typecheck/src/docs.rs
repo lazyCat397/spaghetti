@@ -90,10 +90,6 @@ pub fn builtin_doc(name: &str) -> Option<&'static str> {
         "@into.float" => "the number as a float, or the text parsed as a float (error if it isn't one)",
 
         // ---- @time ----
-        "@time.now" => "the current date and time as text",
-        "@time.unix" => "seconds since 1970, as an int",
-        "@time.elapsed" => "time since the program started, as text",
-        "@time.sleep" => "pause for n milliseconds. other tasks keep running meanwhile",
 
         // ---- @sys: the system ----
         "@sys.args" => "the command-line arguments, as an array of strings",
@@ -106,53 +102,15 @@ pub fn builtin_doc(name: &str) -> Option<&'static str> {
         "@sys.readAll" => "read everything left from the input",
 
         // ---- @file ----
-        "@file.read" => "the whole text of a file",
-        "@file.readBytes" => "the bytes of a file, as an array of ints",
-        "@file.write" => "replace the file's content with the text",
-        "@file.writeBytes" => "replace the file's content with the bytes",
-        "@file.readLines" => "the lines of a file, as an array of strings",
-        "@file.writeLines" => "replace the file's content with the lines, each ended with a newline",
-        "@file.appendLine" => "add the line (plus a newline) at the end of the file",
-        "@file.readOr" => "the whole text of a file, or the fallback if the file doesn't exist",
-        "@file.append" => "add the text at the end of the file",
-        "@file.lines" => "the lines of a file, as an array of strings",
-        "@file.exists" => "true if a file or folder is there",
-        "@file.isDir" => "true if the path is a folder",
-        "@file.list" => "the names inside a folder",
-        "@file.mkdir" => "create a folder (and the ones above it)",
-        "@file.delete" => "delete a file",
-        "@file.deleteAll" => "delete a folder and everything inside it",
-        "@file.copy" => "copy a file to another path",
-        "@file.rename" => "move or rename a file or folder",
-        "@file.join" => "join path parts with the right separator",
-        "@file.size" => "size of a file in bytes",
-        "@file.modified" => "last modification time, as seconds since 1970",
-        "@file.modifiedDate" => "last modification time, as text",
 
         // ---- @json ----
-        "@json.valid" => "true if the text is valid JSON",
-        "@json.get" => "the value at a path inside a JSON text",
-        "@json.has" => "true if the path exists in a JSON text",
-        "@json.type" => "the JSON type at a path: object, array, string, number, bool or null",
-        "@json.len" => "number of items of the array or object at a path",
-        "@json.keys" => "the keys of the object at a path",
-        "@json.set" => "a new JSON text with the value written at a path",
-        "@json.stringify" => "the value as compact JSON text",
-        "@json.pretty" => "the value as indented JSON text",
 
         // ---- @task: tasks ----
         "@task.all" => "wait for every task in the array, and give back their results in order",
         "@task.wait" => "wait for the task, and give back its result. re-throws its error",
 
-        // ---- @ps: PowerShell ----
-        "@ps.run" => "run a PowerShell command. gives back a PsResult",
-        "@ps.runFile" => "run a .ps1 script. gives back a PsResult",
-        "@http.get" => "GET a url, optional headers map and timeout in seconds (default 30). gives back an HttpResponse (status, headers, body). a 404 is a normal answer; only no answer at all throws",
-        "@http.post" => "POST a body to a url, optional headers map and timeout in seconds. gives back an HttpResponse",
-        "@ps.version" => "the PowerShell version, as text",
-        "@ps.isAvailable" => "true if PowerShell can be found on this machine",
-
-        _ => return None,
+        // the native libraries (ps, http, ...) document themselves: see `lib_doc`
+        _ => return lib_doc(name),
     })
 }
 
@@ -164,12 +122,14 @@ pub fn namespace_doc(ns: &str) -> Option<&'static str> {
         "map" => "key/value pairs",
         "math" => "numbers: rounding, roots, trigonometry, random",
         "into" => "conversions between int, float and string",
-        "time" => "clock and time, and sleep",
-        "file" => "files and folders",
         "sys" => "the system: args, env, input, exit",
-        "json" => "read and write JSON",
         "task" => "tasks: wait for background work",
-        "ps" => "PowerShell (install <std: \"ps\">)",
-        _ => return None,
+        _ => return spg_libs::module(ns).map(|m| m.doc),
     })
+}
+
+/// the docs of a native library's function, from its own descriptor (`"@ps.run"` -> ps / run)
+fn lib_doc(name: &str) -> Option<&'static str> {
+    let (module, function) = name.strip_prefix('@')?.split_once('.')?;
+    spg_libs::module(module)?.functions.iter().find(|f| f.name == function).map(|f| f.doc)
 }

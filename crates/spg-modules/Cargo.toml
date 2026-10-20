@@ -5,4 +5,5 @@ edition.workspace = true
 
 [dependencies]
 spg-lexer = { path = "../spg-lexer" }
+spg-libs = { path = "../spg-libs" }
 spg-parser = { path = "../spg-parser" }

@@ -1,2 +1,2 @@
-// `ps` is an installed library: without `install <std: "ps">` there is no `ps`
+// `ps` is an installed library: without `install #ps` there is no `ps`
 print(ps.version())

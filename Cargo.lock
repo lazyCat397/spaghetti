@@ -686,6 +686,16 @@ dependencies = [
 [[package]]
 name = "spg-lexer"
 version = "1.0.0"
+dependencies = [
+ "spg-libs",
+]
+
+[[package]]
+name = "spg-libs"
+version = "1.0.0"
+dependencies = [
+ "ureq",
+]
 
 [[package]]
 name = "spg-lsp"
@@ -694,6 +704,7 @@ dependencies = [
  "spg-compiler",
  "spg-fmt",
  "spg-lexer",
+ "spg-libs",
  "spg-modules",
  "spg-parser",
  "spg-typecheck",
@@ -704,6 +715,7 @@ name = "spg-modules"
 version = "1.0.0"
 dependencies = [
  "spg-lexer",
+ "spg-libs",
  "spg-parser",
 ]
 
@@ -719,6 +731,7 @@ name = "spg-typecheck"
 version = "1.0.0"
 dependencies = [
  "spg-lexer",
+ "spg-libs",
  "spg-parser",
 ]
 
@@ -727,8 +740,8 @@ name = "spg-vm"
 version = "1.0.0"
 dependencies = [
  "spg-lexer",
+ "spg-libs",
  "spg-typecheck",
- "ureq",
 ]
 
 [[package]]

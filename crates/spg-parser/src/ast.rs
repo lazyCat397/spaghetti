@@ -328,7 +328,7 @@ pub enum Stmt {
     Install {
         from: String,
         pos: Pos,
-        /// `install <std: "name">`: `from` is a standard module name
+        /// `install #name`: `from` is a standard module name
         /// (looked up in the standard library folder), not a path
         std: bool,
     },
@@ -425,7 +425,7 @@ pub struct Param {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
     pub stmts: Vec<Stmt>,
-    /// native libraries enabled by `install <std: "...">` (e.g. "powershell")
+    /// native libraries enabled by `install #...` (e.g. "powershell")
     pub natives: Vec<String>,
 }
 

@@ -11,6 +11,9 @@ pub enum TokenKind {
     /// `@math`, `@str`, ... the name gets stored WITHOUT the `@`
     Namespace(String),
 
+    /// `#http` (right after `install`): a standard library. the name is stored WITHOUT the `#`
+    StdLib(String),
+
     // keywords (reserved, hands off)
     Let,
     Const,

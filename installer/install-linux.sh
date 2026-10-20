@@ -6,7 +6,7 @@ bin="$HOME/.local/bin"
 mkdir -p "$bin"
 cp "$here/spg" "$bin/spg"
 chmod +x "$bin/spg"
-# standard library (install <std: "...">) lives next to the binary
+# standard library (install #...) lives next to the binary
 rm -rf "$bin/stdlib" && cp -r "$here/stdlib" "$bin/stdlib"
 echo "spg installed at $bin/spg"
 if command -v code >/dev/null 2>&1; then

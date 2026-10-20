@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/spg-libs",
     "crates/spg-lexer",
     "crates/spg-parser",
     "crates/spg-modules",

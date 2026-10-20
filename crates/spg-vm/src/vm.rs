@@ -114,7 +114,7 @@ enum FrameOutcome {
 
 impl<'p> Vm<'p> {
     pub fn new(program: &'p Program) -> Self {
-        crate::builtins::mark_program_start();
+        spg_libs::mark_program_start();
         crate::value::install_enum_defs(&program.enum_defs);
         Vm {
             program,
@@ -227,120 +227,6 @@ impl<'p> Vm<'p> {
     /// `value_stack` gets passed by ref instead of living
     /// on `Vm` itself, which avoids a borrow fight on the recursive
     /// call. the borrow checker and I have an understanding.
-    /// `@ps.run(cmd [, timeout])` and `@ps.runFile(path [, timeout])`: runs PowerShell and
-    /// builds the `PsResult` the program declared (success, code, output, error). in that order, don't swap.
-    fn ps_run(&self, frame: &mut CallFrame<'p, '_>, id: spg_typecheck::BuiltinId, argc: usize) -> Result<Value, RuntimeError> {
-        let function = if id == spg_typecheck::BuiltinId::PsRunFile { "ps.runFile" } else { "ps.run" };
-        let mut args: Vec<Value> = (0..argc).map(|_| frame.pop()).collect::<Result<_, _>>()?;
-        args.reverse();
-        let text = match args.first() {
-            Some(Value::String(s)) => s.to_string(),
-            _ => return Err(RuntimeError::TypeMismatch { expected: "string", found: "other" }),
-        };
-        let timeout = match args.get(1) {
-            Some(Value::Int(n)) => *n,
-            _ => 30,
-        };
-        // the folder of the script that made the call (the frame's own file). relative paths are a pain.
-        let here = frame.chunk.locs.get(frame.ip.saturating_sub(1)).and_then(|loc| loc.file.as_deref());
-        let (mode, arg) = if id == spg_typecheck::BuiltinId::PsRunFile {
-            let path = std::path::Path::new(&text);
-            let escapes = path.components().any(|c| {
-                matches!(c, std::path::Component::ParentDir | std::path::Component::RootDir | std::path::Component::Prefix(_))
-            });
-            if crate::powershell::safe_party() && escapes {
-                return Err(RuntimeError::Process {
-                    function,
-                    reason: "blocked by #> safe-party: runFile only takes a .ps1 inside the script's folder (no absolute paths, no ..)".to_string(),
-                });
-            }
-            let resolved = if path.is_absolute() {
-                path.to_path_buf()
-            } else {
-                here.map(|file| std::path::Path::new(file).parent().unwrap_or(std::path::Path::new(".")).join(path))
-                    .unwrap_or_else(|| path.to_path_buf())
-            };
-            ("file", resolved.to_string_lossy().into_owned())
-        } else {
-            ("cmd", text)
-        };
-        let done = crate::powershell::exec(function, mode, &arg, timeout)?;
-        let def = self
-            .program
-            .struct_defs
-            .iter()
-            .find(|d| d.name == "PsResult")
-            .cloned()
-            .ok_or(RuntimeError::Process { function, reason: "PsResult is not declared (internal error)".to_string() })?;
-        let values = vec![
-            Value::Bool(done.code == 0),
-            Value::Int(done.code),
-            Value::String(Rc::new(done.output)),
-            Value::String(Rc::new(done.error)),
-        ];
-        Ok(Value::Struct(Rc::new(std::cell::RefCell::new((def, values)))))
-    }
-
-    /// `@http.get(url, ...)` and `@http.post(url, body, ...)`. the optional arguments
-    /// come in any order the typechecker allowed: an int is the timeout (seconds), a map
-    /// is the headers, and for POST the string after the url is the body. builds the
-    /// `HttpResponse` the program declared (status, headers, body), in that order.
-    /// only a failure to get an answer is an error; a 404 or 500 is a normal response.
-    fn http_request(&self, frame: &mut CallFrame<'p, '_>, id: spg_typecheck::BuiltinId, argc: usize) -> Result<Value, RuntimeError> {
-        let post = id == spg_typecheck::BuiltinId::HttpPost;
-        let function = if post { "http.post" } else { "http.get" };
-        let mut args: Vec<Value> = (0..argc).map(|_| frame.pop()).collect::<Result<_, _>>()?;
-        args.reverse();
-        let mut rest = args.into_iter();
-        let url = match rest.next() {
-            Some(Value::String(s)) => s.to_string(),
-            _ => return Err(RuntimeError::TypeMismatch { expected: "string", found: "other" }),
-        };
-        let mut body: Option<String> = None;
-        let mut headers: Vec<(String, String)> = Vec::new();
-        let mut timeout: i64 = 30;
-        for extra in rest {
-            match extra {
-                Value::String(s) if post && body.is_none() => body = Some(s.to_string()),
-                Value::Int(n) => timeout = n,
-                Value::Map(m) => {
-                    for (k, v) in m.borrow().entries() {
-                        match (k, v) {
-                            (Value::String(k), Value::String(v)) => headers.push((k.to_string(), v.to_string())),
-                            _ => return Err(RuntimeError::TypeMismatch { expected: "string headers", found: "other" }),
-                        }
-                    }
-                }
-                _ => return Err(RuntimeError::TypeMismatch { expected: "timeout, headers or body", found: "other" }),
-            }
-        }
-        if timeout <= 0 {
-            return Err(RuntimeError::Process { function, reason: "the timeout must be at least 1 second".to_string() });
-        }
-        if post && body.is_none() {
-            body = Some(String::new());
-        }
-        let answer = crate::http::request(&url, body.as_deref(), &headers, timeout as u64)
-            .map_err(|reason| RuntimeError::Process { function, reason })?;
-        let def = self
-            .program
-            .struct_defs
-            .iter()
-            .find(|d| d.name == "HttpResponse")
-            .cloned()
-            .ok_or(RuntimeError::Process { function, reason: "HttpResponse is not declared (internal error)".to_string() })?;
-        let mut out_headers = crate::value::SpgMap::default();
-        for (name, value) in answer.headers {
-            out_headers.insert(Value::String(Rc::new(name)), Value::String(Rc::new(value)));
-        }
-        let values = vec![
-            Value::Int(answer.status as i64),
-            Value::Map(Rc::new(std::cell::RefCell::new(out_headers))),
-            Value::String(Rc::new(answer.body)),
-        ];
-        Ok(Value::Struct(Rc::new(std::cell::RefCell::new((def, values)))))
-    }
-
     /// every call goes through here. a `-> task<T>` function runs its body right
     /// now (tasks are eager), then the result, or the error and its trace, goes
     /// into the task. the caller never sees the error itself: `.wait()` throws it.
@@ -851,16 +737,17 @@ impl<'p> Vm<'p> {
                 return Ok(Some(FrameOutcome::Returned(v)));
             }
 
-            OpCode::CallBuiltin { id, argc } if matches!(id, spg_typecheck::BuiltinId::HttpGet | spg_typecheck::BuiltinId::HttpPost) => {
-                let value = self.http_request(frame, id, argc)?;
-                frame.push(value);
-            }
-            OpCode::CallBuiltin { id, argc } if matches!(id, spg_typecheck::BuiltinId::PsRun | spg_typecheck::BuiltinId::PsRunFile) => {
-                let value = self.ps_run(frame, id, argc)?;
+            // a function of a native library (ps, http, ...): the library does the work on plain values
+            OpCode::CallBuiltin { id: spg_typecheck::BuiltinId::Lib(index), argc } if index != sleep_index() => {
+                let mut args: Vec<Value> = (0..argc).map(|_| frame.pop()).collect::<Result<_, _>>()?;
+                args.reverse();
+                // the script that made the call: relative paths in a library start at its folder
+                let here = frame.chunk.locs.get(frame.ip.saturating_sub(1)).and_then(|loc| loc.file.as_deref());
+                let value = crate::libs::call(self.program, index, args, here)?;
                 frame.push(value);
             }
             // `@time.sleep` gives the baton away while it sleeps, so other tasks can run
-            OpCode::CallBuiltin { id: spg_typecheck::BuiltinId::TimeSleep, .. } => {
+            OpCode::CallBuiltin { id: spg_typecheck::BuiltinId::Lib(_), .. } => {
                 let ms = match frame.pop()? {
                     Value::Int(n) => n,
                     other => return Err(RuntimeError::TypeMismatch { expected: "int", found: other.type_name() }),
@@ -1442,4 +1329,11 @@ fn fused_bool_cmp(frame: &mut CallFrame, a: usize, b: usize, f: impl FnOnce(bool
     let y = expect_bool(frame.locals[b].clone())?;
     frame.push(Value::Bool(f(x, y)));
     Ok(())
+}
+
+/// the registry index of `@time.sleep`: the one library call the VM loop runs itself, because
+/// it has to give the baton away so other tasks can run
+fn sleep_index() -> u16 {
+    static INDEX: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
+    *INDEX.get_or_init(|| spg_libs::index_of("time", "sleep").expect("the time library declares sleep"))
 }

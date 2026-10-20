@@ -32,15 +32,6 @@ pub enum BuiltinId {
     TaskAll,
 
     // ---- @json (text in, text out, pain) ----
-    JsonStringify,
-    JsonPretty,
-    JsonGet,
-    JsonHas,
-    JsonType,
-    JsonLen,
-    JsonKeys,
-    JsonValid,
-    JsonSet,
 
     // ---- strings (utf-8 says hi) ----
     Len,
@@ -84,28 +75,6 @@ pub enum BuiltinId {
     RangeStepCheck,
 
     // ---- @file (the disk, again) ----
-    FileRead,
-    FileWrite,
-    FileAppend,
-    FileLines,
-    FileReadLines,
-    FileWriteLines,
-    FileAppendLine,
-    FileReadOr,
-    FileExists,
-    FileIsDir,
-    FileList,
-    FileMkdir,
-    FileDelete,
-    FileCopy,
-    FileRename,
-    FileJoin,
-    FileDeleteAll,
-    FileSize,
-    FileModified,
-    FileModifiedDate,
-    FileReadBytes,
-    FileWriteBytes,
 
     // ---- @sys (the OS, again) ----
     SysArgs,
@@ -115,13 +84,9 @@ pub enum BuiltinId {
     SysCwd,
     SysClear,
 
-    // ---- ps: PowerShell, a native namespace (`@ps.run(...)`) ----
-    PsRun,
-    PsRunFile,
-    HttpGet,
-    HttpPost,
-    PsVersion,
-    PsIsAvailable,
+    /// a function of a native library (`ps`, `http`, ...): the global index in the registry of
+    /// `spg-libs`. its signature and its code live in that library's own file.
+    Lib(u16),
     SysReadLine,
     SysReadAll,
 
@@ -205,10 +170,6 @@ pub enum BuiltinId {
     PrintError,
 
     // ---- time ----
-    TimeNow,
-    TimeUnix,
-    TimeElapsed,
-    TimeSleep,
 }
 
 pub struct BuiltinSig {
@@ -249,6 +210,58 @@ impl BuiltinId {
                 | BuiltinId::MapKeysOf
         )
     }
+}
+
+/// `"(string, map<string, string>, int) -> HttpResponse"` -> its parameter types and return type.
+/// the types a native library can name: int, float, bool, string, void, array<T>, map<K, V>,
+/// or the name of one of its structs.
+pub fn parse_sig(sig: &str) -> (Vec<Ty>, Ty) {
+    let (params, ret) = sig.split_once("->").expect("a library signature has a `->`");
+    let params = params.trim().trim_start_matches('(').trim_end_matches(')');
+    let params = if params.trim().is_empty() { Vec::new() } else { split_top_level(params).into_iter().map(parse_ty).collect() };
+    (params, parse_ty(ret))
+}
+
+fn parse_ty(text: &str) -> Ty {
+    let t = text.trim();
+    match t {
+        "int" => Ty::Int,
+        "float" => Ty::Float,
+        "bool" => Ty::Bool,
+        "string" => Ty::String,
+        "void" => Ty::Void,
+        "any" => Ty::Any,
+        _ => {
+            if let Some(inner) = t.strip_prefix("array<").and_then(|r| r.strip_suffix('>')) {
+                Ty::Array(Box::new(parse_ty(inner)))
+            } else if let Some(inner) = t.strip_prefix("map<").and_then(|r| r.strip_suffix('>')) {
+                let parts = split_top_level(inner);
+                assert_eq!(parts.len(), 2, "map<K, V> in a library signature");
+                Ty::Map(Box::new(parse_ty(parts[0])), Box::new(parse_ty(parts[1])))
+            } else {
+                Ty::Named(t.to_string())
+            }
+        }
+    }
+}
+
+/// splits at the commas that are not inside `<...>`
+fn split_top_level(text: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let (mut depth, mut start) = (0usize, 0usize);
+    for (i, c) in text.char_indices() {
+        match c {
+            '<' => depth += 1,
+            '>' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(&text[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&text[start..]);
+    parts
 }
 
 pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>> {
@@ -413,44 +426,7 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
     let strs = || Ty::Array(Box::new(Ty::String));
 
     // ---- @json: text <-> values. reads work on the text by path, writes take any value ----
-    add("@json.stringify", BuiltinSig { id: BuiltinId::JsonStringify, params: vec![Ty::Any], return_type: s.clone() });
-    add("@json.pretty", BuiltinSig { id: BuiltinId::JsonPretty, params: vec![Ty::Any], return_type: s.clone() });
-    add("@json.get", BuiltinSig { id: BuiltinId::JsonGet, params: vec![s.clone(), s.clone()], return_type: s.clone() });
-    add("@json.has", BuiltinSig { id: BuiltinId::JsonHas, params: vec![s.clone(), s.clone()], return_type: Ty::Bool });
-    add("@json.type", BuiltinSig { id: BuiltinId::JsonType, params: vec![s.clone(), s.clone()], return_type: s.clone() });
-    add("@json.len", BuiltinSig { id: BuiltinId::JsonLen, params: vec![s.clone(), s.clone()], return_type: Ty::Int });
-    add("@json.keys", BuiltinSig { id: BuiltinId::JsonKeys, params: vec![s.clone(), s.clone()], return_type: strs() });
-    add("@json.valid", BuiltinSig { id: BuiltinId::JsonValid, params: vec![s.clone()], return_type: Ty::Bool });
-    add("@json.set", BuiltinSig { id: BuiltinId::JsonSet, params: vec![s.clone(), s.clone(), Ty::Any], return_type: s.clone() });
-    add("@file.read", BuiltinSig { id: BuiltinId::FileRead, params: vec![s.clone()], return_type: s.clone() });
-    add("@file.write", BuiltinSig { id: BuiltinId::FileWrite, params: vec![s.clone(), s.clone()], return_type: Ty::Void });
-    add("@file.append", BuiltinSig { id: BuiltinId::FileAppend, params: vec![s.clone(), s.clone()], return_type: Ty::Void });
-    add("@file.lines", BuiltinSig { id: BuiltinId::FileLines, params: vec![s.clone()], return_type: strs() });
-    add("@file.readLines", BuiltinSig { id: BuiltinId::FileReadLines, params: vec![s.clone()], return_type: strs() });
-    add("@file.writeLines", BuiltinSig { id: BuiltinId::FileWriteLines, params: vec![s.clone(), strs()], return_type: Ty::Void });
-    add("@file.appendLine", BuiltinSig { id: BuiltinId::FileAppendLine, params: vec![s.clone(), s.clone()], return_type: Ty::Void });
-    add("@file.readOr", BuiltinSig { id: BuiltinId::FileReadOr, params: vec![s.clone(), s.clone()], return_type: s.clone() });
-    add("@file.exists", BuiltinSig { id: BuiltinId::FileExists, params: vec![s.clone()], return_type: Ty::Bool });
-    add("@file.isDir", BuiltinSig { id: BuiltinId::FileIsDir, params: vec![s.clone()], return_type: Ty::Bool });
-    add("@file.list", BuiltinSig { id: BuiltinId::FileList, params: vec![s.clone()], return_type: strs() });
-    add("@file.mkdir", BuiltinSig { id: BuiltinId::FileMkdir, params: vec![s.clone()], return_type: Ty::Void });
-    add("@file.delete", BuiltinSig { id: BuiltinId::FileDelete, params: vec![s.clone()], return_type: Ty::Void });
-    add("@file.copy", BuiltinSig { id: BuiltinId::FileCopy, params: vec![s.clone(), s.clone()], return_type: Ty::Void });
-    add("@file.rename", BuiltinSig { id: BuiltinId::FileRename, params: vec![s.clone(), s.clone()], return_type: Ty::Void });
-    add("@file.join", BuiltinSig { id: BuiltinId::FileJoin, params: vec![s.clone(), s.clone()], return_type: s.clone() });
-    // recursive delete, under its own name, so `delete` stays the safe one
-    add("@file.deleteAll", BuiltinSig { id: BuiltinId::FileDeleteAll, params: vec![s.clone()], return_type: Ty::Void });
-    // size in bytes of a file (a directory is an error. obviously.)
-    add("@file.size", BuiltinSig { id: BuiltinId::FileSize, params: vec![s.clone()], return_type: Ty::Int });
-    // last modification: ms since 1970 (same as @time.unix) / ISO date in UTC (same as @time.now)
-    add("@file.modified", BuiltinSig { id: BuiltinId::FileModified, params: vec![s.clone()], return_type: Ty::Int });
-    add("@file.modifiedDate", BuiltinSig { id: BuiltinId::FileModifiedDate, params: vec![s.clone()], return_type: s.clone() });
-    // binary: a file as an array of bytes (ints 0..255). bytes, not vibes.
-    add("@file.readBytes", BuiltinSig { id: BuiltinId::FileReadBytes, params: vec![s.clone()], return_type: Ty::Array(Box::new(Ty::Int)) });
-    add(
-        "@file.writeBytes",
-        BuiltinSig { id: BuiltinId::FileWriteBytes, params: vec![s.clone(), Ty::Array(Box::new(Ty::Int))], return_type: Ty::Void },
-    );
+    // @file lives in spg-libs (src/file.rs): its signatures come from the registry below
 
     // ---- @sys: the process the program lives in ----
     add("@sys.args", BuiltinSig { id: BuiltinId::SysArgs, params: vec![], return_type: strs() });
@@ -460,25 +436,11 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
     add("@sys.cwd", BuiltinSig { id: BuiltinId::SysCwd, params: vec![], return_type: s.clone() });
     add("@sys.clear", BuiltinSig { id: BuiltinId::SysClear, params: vec![], return_type: Ty::Void });
 
-    // ---- ps: PowerShell, always there (`@ps.run(...)`). the result is a PsResult struct ----
-    let ps_result = Ty::Named("PsResult".to_string());
-    add("@ps.run", BuiltinSig { id: BuiltinId::PsRun, params: vec![s.clone()], return_type: ps_result.clone() });
-    add("@ps.run", BuiltinSig { id: BuiltinId::PsRun, params: vec![s.clone(), Ty::Int], return_type: ps_result.clone() });
-    add("@ps.runFile", BuiltinSig { id: BuiltinId::PsRunFile, params: vec![s.clone()], return_type: ps_result.clone() });
-    add("@ps.runFile", BuiltinSig { id: BuiltinId::PsRunFile, params: vec![s.clone(), Ty::Int], return_type: ps_result });
-    add("@ps.version", BuiltinSig { id: BuiltinId::PsVersion, params: vec![], return_type: s.clone() });
-    add("@ps.isAvailable", BuiltinSig { id: BuiltinId::PsIsAvailable, params: vec![], return_type: Ty::Bool });
-    // ---- http: `@http.get(url)` gives an HttpResponse struct (status, headers, body) ----
-    let http = Ty::Named("HttpResponse".to_string());
-    let headers = Ty::Map(Box::new(Ty::String), Box::new(Ty::String));
-    add("@http.get", BuiltinSig { id: BuiltinId::HttpGet, params: vec![s.clone()], return_type: http.clone() });
-    add("@http.get", BuiltinSig { id: BuiltinId::HttpGet, params: vec![s.clone(), Ty::Int], return_type: http.clone() });
-    add("@http.get", BuiltinSig { id: BuiltinId::HttpGet, params: vec![s.clone(), headers.clone()], return_type: http.clone() });
-    add("@http.get", BuiltinSig { id: BuiltinId::HttpGet, params: vec![s.clone(), headers.clone(), Ty::Int], return_type: http.clone() });
-    add("@http.post", BuiltinSig { id: BuiltinId::HttpPost, params: vec![s.clone(), s.clone()], return_type: http.clone() });
-    add("@http.post", BuiltinSig { id: BuiltinId::HttpPost, params: vec![s.clone(), s.clone(), Ty::Int], return_type: http.clone() });
-    add("@http.post", BuiltinSig { id: BuiltinId::HttpPost, params: vec![s.clone(), s.clone(), headers.clone()], return_type: http.clone() });
-    add("@http.post", BuiltinSig { id: BuiltinId::HttpPost, params: vec![s.clone(), s.clone(), headers, Ty::Int], return_type: http });
+    // ---- native libraries (ps, http, ...): the registry in spg-libs gives name, signature and docs ----
+    for (index, module, f) in spg_libs::all_functions() {
+        let (params, return_type) = parse_sig(f.sig);
+        add(&format!("@{}.{}", module.name, f.name), BuiltinSig { id: BuiltinId::Lib(index), params, return_type });
+    }
     add("@sys.readLine", BuiltinSig { id: BuiltinId::SysReadLine, params: vec![], return_type: s.clone() });
     add("@sys.readAll", BuiltinSig { id: BuiltinId::SysReadAll, params: vec![], return_type: s.clone() });
 
@@ -608,10 +570,6 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
     add("@into.float", BuiltinSig { id: BuiltinId::ParseFloat, params: vec![Ty::String], return_type: Ty::Float });
 
     // ---- time ----
-    add("@time.now", BuiltinSig { id: BuiltinId::TimeNow, params: vec![], return_type: Ty::String });
-    add("@time.unix", BuiltinSig { id: BuiltinId::TimeUnix, params: vec![], return_type: Ty::Int });
-    add("@time.elapsed", BuiltinSig { id: BuiltinId::TimeElapsed, params: vec![], return_type: Ty::String });
-    add("@time.sleep", BuiltinSig { id: BuiltinId::TimeSleep, params: vec![Ty::Int], return_type: Ty::Void });
 
     // ---- tasks ----
     add("@task.all", BuiltinSig { id: BuiltinId::TaskAll, params: vec![Ty::AnyArray], return_type: Ty::AnyArray });
@@ -749,4 +707,27 @@ pub fn methods_of(ty: &Ty) -> Vec<(String, Vec<Ty>, Ty)> {
     }
     out.sort_by(|a, b| a.0.cmp(&b.0));
     out
+}
+
+#[cfg(test)]
+mod lib_sig_tests {
+    use super::*;
+
+    #[test]
+    fn library_signatures_parse() {
+        let (params, ret) = parse_sig("(string, map<string, string>, int) -> HttpResponse");
+        assert_eq!(params, vec![Ty::String, Ty::Map(Box::new(Ty::String), Box::new(Ty::String)), Ty::Int]);
+        assert_eq!(ret, Ty::Named("HttpResponse".to_string()));
+        let (params, ret) = parse_sig("() -> array<string>");
+        assert!(params.is_empty());
+        assert_eq!(ret, Ty::Array(Box::new(Ty::String)));
+    }
+
+    #[test]
+    fn every_library_function_has_a_valid_signature() {
+        for (_, module, f) in spg_libs::all_functions() {
+            let _ = parse_sig(f.sig);
+            assert!(!f.doc.is_empty(), "{}.{} has no doc", module.name, f.name);
+        }
+    }
 }

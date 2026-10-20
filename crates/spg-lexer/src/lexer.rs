@@ -57,11 +57,11 @@ impl fmt::Display for LexError {
             }
             LexError::UnknownNamespace { name, line, col } if crate::is_install_namespace(name) => write!(
                 f,
-                "'@{0}' is not built in (line {1}, column {2}); add `install <std: \"{0}\">` and write it without the '@': {0}.member(...)",
+                "'@{0}' is not built in (line {1}, column {2}); add `install #{0}` and write it without the '@': {0}.member(...)",
                 name, line, col
             ),
             LexError::UnknownNamespace { name, line, col } => {
-                let list: Vec<String> = crate::NAMESPACES.iter().map(|n| format!("@{}", n)).collect();
+                let list: Vec<String> = crate::namespaces().iter().map(|n| format!("@{}", n)).collect();
                 if name.is_empty() {
                     write!(
                         f,
@@ -122,11 +122,11 @@ impl LexError {
                 file, line, col
             ),
             LexError::UnknownNamespace { name, line, col } if crate::is_install_namespace(name) => format!(
-                "Oops! `@{0}` is not built in, in `{1}` at line {2}, column {3}. Add `install <std: \"{0}\">` at the top and write it without the '@': `{0}.member(...)`.",
+                "Oops! `@{0}` is not built in, in `{1}` at line {2}, column {3}. Add `install #{0}` at the top and write it without the '@': `{0}.member(...)`.",
                 name, file, line, col
             ),
             LexError::UnknownNamespace { name, line, col } => {
-                let list: Vec<String> = crate::NAMESPACES.iter().map(|n| format!("@{}", n)).collect();
+                let list: Vec<String> = crate::namespaces().iter().map(|n| format!("@{}", n)).collect();
                 if name.is_empty() {
                     format!("Oops! A '@' needs a namespace name after it in `{}` at line {}, column {}. Available: {}.", file, line, col, list.join(", "))
                 } else {
@@ -193,17 +193,16 @@ enum Part {
     Expr(Vec<Token>),
 }
 
-/// `install <std: "ps">` makes `ps.run(...)` a namespace call (no `@`). this pass finds the
+/// `install #ps` makes `ps.run(...)` a namespace call (no `@`). this pass finds the
 /// installs of native libraries in a token stream and turns each `ps` `.` (not itself a
 /// member, like `x.ps.y`) into a `Namespace` token, so the parser, checker and VM keep seeing
 /// the usual qualified name. interpolated expressions are already spliced into the stream.
 /// public so the editor tooling (which lexes on its own) can reuse it.
 pub fn apply_installed_namespaces(tokens: &mut [Token]) {
     let mut installed: Vec<String> = Vec::new();
-    for w in tokens.windows(6) {
-        if let [Token { kind: TokenKind::Install, .. }, Token { kind: TokenKind::Lt, .. }, Token { kind: TokenKind::Ident(std), .. }, Token { kind: TokenKind::Colon, .. }, Token { kind: TokenKind::Str(name), .. }, Token { kind: TokenKind::Gt, .. }] = w
-        {
-            if std == "std" && crate::is_install_namespace(name) && !installed.contains(name) {
+    for w in tokens.windows(2) {
+        if let [Token { kind: TokenKind::Install, .. }, Token { kind: TokenKind::StdLib(name), .. }] = w {
+            if crate::is_install_namespace(name) && !installed.contains(name) {
                 installed.push(name.clone());
             }
         }
@@ -287,6 +286,22 @@ impl<'a> Lexer<'a> {
             // the header was already read, so a directive here is misplaced
             if ch == '#' && self.peek_next() == Some('>') {
                 return Err(LexError::MisplacedDirective { line, col });
+            }
+
+            // `#name`: a standard library, as in `install #http`
+            if ch == '#' && self.peek_next().is_some_and(|c| c.is_alphabetic() || c == '_') {
+                self.advance(); // #
+                let mut name = String::new();
+                while let Some(c) = self.peek() {
+                    if c.is_alphanumeric() || c == '_' {
+                        name.push(c);
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+                tokens.push(Token::new(TokenKind::StdLib(name), line, col));
+                continue;
             }
 
             if ch == '"' {

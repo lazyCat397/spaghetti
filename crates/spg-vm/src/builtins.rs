@@ -8,7 +8,7 @@
 use std::io::{BufWriter, Write};
 use std::rc::Rc;
 use std::sync::{Mutex, MutexGuard, Once, OnceLock};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use spg_typecheck::BuiltinId;
 
@@ -391,213 +391,8 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             Value::Int(idx)
         }
         // ---- @json (see json.rs, it's a whole thing) ----
-        JsonStringify | JsonPretty => {
-            let name = if id == JsonStringify { "@json.stringify" } else { "@json.pretty" };
-            let v = args.remove(0);
-            let text = crate::json::stringify(&v, id == JsonPretty)
-                .map_err(|m| RuntimeError::Json { function: name, message: m })?;
-            Value::String(Rc::new(text))
-        }
-        JsonGet => {
-            let (t, p) = (as_string(args.remove(0)), as_string(args.remove(0)));
-            let r = crate::json::get(&t, &p).map_err(|m| RuntimeError::Json { function: "@json.get", message: m })?;
-            Value::String(Rc::new(r))
-        }
-        JsonHas => {
-            let (t, p) = (as_string(args.remove(0)), as_string(args.remove(0)));
-            Value::Bool(crate::json::has(&t, &p).map_err(|m| RuntimeError::Json { function: "@json.has", message: m })?)
-        }
-        JsonType => {
-            let (t, p) = (as_string(args.remove(0)), as_string(args.remove(0)));
-            let r = crate::json::type_of(&t, &p).map_err(|m| RuntimeError::Json { function: "@json.type", message: m })?;
-            Value::String(Rc::new(r.to_string()))
-        }
-        JsonLen => {
-            let (t, p) = (as_string(args.remove(0)), as_string(args.remove(0)));
-            Value::Int(crate::json::len(&t, &p).map_err(|m| RuntimeError::Json { function: "@json.len", message: m })? as i64)
-        }
-        JsonKeys => {
-            let (t, p) = (as_string(args.remove(0)), as_string(args.remove(0)));
-            let keys = crate::json::keys(&t, &p).map_err(|m| RuntimeError::Json { function: "@json.keys", message: m })?;
-            let items: Vec<Value> = keys.into_iter().map(|k| Value::String(Rc::new(k))).collect();
-            Value::Array(Rc::new(std::cell::RefCell::new(items)))
-        }
-        JsonValid => {
-            let t = as_string(args.remove(0));
-            Value::Bool(crate::json::valid(&t))
-        }
-        JsonSet => {
-            let (t, p) = (as_string(args.remove(0)), as_string(args.remove(0)));
-            let v = args.remove(0);
-            let r = crate::json::set(&t, &p, &v).map_err(|m| RuntimeError::Json { function: "@json.set", message: m })?;
-            Value::String(Rc::new(r))
-        }
-        // ---- @file (the disk, the disk, the disk) ----
-        FileRead => {
-            let p = as_string(args.remove(0));
-            let text = std::fs::read_to_string(p.as_str()).map_err(|e| io_error("@file.read", &p, e))?;
-            Value::String(Rc::new(text))
-        }
-        FileWrite => {
-            let p = as_string(args.remove(0));
-            let text = as_string(args.remove(0));
-            std::fs::write(p.as_str(), text.as_bytes()).map_err(|e| io_error("@file.write", &p, e))?;
-            Value::Void
-        }
-        FileAppend => {
-            let p = as_string(args.remove(0));
-            let text = as_string(args.remove(0));
-            let mut file = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(p.as_str())
-                .map_err(|e| io_error("@file.append", &p, e))?;
-            file.write_all(text.as_bytes()).map_err(|e| io_error("@file.append", &p, e))?;
-            Value::Void
-        }
-        FileLines => {
-            let p = as_string(args.remove(0));
-            let text = std::fs::read_to_string(p.as_str()).map_err(|e| io_error("@file.lines", &p, e))?;
-            string_array(text.lines().map(String::from))
-        }
-        FileReadLines => {
-            let p = as_string(args.remove(0));
-            let text = std::fs::read_to_string(p.as_str()).map_err(|e| io_error("@file.readLines", &p, e))?;
-            string_array(text.lines().map(String::from))
-        }
-        FileWriteLines => {
-            let p = as_string(args.remove(0));
-            let items = as_array(args.remove(0));
-            let mut text = String::new();
-            for v in items.borrow().iter() {
-                text.push_str(as_string(v.clone()).as_str());
-                text.push('\n');
-            }
-            std::fs::write(p.as_str(), text.as_bytes()).map_err(|e| io_error("@file.writeLines", &p, e))?;
-            Value::Void
-        }
-        FileAppendLine => {
-            let p = as_string(args.remove(0));
-            let line = as_string(args.remove(0));
-            let mut file = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(p.as_str())
-                .map_err(|e| io_error("@file.appendLine", &p, e))?;
-            file.write_all(line.as_bytes()).map_err(|e| io_error("@file.appendLine", &p, e))?;
-            file.write_all(b"\n").map_err(|e| io_error("@file.appendLine", &p, e))?;
-            Value::Void
-        }
-        FileReadOr => {
-            let p = as_string(args.remove(0));
-            let fallback = as_string(args.remove(0));
-            // a missing file is the whole point of the fallback; any other failure still errors
-            match std::fs::read_to_string(p.as_str()) {
-                Ok(text) => Value::String(Rc::new(text)),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Value::String(fallback),
-                Err(e) => return Err(io_error("@file.readOr", &p, e)),
-            }
-        }
-        FileExists => Value::Bool(std::path::Path::new(as_string(args.remove(0)).as_str()).exists()),
-        FileIsDir => Value::Bool(std::path::Path::new(as_string(args.remove(0)).as_str()).is_dir()),
-        FileList => {
-            let p = as_string(args.remove(0));
-            let mut names: Vec<String> = Vec::new();
-            for entry in std::fs::read_dir(p.as_str()).map_err(|e| io_error("@file.list", &p, e))? {
-                let entry = entry.map_err(|e| io_error("@file.list", &p, e))?;
-                names.push(entry.file_name().to_string_lossy().into_owned());
-            }
-            names.sort();
-            string_array(names.into_iter())
-        }
-        FileMkdir => {
-            let p = as_string(args.remove(0));
-            std::fs::create_dir_all(p.as_str()).map_err(|e| io_error("@file.mkdir", &p, e))?;
-            Value::Void
-        }
-        // a file, or an EMPTY directory. never recursive. no thanks.
-        FileDelete => {
-            let p = as_string(args.remove(0));
-            let path = std::path::Path::new(p.as_str());
-            let done = if path.is_dir() { std::fs::remove_dir(path) } else { std::fs::remove_file(path) };
-            done.map_err(|e| io_error("@file.delete", &p, e))?;
-            Value::Void
-        }
-        FileCopy => {
-            let from = as_string(args.remove(0));
-            let to = as_string(args.remove(0));
-            std::fs::copy(from.as_str(), to.as_str()).map_err(|e| io_error("@file.copy", &from, e))?;
-            Value::Void
-        }
-        FileRename => {
-            let from = as_string(args.remove(0));
-            let to = as_string(args.remove(0));
-            std::fs::rename(from.as_str(), to.as_str()).map_err(|e| io_error("@file.rename", &from, e))?;
-            Value::Void
-        }
-        // a file or a whole directory tree. refuses a filesystem root. we're not monsters.
-        FileDeleteAll => {
-            let p = as_string(args.remove(0));
-            let path = std::path::Path::new(p.as_str());
-            if let Ok(real) = std::fs::canonicalize(path) {
-                if real.parent().is_none() {
-                    return Err(RuntimeError::Io {
-                        function: "@file.deleteAll",
-                        path: p.to_string(),
-                        reason: "refusing to delete a filesystem root".to_string(),
-                    });
-                }
-            }
-            let done = if path.is_dir() { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) };
-            done.map_err(|e| io_error("@file.deleteAll", &p, e))?;
-            Value::Void
-        }
-        FileSize => {
-            let p = as_string(args.remove(0));
-            let meta = std::fs::metadata(p.as_str()).map_err(|e| io_error("@file.size", &p, e))?;
-            if meta.is_dir() {
-                return Err(RuntimeError::Io { function: "@file.size", path: p.to_string(), reason: "is a directory".to_string() });
-            }
-            Value::Int(meta.len() as i64)
-        }
-        FileModified | FileModifiedDate => {
-            let p = as_string(args.remove(0));
-            let name = if matches!(id, FileModified) { "@file.modified" } else { "@file.modifiedDate" };
-            let when = std::fs::metadata(p.as_str()).and_then(|m| m.modified()).map_err(|e| io_error(name, &p, e))?;
-            let millis = match when.duration_since(UNIX_EPOCH) {
-                Ok(d) => d.as_millis() as i64,
-                Err(e) => -(e.duration().as_millis() as i64),
-            };
-            if matches!(id, FileModified) { Value::Int(millis) } else { Value::String(Rc::new(iso_utc(millis.div_euclid(1000)))) }
-        }
-        FileReadBytes => {
-            let p = as_string(args.remove(0));
-            let bytes = std::fs::read(p.as_str()).map_err(|e| io_error("@file.readBytes", &p, e))?;
-            if bytes.len() > MAX_RANGE_LEN {
-                return Err(RuntimeError::RangeTooLarge { len: bytes.len() as u128, max: MAX_RANGE_LEN });
-            }
-            Value::Array(Rc::new(std::cell::RefCell::new(bytes.into_iter().map(|b| Value::Int(b as i64)).collect())))
-        }
-        FileWriteBytes => {
-            let p = as_string(args.remove(0));
-            let items = as_array(args.remove(0));
-            let mut bytes: Vec<u8> = Vec::new();
-            for (index, v) in items.borrow().iter().enumerate() {
-                let value = as_int(v.clone());
-                // checked BEFORE touching the disk. a bad item must not leave a half-written file
-                match u8::try_from(value) {
-                    Ok(b) => bytes.push(b),
-                    Err(_) => return Err(RuntimeError::InvalidByte { index, value }),
-                }
-            }
-            std::fs::write(p.as_str(), &bytes).map_err(|e| io_error("@file.writeBytes", &p, e))?;
-            Value::Void
-        }
-        FileJoin => {
-            let a = as_string(args.remove(0));
-            let b = as_string(args.remove(0));
-            Value::String(Rc::new(std::path::Path::new(a.as_str()).join(b.as_str()).to_string_lossy().into_owned()))
-        }
+        // @json lives in spg-libs (src/json.rs), like @file
+        // @file lives in spg-libs (src/file.rs): the VM loop calls it through `libs::call`
 
         // ---- @sys (the OS is not our friend) ----
         SysArgs => string_array(PROGRAM_ARGS.get().cloned().unwrap_or_default().into_iter()),
@@ -623,19 +418,11 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             Value::Void
         }
         SysReadLine => Value::String(Rc::new(read_stdin_line("@sys.readLine")?)),
-        // @ps.run / @ps.runFile build a PsResult, which needs the program. the VM does those.
         // `t.wait()` is handled in the VM loop (it may re-throw a task error). never gets here.
         TaskWait => unreachable!("@task.wait is handled by the VM loop"),
         TaskAll => unreachable!("@task.all is handled by the VM loop"),
-        // the VM builds the HttpResponse struct. see Vm::http_get
-        HttpGet | HttpPost => {
-            return Err(RuntimeError::Process { function: "http.get", reason: "internal: http.get is run by the VM".to_string() })
-        }
-        PsRun | PsRunFile => {
-            return Err(RuntimeError::Process { function: "ps.run", reason: "internal: ps.run is run by the VM".to_string() })
-        }
-        PsVersion => Value::String(Rc::new(crate::powershell::version()?)),
-        PsIsAvailable => Value::Bool(crate::powershell::is_available()),
+        // native library calls (ps, http, ...) are made by the VM loop, through `libs::call`
+        Lib(_) => unreachable!("native library calls are made by the VM loop"),
         SysReadAll => {
             flush_stdout();
             let mut all = String::new();
@@ -936,49 +723,8 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             })?
         }
 
-        // ---- time (the clock lies too) ----
-        // @time.now(): current UTC date-time, ISO-8601 string. the format nobody remembers.
-        TimeNow => Value::String(Rc::new(iso_utc(unix_millis() / 1000))),
-        // @time.unix(): whole ms since 1970-01-01 UTC. wall clock, so it can jump around.
-        TimeUnix => Value::Int(unix_millis()),
-        // @time.elapsed(): time since the program started (monotonic clock),
-        // already formatted in whole units that adapt to size: "45ms",
-        // "3s 250ms", "1h 2m". 
-        TimeElapsed => Value::String(Rc::new(format_duration(program_start().elapsed().as_nanos()))),
-        // @time.sleep(ms): blocks the script right here. like a wait(), but worse.
-        // `@time.sleep` is handled in the VM loop, where it can give the baton away. never gets here.
-        TimeSleep => unreachable!("@time.sleep is handled by the VM loop"),
+        // @time lives in spg-libs (src/time.rs); `sleep` is run by the VM loop
     })
-}
-
-/// `nanos` as whole-number units that adapt to the size. like Rust's own
-/// `Duration` output, but integer-only. the largest unit that fits at least once,
-/// plus the next smaller unit if it's not zero (that's the whole precision
-/// shown, so 2h 3m 4s reads `2h 3m`). units: h m s ms µs ns. no `ps`, because
-/// the monotonic clock ticks in ns, so ps would always be 0. don't add it.
-/// (it would always be 0. I checked. twice.)
-fn format_duration(nanos: u128) -> String {
-    const UNITS: [(u128, &str); 6] = [
-        (3_600_000_000_000, "h"),
-        (60_000_000_000, "m"),
-        (1_000_000_000, "s"),
-        (1_000_000, "ms"),
-        (1_000, "\u{b5}s"),
-        (1, "ns"),
-    ];
-    for (i, (size, name)) in UNITS.iter().enumerate() {
-        if nanos >= *size {
-            let mut out = format!("{}{}", nanos / size, name);
-            if let Some((next_size, next_name)) = UNITS.get(i + 1) {
-                let next = (nanos % size) / next_size;
-                if next > 0 {
-                    out.push_str(&format!(" {}{}", next, next_name));
-                }
-            }
-            return out;
-        }
-    }
-    "0ns".to_string()
 }
 
 /// decimals `@math.pi()` / `@math.e()` use with no argument. magic number,
@@ -1050,48 +796,6 @@ fn string_array(items: impl Iterator<Item = String>) -> Value {
     Value::Array(Rc::new(std::cell::RefCell::new(values)))
 }
 
-static PROGRAM_START: OnceLock<Instant> = OnceLock::new();
-
-/// fixes the instant `@time.elapsed()` counts from. `Vm::new` calls this so the
-/// clock starts when the program does (not at the first elapsed call).
-/// later calls do nothing.
-pub fn mark_program_start() {
-    PROGRAM_START.get_or_init(Instant::now);
-}
-
-fn program_start() -> Instant {
-    *PROGRAM_START.get_or_init(Instant::now)
-}
-
-/// whole ms since the Unix epoch. if the system clock is set before 1970,
-/// you get a negative number instead of a panic. nice of it.
-fn unix_millis() -> i64 {
-    match SystemTime::now().duration_since(UNIX_EPOCH) {
-        Ok(d) => d.as_millis() as i64,
-        Err(e) => -(e.duration().as_millis() as i64),
-    }
-}
-
-/// `secs` since the Unix epoch → `YYYY-MM-DDTHH:MM:SSZ` (UTC). uses
-/// Howard Hinnant's days-to-civil algorithm. no date crate. respect.
-fn iso_utc(secs: i64) -> String {
-    let days = secs.div_euclid(86_400);
-    let rem = secs.rem_euclid(86_400);
-    let (h, mi, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
-
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
-
-    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", y, m, d, h, mi, s)
-}
-
 /// ordering for `sort`. spg has no user comparators yet, so this
 /// covers exactly what array builtins accept: numbers
 /// compare as numbers, strings lexicographically, bools false-before-true.
@@ -1121,35 +825,4 @@ fn pseudo_random() -> f64 {
     x ^= x >> 7;
     x ^= x << 17;
     (x as f64 / u64::MAX as f64).abs().fract()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::format_duration as fd;
-
-    #[test]
-    fn duration_picks_the_unit_that_fits() {
-        assert_eq!(fd(0), "0ns");
-        assert_eq!(fd(1), "1ns");
-        assert_eq!(fd(999), "999ns");
-        assert_eq!(fd(1_000), "1\u{b5}s");
-        assert_eq!(fd(45_000_000), "45ms");
-        assert_eq!(fd(3_000_000_000), "3s");
-        assert_eq!(fd(60_000_000_000), "1m");
-        assert_eq!(fd(3_600_000_000_000), "1h");
-        // far beyond a day stays in hours (there is no "d". don't ask for days.)
-        assert_eq!(fd(1_700_000_000_000 * 1_000_000), "472222h 13m");
-    }
-
-    #[test]
-    fn duration_shows_the_next_unit_only_when_it_is_not_zero() {
-        assert_eq!(fd(1_500), "1\u{b5}s 500ns");
-        assert_eq!(fd(2_000_300), "2ms"); // 0 \u{b5}s in between: nothing appended
-        assert_eq!(fd(3_250_000_000), "3s 250ms");
-        assert_eq!(fd(90_000_000_000), "1m 30s");
-        assert_eq!(fd(3_725_000_000_000), "1h 2m");
-        // two units only: seconds get dropped. 2h 3m 4s becomes 2h 3m. sorry seconds.
-        assert_eq!(fd(7_384_000_000_000), "2h 3m");
-        assert_eq!(fd(3_605_000_000_000), "1h"); // 1h 0m 5s
-    }
 }

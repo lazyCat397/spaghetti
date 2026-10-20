@@ -1,5 +1,5 @@
-// without PowerShell on the PATH, ps.* must say so instead of crashing. needs `install <std: "ps">`
-install <std: "ps">
+// without PowerShell on the PATH, ps.* must say so instead of crashing. needs `install #ps`
+install #ps
 print(ps.isAvailable())
 try {
     ps.run("Get-Date")

@@ -44,7 +44,7 @@ pub enum TypeError {
     /// `replacement` is the current name, when there is one.
     OldNamespace { name: String, replacement: Option<String>, pos: Pos },
 
-    /// `ps.run(...)` / `http.get(...)` in a file with no `install <std: "ps">`.
+    /// `ps.run(...)` / `http.get(...)` in a file with no `install #ps`.
     NeedsInstall { lib: String, pos: Pos },
 
     /// a call whose callee isn't a plain function name (`p.x()`, `f()()`,
@@ -349,8 +349,8 @@ impl TypeError {
                 self.location(), display_name(name)
             ),
             TypeError::NeedsInstall { lib, .. } => write!(
-                f, "{}'{}' is not built in; add `install <std: \"{}\">` at the top of the file to use it",
-                self.location(), lib, lib
+                f, "{}'{}' is an installable library, not a variable: it needs `install #{}` at the top of the file, and is used as {}.member(...)",
+                self.location(), lib, lib, lib
             ),
             TypeError::OldNamespace { name, replacement, .. } => match replacement {
                 Some(r) => write!(

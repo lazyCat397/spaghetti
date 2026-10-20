@@ -9,29 +9,27 @@ pub use token::{Token, TokenKind};
 /// because `@` can never be part of an identifier, a namespace can never
 /// collide with anything the user declares. `struct @math {}` is a lex-level
 /// namespace token in a name position, reported as a reserved-name error. don't.
-/// the struct every `@ps.*` call returns. the engine injects it into a program that
-/// uses `@ps.` (spg-modules), and the editor reads the same text for completions
-/// the struct every `@http.*` call returns. same deal as PsResult: the engine injects it
-/// into a program that uses `@http.`, and the editor reads the same text.
-pub const HTTP_RESPONSE_SOURCE: &str = "struct HttpResponse {\n    status: int,\n    headers: map<string, string>,\n    body: string\n}\n";
-
-pub const PS_RESULT_SOURCE: &str = "struct PsResult {\n    success: bool,\n    code: int,\n    output: string,\n    error: string\n}\n";
-
 /// the CORE namespaces: always there, always written with `@` (`@math.sqrt`).
-pub const NAMESPACES: [&str; 10] = ["str", "array", "map", "into", "math", "time", "file", "sys", "json", "task"];
+pub const NAMESPACES: [&str; 7] = ["str", "array", "map", "into", "math", "sys", "task"];
 
-/// native (Rust) libraries that need `install <std: "name">` first. once installed, their
-/// namespace is written WITHOUT `@` (`ps.run(...)`): `@` means "the engine gives you this
-/// for free", no `@` means "you installed it". the lexer turns `ps.` into a namespace token
-/// only in a file that installs `ps` (see `apply_installed_namespaces`).
-pub const INSTALL_NAMESPACES: [&str; 2] = ["ps", "http"];
+/// every namespace that takes an `@`: the ones built into the engine (`NAMESPACES`) and the
+/// core libraries of `spg-libs` (`@file`, ...). in the order the editor and the errors list them.
+pub fn namespaces() -> Vec<&'static str> {
+    let mut all: Vec<&'static str> = NAMESPACES.to_vec();
+    all.extend(spg_libs::modules().iter().filter(|m| m.kind == spg_libs::Kind::Core).map(|m| m.name));
+    all
+}
 
+/// native (Rust) libraries need `install #name` first (the registry is in `spg-libs`).
+/// once installed, their namespace is written WITHOUT `@` (`ps.run(...)`): `@` means "the engine
+/// gives you this for free", no `@` means "you installed it". the lexer turns `ps.` into a
+/// namespace token only in a file that installs `ps` (see `apply_installed_namespaces`).
 pub fn is_namespace(name: &str) -> bool {
-    NAMESPACES.contains(&name)
+    NAMESPACES.contains(&name) || spg_libs::module(name).is_some_and(|m| m.kind == spg_libs::Kind::Core)
 }
 
 pub fn is_install_namespace(name: &str) -> bool {
-    INSTALL_NAMESPACES.contains(&name)
+    spg_libs::module(name).is_some_and(|m| m.kind == spg_libs::Kind::Install)
 }
 
 /// hints for the friendly tone (`#> friendly-terminal`), one per stage

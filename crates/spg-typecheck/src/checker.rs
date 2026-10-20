@@ -1317,7 +1317,12 @@ impl Checker {
 
                 match self.lookup_var(name) {
                     None => {
+                        if spg_lexer::is_install_namespace(name.as_str()) {
+                        // a bare `http` / `ps` (no `.member`): say what it is instead of "undefined"
+                        self.errors.push(TypeError::NeedsInstall { lib: name.to_string(), pos: pos.clone() });
+                    } else {
                         self.errors.push(TypeError::UndefinedVariable { name: name.clone(), pos: pos.clone() });
+                    }
                         None
                     }
                     Some(_) if self.assigns_capture(name) => {
@@ -1838,7 +1843,12 @@ impl Checker {
                     self.errors.push(TypeError::EnumAsValue { name: name.clone(), pos: pos.clone() });
                     None
                 } else {
-                    self.errors.push(TypeError::UndefinedVariable { name: name.clone(), pos: pos.clone() });
+                    if spg_lexer::is_install_namespace(name.as_str()) {
+                        // a bare `http` / `ps` (no `.member`): say what it is instead of "undefined"
+                        self.errors.push(TypeError::NeedsInstall { lib: name.to_string(), pos: pos.clone() });
+                    } else {
+                        self.errors.push(TypeError::UndefinedVariable { name: name.clone(), pos: pos.clone() });
+                    }
                     None
                 }
             }
@@ -1927,7 +1937,7 @@ impl Checker {
                         });
                         return None;
                     }
-                    // `ps.run(...)` with no `install <std: "ps">` (with it, the lexer already made
+                    // `ps.run(...)` with no `install #ps` (with it, the lexer already made
                     // it a namespace call). tell them what's missing instead of "undefined ps"
                     Expr::Field { object, .. }
                         if matches!(object.as_ref(), Expr::Ident(ns, _)

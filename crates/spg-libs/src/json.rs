@@ -1,4 +1,5 @@
 //! `@json.*`: JSON text <-> values. written by hand, no crate. we did it.
+//! part of the core (always there, written with `@`).
 //!
 //! spg has no dynamic "json" type, so READING works on the text: a
 //! query by path (`get`, `has`, `type`, `len`, `keys`) parses the text, walks
@@ -9,7 +10,72 @@
 //! object it's just a key name). a literal dot or backslash in a key is
 //! written `\.` / `\\`. empty path = the whole document. 
 
-use crate::value::Value;
+use crate::{CallCtx, Kind, LibError, LibValue, NativeFn, NativeModule};
+
+pub static MODULE: NativeModule = NativeModule {
+    kind: Kind::Core,
+    name: "json",
+    doc: "read and write JSON",
+    structs: &[],
+    functions: &[
+        NativeFn { name: "stringify", sig: "(any) -> string", doc: "the value as compact JSON text", call: stringify_call },
+        NativeFn { name: "pretty", sig: "(any) -> string", doc: "the value as indented JSON text", call: pretty_call },
+        NativeFn { name: "get", sig: "(string, string) -> string", doc: "the value at a path inside a JSON text", call: get_call },
+        NativeFn { name: "has", sig: "(string, string) -> bool", doc: "true if the path exists in a JSON text", call: has_call },
+        NativeFn { name: "type", sig: "(string, string) -> string", doc: "the JSON type at a path: object, array, string, number, bool or null", call: type_call },
+        NativeFn { name: "len", sig: "(string, string) -> int", doc: "number of items of the array or object at a path", call: len_call },
+        NativeFn { name: "keys", sig: "(string, string) -> array<string>", doc: "the keys of the object at a path", call: keys_call },
+        NativeFn { name: "valid", sig: "(string) -> bool", doc: "true if the text is valid JSON", call: valid_call },
+        NativeFn { name: "set", sig: "(string, string, any) -> string", doc: "a new JSON text with the value written at a path", call: set_call },
+    ],
+};
+
+type Out = Result<LibValue, LibError>;
+
+fn text(args: &[LibValue], i: usize) -> &str {
+    match args.get(i) {
+        Some(LibValue::Str(t)) => t.as_str(),
+        _ => "",
+    }
+}
+
+fn stringify_call(_: &CallCtx, a: Vec<LibValue>) -> Out {
+    stringify(&a[0], false).map(LibValue::Str).map_err(|m| LibError::new("@json.stringify", m))
+}
+
+fn pretty_call(_: &CallCtx, a: Vec<LibValue>) -> Out {
+    stringify(&a[0], true).map(LibValue::Str).map_err(|m| LibError::new("@json.pretty", m))
+}
+
+fn get_call(_: &CallCtx, a: Vec<LibValue>) -> Out {
+    get(text(&a, 0), text(&a, 1)).map(LibValue::Str).map_err(|m| LibError::new("@json.get", m))
+}
+
+fn has_call(_: &CallCtx, a: Vec<LibValue>) -> Out {
+    has(text(&a, 0), text(&a, 1)).map(LibValue::Bool).map_err(|m| LibError::new("@json.has", m))
+}
+
+fn type_call(_: &CallCtx, a: Vec<LibValue>) -> Out {
+    type_of(text(&a, 0), text(&a, 1)).map(|t| LibValue::Str(t.to_string())).map_err(|m| LibError::new("@json.type", m))
+}
+
+fn len_call(_: &CallCtx, a: Vec<LibValue>) -> Out {
+    len(text(&a, 0), text(&a, 1)).map(|n| LibValue::Int(n as i64)).map_err(|m| LibError::new("@json.len", m))
+}
+
+fn keys_call(_: &CallCtx, a: Vec<LibValue>) -> Out {
+    keys(text(&a, 0), text(&a, 1))
+        .map(|ks| LibValue::Array(ks.into_iter().map(LibValue::Str).collect()))
+        .map_err(|m| LibError::new("@json.keys", m))
+}
+
+fn valid_call(_: &CallCtx, a: Vec<LibValue>) -> Out {
+    Ok(LibValue::Bool(valid(text(&a, 0))))
+}
+
+fn set_call(_: &CallCtx, a: Vec<LibValue>) -> Out {
+    set(text(&a, 0), text(&a, 1), &a[2]).map(LibValue::Str).map_err(|m| LibError::new("@json.set", m))
+}
 
 /// deepest nesting accepted when parsing or serializing (the
 /// latter also stops a struct that contains itself. no infinite loops, please.
@@ -350,60 +416,61 @@ fn compact(j: &Json) -> String {
     out
 }
 
-fn from_value(v: &Value, depth: usize) -> Result<Json, String> {
+fn from_value(v: &LibValue, depth: usize) -> Result<Json, String> {
     if depth > MAX_DEPTH {
         return Err("the value is nested too deeply (does it contain itself?)".to_string());
     }
     Ok(match v {
-        Value::Func(_) => return Err("a function has no JSON form".to_string()),
-        Value::Task(_) => return Err("a task has no JSON form (call .wait() first)".to_string()),
-        Value::Nil => Json::Null,
-        Value::Int(n) => Json::Number(n.to_string()),
-        Value::Float(x) => {
+        LibValue::Opaque("function") => return Err("a function has no JSON form".to_string()),
+        LibValue::Opaque("task") => return Err("a task has no JSON form (call .wait() first)".to_string()),
+        LibValue::Opaque(_) => return Err("the value is nested too deeply (does it contain itself?)".to_string()),
+        LibValue::Nil => Json::Null,
+        LibValue::Int(n) => Json::Number(n.to_string()),
+        LibValue::Float(x) => {
             if !x.is_finite() {
                 return Err(format!("{} has no JSON form (JSON has no NaN or infinity)", x));
             }
             // `{:?}` keeps `1.0` a float (`{}` would write `1`, which is a lie)
             Json::Number(format!("{:?}", x))
         }
-        Value::Bool(b) => Json::Bool(*b),
-        Value::String(s) => Json::Str(s.to_string()),
-        Value::Array(items) => {
-            let items = items.borrow();
+        LibValue::Bool(b) => Json::Bool(*b),
+        LibValue::Str(s) => Json::Str(s.to_string()),
+        LibValue::Array(items) => {
             let mut out = Vec::with_capacity(items.len());
-            for item in items.iter() {
+            for item in items {
                 out.push(from_value(item, depth + 1)?);
             }
             Json::Array(out)
         }
-        Value::Map(m) => {
-            let m = m.borrow();
+        LibValue::Map(pairs) => {
             let mut entries = Vec::new();
-            for (k, val) in m.entries().iter() {
+            for (k, val) in pairs {
                 // JSON keys are strings. an int/bool/enum key gets written as its text.
                 let key = match k {
-                    Value::String(s) => s.to_string(),
-                    other => other.to_string(),
+                    LibValue::Str(s) => s.to_string(),
+                    LibValue::Int(n) => n.to_string(),
+                    LibValue::Bool(b) => b.to_string(),
+                    LibValue::Float(x) => x.to_string(),
+                    LibValue::Enum(text) => text.to_string(),
+                    _ => return Err("a map key has no JSON form".to_string()),
                 };
                 entries.push((key, from_value(val, depth + 1)?));
             }
             Json::Object(entries)
         }
-        Value::Struct(s) => {
-            let guard = s.borrow();
-            let (def, values) = &*guard;
+        LibValue::Struct { fields, .. } => {
             let mut entries = Vec::new();
-            for (name, val) in def.field_names.iter().zip(values.iter()) {
+            for (name, val) in fields {
                 entries.push((name.to_string(), from_value(val, depth + 1)?));
             }
             Json::Object(entries)
         }
-        Value::Enum(..) => Json::Str(v.to_string()),
-        Value::Void => return Err("void has no JSON form".to_string()),
+        LibValue::Enum(text) => Json::Str(text.to_string()),
+        LibValue::Void => return Err("void has no JSON form".to_string()),
     })
 }
 
-pub(crate) fn stringify(v: &Value, pretty: bool) -> Result<String, String> {
+pub(crate) fn stringify(v: &LibValue, pretty: bool) -> Result<String, String> {
     let j = from_value(v, 0)?;
     let mut out = String::new();
     write_json(&j, &mut out, if pretty { Some("  ") } else { None }, 0);
@@ -657,7 +724,7 @@ fn render_like(original: &str, j: &Json) -> String {
 /// step of the path may be new (a key gets added. one past the end of an array
 /// appends). the doc gets rewritten, so spacing and `\uXXXX`
 /// escapes get normalized. (blame the rewrite, not me.)
-pub(crate) fn set(text: &str, path: &str, value: &Value) -> Result<String, String> {
+pub(crate) fn set(text: &str, path: &str, value: &LibValue) -> Result<String, String> {
     let mut root = parse(text)?;
     let new = from_value(value, 0)?;
     let segs = split_path(path)?;
@@ -672,13 +739,12 @@ pub(crate) fn set(text: &str, path: &str, value: &Value) -> Result<String, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::rc::Rc;
 
     const DOC: &str = r#"{"name":"spg","n":3,"pi":1.50,"ok":true,"none":null,
         "tags":["a","b"],"nested":{"x":1,"a.b":"dot","0":"zero"},"é":"\u00e9\n"}"#;
 
-    fn s(v: &str) -> Value {
-        Value::String(Rc::new(v.to_string()))
+    fn s(v: &str) -> LibValue {
+        LibValue::Str(v.to_string())
     }
 
     #[test]
@@ -769,44 +835,44 @@ mod tests {
 
     #[test]
     fn stringify_scalars_and_arrays() {
-        assert_eq!(stringify(&Value::Int(-3), false).unwrap(), "-3");
-        assert_eq!(stringify(&Value::Float(1.0), false).unwrap(), "1.0");
-        assert_eq!(stringify(&Value::Float(9.5), false).unwrap(), "9.5");
-        assert_eq!(stringify(&Value::Bool(true), false).unwrap(), "true");
+        assert_eq!(stringify(&LibValue::Int(-3), false).unwrap(), "-3");
+        assert_eq!(stringify(&LibValue::Float(1.0), false).unwrap(), "1.0");
+        assert_eq!(stringify(&LibValue::Float(9.5), false).unwrap(), "9.5");
+        assert_eq!(stringify(&LibValue::Bool(true), false).unwrap(), "true");
         assert_eq!(stringify(&s("a\"b\n\u{1}"), false).unwrap(), "\"a\\\"b\\n\\u0001\"");
-        let arr = Value::Array(Rc::new(std::cell::RefCell::new(vec![Value::Int(1), s("x")])));
+        let arr = LibValue::Array(vec![LibValue::Int(1), s("x")]);
         assert_eq!(stringify(&arr, false).unwrap(), r#"[1,"x"]"#);
         assert_eq!(stringify(&arr, true).unwrap(), "[\n  1,\n  \"x\"\n]");
-        assert!(stringify(&Value::Float(f64::NAN), false).unwrap_err().contains("no JSON form"));
-        assert!(stringify(&Value::Void, false).is_err());
-        let empty = Value::Array(Rc::new(std::cell::RefCell::new(vec![])));
+        assert!(stringify(&LibValue::Float(f64::NAN), false).unwrap_err().contains("no JSON form"));
+        assert!(stringify(&LibValue::Void, false).is_err());
+        let empty = LibValue::Array(vec![]);
         assert_eq!(stringify(&empty, true).unwrap(), "[]");
     }
 
     #[test]
     fn set_replaces_adds_and_appends_in_the_documents_own_style() {
         // compact stays compact. good boy.
-        assert_eq!(set(r#"{"a":1}"#, "a", &Value::Int(2)).unwrap(), r#"{"a":2}"#);
+        assert_eq!(set(r#"{"a":1}"#, "a", &LibValue::Int(2)).unwrap(), r#"{"a":2}"#);
         assert_eq!(set(r#"{"a":1}"#, "b", &s("x")).unwrap(), r#"{"a":1,"b":"x"}"#);
-        assert_eq!(set(r#"{"a":[1]}"#, "a.1", &Value::Int(2)).unwrap(), r#"{"a":[1,2]}"#);
-        assert_eq!(set(r#"{"a":[1,2]}"#, "a.0", &Value::Int(9)).unwrap(), r#"{"a":[9,2]}"#);
-        assert_eq!(set("1", "", &Value::Int(2)).unwrap(), "2");
+        assert_eq!(set(r#"{"a":[1]}"#, "a.1", &LibValue::Int(2)).unwrap(), r#"{"a":[1,2]}"#);
+        assert_eq!(set(r#"{"a":[1,2]}"#, "a.0", &LibValue::Int(9)).unwrap(), r#"{"a":[9,2]}"#);
+        assert_eq!(set("1", "", &LibValue::Int(2)).unwrap(), "2");
         // 4 spaces, final newline and CRLF are kept. the file is safe.
-        assert_eq!(set("{\n    \"a\": 1\n}\n", "a", &Value::Int(2)).unwrap(), "{\n    \"a\": 2\n}\n");
-        assert_eq!(set("{\n\t\"a\": 1\n}", "a", &Value::Int(2)).unwrap(), "{\n\t\"a\": 2\n}");
-        assert_eq!(set("{\r\n  \"a\": 1\r\n}", "a", &Value::Int(2)).unwrap(), "{\r\n  \"a\": 2\r\n}");
+        assert_eq!(set("{\n    \"a\": 1\n}\n", "a", &LibValue::Int(2)).unwrap(), "{\n    \"a\": 2\n}\n");
+        assert_eq!(set("{\n\t\"a\": 1\n}", "a", &LibValue::Int(2)).unwrap(), "{\n\t\"a\": 2\n}");
+        assert_eq!(set("{\r\n  \"a\": 1\r\n}", "a", &LibValue::Int(2)).unwrap(), "{\r\n  \"a\": 2\r\n}");
         // a one-line file with a final newline is not "multi-line". rules are rules.
-        assert_eq!(set("{\"a\":1}\n", "a", &Value::Int(2)).unwrap(), "{\"a\":2}\n");
+        assert_eq!(set("{\"a\":1}\n", "a", &LibValue::Int(2)).unwrap(), "{\"a\":2}\n");
         // numbers elsewhere are untouched. not my business.
-        assert_eq!(set(r#"{"a":1.50,"b":0}"#, "b", &Value::Int(1)).unwrap(), r#"{"a":1.50,"b":1}"#);
+        assert_eq!(set(r#"{"a":1.50,"b":0}"#, "b", &LibValue::Int(1)).unwrap(), r#"{"a":1.50,"b":1}"#);
     }
 
     #[test]
     fn set_only_creates_the_last_step() {
-        let e = set("{}", "a.b", &Value::Int(1)).unwrap_err();
+        let e = set("{}", "a.b", &LibValue::Int(1)).unwrap_err();
         assert!(e.contains("only creates the LAST step"), "{}", e);
-        assert!(set(r#"{"a":[1]}"#, "a.5", &Value::Int(1)).unwrap_err().contains("out of range"));
-        assert!(set(r#"{"a":1}"#, "a.b", &Value::Int(1)).unwrap_err().contains("not an object or an array"));
-        assert!(set("{oops", "a", &Value::Int(1)).unwrap_err().contains("invalid JSON"));
+        assert!(set(r#"{"a":[1]}"#, "a.5", &LibValue::Int(1)).unwrap_err().contains("out of range"));
+        assert!(set(r#"{"a":1}"#, "a.b", &LibValue::Int(1)).unwrap_err().contains("not an object or an array"));
+        assert!(set("{oops", "a", &LibValue::Int(1)).unwrap_err().contains("invalid JSON"));
     }
 }
