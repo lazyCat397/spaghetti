@@ -1,2 +1,0 @@
-let estoque: map<string, int> = ["Crème": 5]
-print(@map.keysOf(estoque, "cinco"))

@@ -500,8 +500,8 @@ mod tests {
 
     #[test]
     fn multi_line_string_is_not_reindented() {
-        let src = "function f() -> void {\nprint(\"linha 1\nlinha 2\")\n}\n";
-        assert_eq!(fmt(src), "function f() -> void {\n    print(\"linha 1\nlinha 2\")\n}\n");
+        let src = "function f() -> void {\nprint(\"line 1\nlinha 2\")\n}\n";
+        assert_eq!(fmt(src), "function f() -> void {\n    print(\"line 1\nlinha 2\")\n}\n");
     }
 
     #[test]
@@ -513,7 +513,7 @@ mod tests {
 
     #[test]
     fn check_refuses_a_file_that_does_not_lex() {
-        assert!(matches!(check("let a = \"sem fim\n"), Err(FmtError::Lex(_))));
+        assert!(matches!(check("let a = \"no end\n"), Err(FmtError::Lex(_))));
     }
 
     #[test]

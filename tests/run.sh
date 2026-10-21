@@ -1,6 +1,6 @@
 #!/bin/bash
-# tick: reescreve a mesma linha no terminal a cada teste (o update-spg.bat espera essa linha).
-# say: limpa essa linha antes de qualquer mensagem normal (FAIL, skip, resumo) para não colar nela.
+# tick: rewrites the same terminal line after each test (update-spg.bat waits for this line).
+# say: clears that line before any normal message (FAIL, skip, summary) so nothing sticks to it.
 tick() { printf '\r[progress] %d passed out of %d, %d failed' "$pass" "$TOTAL" "$fail"; }
 say()  { printf '\r\033[K%s\n' "$*"; }
 # Multi-file regression. Checks the EXACT OUTPUT (not just the exit code):
@@ -8,8 +8,8 @@ say()  { printf '\r\033[K%s\n' "$*"; }
 # Usage (from the repository root): bash tests/run.sh
 cd "$(dirname "$0")"
 SPG=${SPG:-../target/release/spg}
-# [progress] precisa do total (Y), contado SEM executar nada: as chamadas diretas
-# (ok/err/exact1/lines/diag/exit124/check), o loop same/ (um por arquivo) e as checagens avulsas.
+# [progress] needs the total (Y), counted WITHOUT running anything: the direct calls
+# (ok/err/exact1/lines/diag/exit124/check), the same/ loop (one per file) and the standalone checks.
 count_tests() {
     local n loopn avul f
     n=$(grep -cE '^(ok|err|exact1|lines|diag|exit124|check) ' run.sh)
@@ -59,15 +59,15 @@ ok basic.spg            '42\n6.28\n0\n7\n42'
 ok newline_statements.spg '1\n5\n1'
 ok diamond.spg          '120\n120'
 ok same_name.spg        '10'
-ok structs.spg           '11\n21\n4\n6\n77\n40'
+ok struct_forms.spg           '11\n21\n4\n6\n77\n40'
 ok shadowing.spg         '6\n7\n500\n1000\n500'
 ok builtin_homonimo.spg  '1001\n3'
-ok subpastas.spg         'meio+folha'
+ok subpastas.spg         'middle+leaf'
 ok reexport_simples.spg     '2\n7'
 ok reexport_identidade.spg  '3'
 ok reexport_cadeia.spg      '2'
-ok reexport_mista.spg       '0\n100\n5'
-ok reexport_privada_homonima.spg '999'
+ok reexport_mixed_exports.spg       '0\n100\n5'
+ok reexport_private_same_name.spg '999'
 ok ns_modulo.spg         '5.0\nHI\ntrue'
 ok ns_all.spg          '5\nSPG\ntrue\n2\ntrue\n2\n4\na+b+c\n9\n2.5\n3\n42true\n5.0\n5\n124\nfalse\ntrue\ntrue\ntrue\n20\nT\ntrue'
 ok ns_free_names.spg   '6\n6\n4.0\nT'
@@ -144,7 +144,7 @@ while time.perf_counter() - st < 2.0:
 p.kill(); p.wait()
 sys.exit(0 if got == b"one\n" and still and time.perf_counter() - st < 1.0 else 1)
 PYEOF
-    then pass=$((pass+1)); tick; else fail=$((fail+1)); tick; say "FAIL timing/flush_latency.spg: o 1o print nao chegou ao pipe enquanto o programa calculava"; fi
+    then pass=$((pass+1)); tick; else fail=$((fail+1)); tick; say "FAIL timing/flush_latency.spg: the 1st print did not reach the pipe while the program was computing"; fi
 else say "skip timing/flush_latency (no python3)"; fi
 
 # optimizer regressions (hand-verified expected values)
@@ -190,26 +190,26 @@ err method_return_mismatch.spg 'function returns int but this return gives strin
 # print / printError take any number of arguments (values joined by one space; no arguments = an empty line)
 ok print_variadic.spg    '\na\n1 2\nx 1 2.5 true raw "q"\n[1, 2] arr\n3 3\n1 2 3 4 5 6 7 8 9 10\n1 2 3\n3\n \n  \nonly \n\ne 1 false\nafter\n\nlast'
 
-err ciclo_a.spg          'circular import'
+err cycle_a.spg          'circular import'
 err ciclo3_a.spg         'ciclo3_b.spg -> '
 err auto_import.spg      'circular import'
-err nao_exportado.spg    'is not exported'
+err not_exported.spg    'is not exported'
 err inexistente.spg      "has no declaration named 'fantasma'"
 err no_extension.spg     "must end in '.spg'"
 err missing_file.spg 'could not read'
-err colisao_imports.spg  "'helper' is imported more than once" 'colisao_imports.spg:2' "'helper' is first imported here" 'colisao_imports.spg:1'
-err colisao_local.spg    "'helper' conflicts with a local declaration" 'colisao_local.spg:1' "'helper' is also declared here" 'colisao_local.spg:2'
-err colisao_local_dupla.spg "'a' is declared more than once" 'colisao_local_dupla.spg:3' "'a' is first declared here" 'colisao_local_dupla.spg:1'
+err import_collision.spg  "'helper' is imported more than once" 'import_collision.spg:2' "'helper' is first imported here" 'import_collision.spg:1'
+err local_conflict.spg    "'helper' conflicts with a local declaration" 'local_conflict.spg:1' "'helper' is also declared here" 'local_conflict.spg:2'
+err local_duplicate.spg "'a' is declared more than once" 'local_duplicate.spg:3' "'a' is first declared here" 'local_duplicate.spg:1'
 err import_clash_list.spg "'two' is imported more than once" "'two' is listed twice in this import"
-err reexport_import_nao_reexporta.spg "only imported by module" 'export { inc } from "./rx_origem.spg"'
+err reexport_import_not_reexported.spg "only imported by module" 'export { inc } from "./reexport_origin.spg"'
 err reexport_inexistente.spg    "has no declaration named 'fantasma'"
-err reexport_privada.spg        "'privada' exists in module" "is not exported"
+err reexport_private.spg        "'privada' exists in module" "is not exported"
 err reexport_no_extension.spg   "must end in '.spg'"
-err reexport_ciclo.spg          'circular import' 'rx_ciclo_a.spg -> ' 'rx_ciclo_b.spg'
+err reexport_cycle.spg          'circular import' 'reexport_cycle_a.spg -> ' 'reexport_cycle_b.spg'
 err reexport_vs_local.spg       "'inc' is re-exported here, but this file also exports its own" 'reexport_vs_local.spg:1' "'inc' is declared and exported here" 'reexport_vs_local.spg:3'
 err reexport_duplo.spg          "'inc' is re-exported more than once" 'reexport_duplo.spg:2' "'inc' is first re-exported here" 'reexport_duplo.spg:1'
 err reexport_double_list.spg    "'inc' is re-exported more than once" "'inc' is listed twice in this re-export"
-err reexport_nao_vira_local.spg "undefined function 'inc'"
+err reexport_not_becoming_local.spg "undefined function 'inc'"
 err ns_old_name.spg      "'sqrt' is no longer a global function; use '@math.sqrt'"
 err ns_clock_antigo.spg     "'clock' is no longer a global function" '@time.unix()' '@time.elapsed()'
 err ns_reservado_let.spg    "'@math' is a reserved namespace and cannot be used as a name" '(line 1, column 5)'
@@ -235,7 +235,7 @@ err pi_negativo.spg         '@math.pi expects a non-negative number of decimal p
 err e_negativo.spg          '@math.e expects a non-negative number of decimal places, got -3'
 err pi_float.spg            "'@math.pi' argument #1 expects int, got float"
 err into_bool.spg           "'@into.int' argument #1 expects float, got bool"
-err ns_str_tipo.spg         "'@str.toUpper' argument #1 expects string, got int"
+err ns_str_type.spg         "'@str.toUpper' argument #1 expects string, got int"
 err opt_div_zero.spg        'division by zero'
 err opt_index_oob.spg       'index out of bounds: 7 (array has 3 element(s))'
 
@@ -255,19 +255,19 @@ diag() {  # diag <file> <error count> <fragment> [<fragment>...] — ALL must ap
 }
 
 diag dup_field.spg      1 "struct 'P' has no field 'y'"
-diag dup_undef.spg      1 "undefined variable 'naoExiste'"
+diag dup_undef.spg      1 "undefined variable 'doesNotExist'"
 diag dup_op.spg         1 "operator Add not supported for int and string"
-diag ret_tipos.spg      2 "function returns int but this return gives string"
-diag tipo_limpo.spg     1 "declared type is array<Ponto> but value is int"
-diag mangled_struct.spg 1 "declared type is int but value is Ponto"
-diag mangled_campo.spg  1 "struct 'Ponto' has no field 'y'"
+diag ret_types.spg      2 "function returns int but this return gives string"
+diag clean_type.spg     1 "declared type is array<Point> but value is int"
+diag mangled_struct.spg 1 "declared type is int but value is Point"
+diag mangled_campo.spg  1 "struct 'Point' has no field 'y'"
 diag mangled_func.spg   1 "'two' expects 0 argument(s), got 2"
-diag ns_tipo.spg        1 "'@math.sqrt' argument #1 expects float, got int"
+diag ns_type.spg        1 "'@math.sqrt' argument #1 expects float, got int"
 
 # the bug that motivated the patch: two DIFFERENT files with an error at the
 # SAME line/column were indistinguishable (just "line 1, column 31" twice
 # times) — now each message names its own file
-diag ambiguo.spg 2 "type error in lib/liba.spg at line 1, column 31" "type error in lib/libb.spg at line 1, column 31"
+diag ambiguous.spg 2 "type error in lib/liba.spg at line 1, column 31" "type error in lib/libb.spg at line 1, column 31"
 # the ENTRY file of a multi-file program must also
 # appear by name, not only the imported modules
 diag entry_with_error.spg 2 "type error in lib/liba.spg" "type error in diag/entry_with_error.spg at line 2"
@@ -278,7 +278,7 @@ diag method_mangled_notcalled.spg 1 "'len2' is a method of struct 'Vec', not a f
 # an element of an array literal must also be visited by the
 # file annotation (a real finding during development: the
 # first version only stamped the Pos of the ArrayLit, not each item's)
-diag arraylit_error.spg 1 "type error in lib/rx_arraylit_error.spg" "undefined variable 'naoExiste'"
+diag arraylit_error.spg 1 "type error in lib/array_literal_error.spg" "undefined variable 'doesNotExist'"
 
 # enums: `enum E { A, B }`, `E.A`, == / != only, `for x in E`, printed by variant name
 ok enum_basic.spg  'Green\ncolor: Green Green\ntrue false false\nRed hot\nGreen natural\nBlue cool\n[Blue, Red]\nCar { name: fusca, color: Blue }\ntrue false\n3 Red'
@@ -326,7 +326,7 @@ err map_untyped_empty.spg   "cannot tell what '[:]' holds" "let m: map<string, i
 err map_get_fallback.spg    "'@map.get' argument #3 expects int, got string"
 err map_not_a_map.spg       "'@map.len' argument #1 expects map<any, any>, got array<int>"
 err map_missing_key.spg     'key not found in map: "zz"' "@map.has"
-err map_keysof_tipo.spg      "'@map.keysOf' argument #2 expects int, got string" "line 2, column 18"
+err map_keysof_type.spg      "'@map.keysOf' argument #2 expects int, got string" "line 2, column 18"
 err let_void.spg             "this expression has no value (void)" "line 1, column 1"
 err const_void.spg           "this expression has no value (void)" "line 1, column 1"
 err when_nonexhaustive.spg "does not cover every variant" "missing: Left, Right" "line 3, column 1"
@@ -449,7 +449,7 @@ err json_invalid.spg  'invalid JSON: expected a string key' 'line 1, column'
 err json_friendly.spg 'Oops! @json.get: path not found'
 
 err interp_vazia.spg     'empty interpolation' 'line 1, column 7'
-err interp_tipo.spg     'Add not supported for int and string'
+err interp_type.spg     'Add not supported for int and string'
 
 exact1 trace_cadeia.spg '6\nruntime error: division by zero\n  at divide (err/trace_cadeia.spg:2)\n  at compute (err/trace_cadeia.spg:6)\n  at <main> (err/trace_cadeia.spg:11)'
 exact1 trace_recursao.spg 'runtime error: stack overflow: more than 100000 nested calls (is a function calling itself forever?)\n  at down (err/trace_recursao.spg:2)\n  ... same line repeated 49 more times\n  ... 99950 more frames'
@@ -458,16 +458,16 @@ ok trace_catch.spg 'caught\nend'
 ok lambdas.spg           '13\n42\n49\n10\n101\n20\niife\n<function>'
 ok lambda_captura.spg    '203\n10'
 err lambda_captura_atribui.spg "a lambda cannot assign 'x'"
-err lambda_tipo_argumento.spg "'ap' argument #1 expects function(int) -> int, got function(string) -> int"
+err lambda_type_argument.spg "'ap' argument #1 expects function(int) -> int, got function(string) -> int"
 err lambda_no_return.spg "function '<lambda>' must return int on every path"
 exact1 trace_lambda.spg 'runtime error: division by zero\n  at t (err/trace_lambda.spg:1)\n  at <lambda> (err/trace_lambda.spg:2)\n  at <main> (err/trace_lambda.spg:3)'
 
-ok optional.spg          '1 none\n8 -1\n99 10\ntrue true true false\n6 0\nhi Ana\nnone and 10\n[1, none, 3]\n1\n5 0 5 0\n10 0\n7 1'
+ok optional_forms.spg          '1 none\n8 -1\n99 10\ntrue true true false\n6 0\nhi Ana\nnone and 10\n[1, none, 3]\n1\n5 0 5 0\n10 0\n7 1'
 ok opt_global_catch.spg  'caught'
 ok defaults.spg '10 hi -1.5 true\n3 hi -1.5 true\n3 x -1.5 true\n3 x 2.0 true\n3 x 2.0 false\n8\n3'
 err opt_aritmetica.spg   'operator Add not supported for int? and int' 'may be none'
 err opt_none_no_type.spg "cannot tell which type 'none' belongs to"
-err opt_para_int.spg     "argument #1 expects int, got int?"
+err opt_to_int.spg     "argument #1 expects int, got int?"
 err opt_coalesce.spg     "'??' needs an optional value on its left"
 err opt_no_output.spg    'operator Add not supported for int? and int'
 err opt_atribui_none.spg 'operator Add not supported for int? and int'
@@ -518,7 +518,7 @@ err async_wait_trace.spg "division by zero" "at divide (" "before wait"
 ok async_overlap.spg "a starts\nb starts\nboth started\nb done\na done\nab"
 ok async_many.spg "89700"
 ok async_all.spg "b done\nc done\na done\n[a, b, c]\n3\n[]"
-ok async_lambda.spg "say: oi\ndepois\n[11, 12]"
+ok async_lambda.spg "say: hi\nafter\n[11, 12]"
 ok async_unwaited.spg "nobody waits on t\nwarning: a task failed and nobody called .wait() on it: unhandled exception: boom\n  at bad (ok/async_unwaited.spg:3)"
 err async_all_error.spg "unhandled exception: boom" "at bad ("
 ok pipe_basic.spg "6\n6\n13\n6\n7\n106"

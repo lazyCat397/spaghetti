@@ -661,7 +661,7 @@ impl<W: Write> Server<W> {
                     .collect();
             }
             DotContext::Enum(name) => {
-                // `Color.`: its variants, then the functions declared as `function Color.nome(...)`
+                // `Color.`: its variants, then the functions declared as `function Color.name(...)`
                 let mut items: Vec<Json> = self
                     .enum_variants(uri, &name)
                     .unwrap_or_default()
@@ -1629,7 +1629,7 @@ fn keyword_doc(word: &str) -> Option<&'static str> {
     Some(match word {
         "let" => "declares a variable",
         "const" => "declares a constant, fixed for the whole program",
-        "function" => "declares a function. `function Tipo.nome()` declares an associated function of a struct or enum",
+        "function" => "declares a function. `function Type.name()` declares an associated function of a struct or enum",
         "return" => "leaves the function with a value",
         "if" => "runs a block when the condition holds (the condition goes in parentheses)",
         "elif" | "else" => "the other branches of an `if`",

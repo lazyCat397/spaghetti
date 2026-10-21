@@ -16,7 +16,7 @@
 pub const MANGLE_SEP: &str = "::";
 
 /// what the user actually wrote: strips the module tag from a mangled
-/// name (`errmod#c29b::Ponto` -> `Ponto`). ordinary names: left alone.
+/// name (`errmod#c29b::Point` -> `Point`). ordinary names: left alone.
 pub fn display_name(name: &str) -> &str {
     match name.rfind(MANGLE_SEP) {
         Some(i) => &name[i + MANGLE_SEP.len()..],

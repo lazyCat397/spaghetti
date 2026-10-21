@@ -1,1 +1,0 @@
-export { inc, ler } from "./rx_meio.spg"

@@ -1,3 +1,3 @@
-export { ler } from "./rx_origem.spg"
+export { read } from "./reexport_origin.spg"
 export function propria() -> int { return 100 }
 export let g: int = 5

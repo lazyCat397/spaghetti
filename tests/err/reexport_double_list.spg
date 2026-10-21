@@ -1,1 +1,1 @@
-export { inc, inc } from "../lib/rx_origem.spg"
+export { inc, inc } from "../lib/reexport_origin.spg"

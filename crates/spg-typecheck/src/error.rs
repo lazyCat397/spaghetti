@@ -82,10 +82,10 @@ pub enum TypeError {
     /// an `if`/`while` condition isn't Bool. no truthy nonsense here.
     NonBoolCondition { found: Ty, pos: Pos },
 
-    /// `x = valor` where `x` was declared `const`. read the keyword, friend.
+    /// `x = value` where `x` was declared `const`. read the keyword, friend.
     AssignToConst { name: String, pos: Pos },
 
-    /// `x = valor` where the value's type disagrees with `x`'s type
+    /// `x = value` where the value's type disagrees with `x`'s type
     AssignTypeMismatch { name: String, expected: Ty, found: Ty, pos: Pos },
 
     /// `break`/`continue` outside any loop. nothing to break out of.
@@ -170,9 +170,9 @@ pub enum TypeError {
 
     /// `function Foo.bar()` where `Foo` is not a struct of this program
     AssociatedOnUnknownType { type_name: String, name: String, pos: Pos },
-    /// `p.bar()` where `bar` is an associated function: it is called as `Tipo.bar()`
+    /// `p.bar()` where `bar` is an associated function: it is called as `Type.bar()`
     AssociatedCalledOnValue { type_name: String, name: String, pos: Pos },
-    /// `Tipo.bar()` where `Tipo` is a struct with no associated function `bar`
+    /// `Type.bar()` where `Type` is a struct with no associated function `bar`
     NoAssociatedFunction { type_name: String, name: String, pos: Pos },
     /// `function Cor.Vermelho()` where `Vermelho` is already a variant of enum `Cor`
     AssociatedNameIsVariant { type_name: String, name: String, pos: Pos },

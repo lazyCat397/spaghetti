@@ -1,1 +1,1 @@
-export { fantasma } from "../lib/rx_origem.spg"
+export { fantasma } from "../lib/reexport_origin.spg"

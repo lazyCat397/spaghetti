@@ -149,18 +149,15 @@ jobs:
           path: assets
           merge-multiple: true
 
+
       - name: Publish release to the public repository
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
           REPO="${{ github.repository }}"
-          # the commits since the previous v* tag, one line each
-          PREV="$(git tag --list 'v*' --sort=-v:refname | grep -vx "$TAG" | head -1)"
-          if [ -n "$PREV" ]; then RANGE="$PREV..$TAG"; else RANGE="$TAG"; fi
-          NOTES="$(printf '## Changes since %s\n\n%s\n' "${PREV:-the first release}" "$(git log --no-merges --pretty='- %s' "$RANGE")")"
-          # a re-run (or a re-publish of the same tag) must not fail on "release already exists":
-          # replace the assets and the notes of the existing release instead
+          NOTES="## Spaghetti $TAG"
+
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             gh release upload "$TAG" assets/* --clobber --repo "$REPO"
             gh release edit "$TAG" --repo "$REPO" --title "Spaghetti $TAG" --notes "$NOTES"

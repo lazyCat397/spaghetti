@@ -1,2 +1,2 @@
-struct Ponto { x: int, y: int }
-print(Ponto.nada())
+struct Point { x: int, y: int }
+print(Point.nada())

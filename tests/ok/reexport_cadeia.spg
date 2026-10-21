@@ -1,4 +1,4 @@
-import { inc, ler } from "../lib/rx_topo.spg"
+import { inc, read } from "../lib/reexport_top.spg"
 inc()
 inc()
-print(ler())
+print(read())

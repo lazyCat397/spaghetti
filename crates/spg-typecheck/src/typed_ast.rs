@@ -105,10 +105,10 @@ impl PartialEq for Ty {
     }
 }
 
-/// a type as the USER writes it (`int`, `array<Ponto>`, `Ponto`), not
-/// Rust's Debug mess (`Array(Named("Ponto"))`). struct names go through
+/// a type as the USER writes it (`int`, `array<Point>`, `Point`), not
+/// Rust's Debug mess (`Array(Named("Point"))`). struct names go through
 /// `display_name`, so a struct imported from another module reads as
-/// `Ponto`, not its mangled internal name. tidy.
+/// `Point`, not its mangled internal name. tidy.
 impl std::fmt::Display for Ty {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

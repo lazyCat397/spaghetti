@@ -1,6 +1,6 @@
-import { inc } from "../lib/rx_fachada.spg"
-import { ler } from "../lib/rx_origem.spg"
+import { inc } from "../lib/reexport_facade.spg"
+import { read } from "../lib/reexport_origin.spg"
 inc()
 inc()
 inc()
-print(ler())
+print(read())

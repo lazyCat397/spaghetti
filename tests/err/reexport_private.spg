@@ -1,0 +1,1 @@
+export { privada } from "../lib/reexport_origin.spg"

@@ -1,2 +1,2 @@
-import { meio } from "../lib/meio.spg"
-print(meio())
+import { middle } from "../lib/middle.spg"
+print(middle())

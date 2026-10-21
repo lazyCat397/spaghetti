@@ -1,8 +1,8 @@
-let estoque: map<string, int> = ["Crème": 5, "Milk": 3, "Eggs": 6, "Butter": 2, "Cheese": 4, "Résumé": 6]
-print(@map.keysOf(estoque, 6))
-print(@map.keysOf(estoque, 2), @map.keysOf(estoque, 99))
+let stock: map<string, int> = ["Crème": 5, "Milk": 3, "Eggs": 6, "Butter": 2, "Cheese": 4, "Résumé": 6]
+print(@map.keysOf(stock, 6))
+print(@map.keysOf(stock, 2), @map.keysOf(stock, 99))
 let nums: map<int, bool> = [1: true, 2: false, 3: true]
 print(@map.keysOf(nums, true), @map.keysOf(nums, false)[0])
-print(estoque.keysOf(3))
+print(stock.keysOf(3))
 let empty: map<string, string> = [:]
 print(@map.keysOf(empty, "x"))

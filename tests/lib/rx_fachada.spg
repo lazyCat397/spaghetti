@@ -1,1 +1,0 @@
-export { inc, ler, Ponto } from "./rx_origem.spg"

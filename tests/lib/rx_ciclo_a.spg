@@ -1,2 +1,0 @@
-export { fb } from "./rx_ciclo_b.spg"
-export function fa() -> int { return 1 }

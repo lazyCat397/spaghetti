@@ -1,4 +1,0 @@
-import { ler, propria, g } from "../lib/rx_mista.spg"
-print(ler())
-print(propria())
-print(g)

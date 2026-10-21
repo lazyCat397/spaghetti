@@ -1,6 +1,6 @@
-import { inc, ler, Ponto } from "../lib/rx_fachada.spg"
+import { inc, read, Point } from "../lib/reexport_facade.spg"
 inc()
 inc()
-print(ler())
-let p: Ponto = Ponto { x: 7 }
+print(read())
+let p: Point = Point { x: 7 }
 print(p.x)

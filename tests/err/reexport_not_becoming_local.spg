@@ -1,0 +1,2 @@
+import { usaInc } from "../lib/reexport_facade_local.spg"
+usaInc()

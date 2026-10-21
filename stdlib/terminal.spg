@@ -26,7 +26,7 @@ struct Terminal {
             try {
                 return @into.int(raw)
             } catch (e: string) {
-                printError("Oops! \"" + raw + "\" is not a whole number. Try again.")
+                printError("Oops! ${raw} is not a whole number. Try again.")
             }
         }
         return 0
@@ -49,12 +49,12 @@ struct Terminal {
             let raw = readLine(prompt)
             let low = @str.toLower(@str.trim(raw))
             if (@str.contains(low, "n") || @str.contains(low, "i")) {
-                printError("Oops! \"" + raw + "\" is not a valid number. Try again.")
+                printError("Oops! ${raw} is not a valid number. Try again.")
             } else {
                 try {
                     return @into.float(raw)
                 } catch (e: string) {
-                    printError("Oops! \"" + raw + "\" is not a number. Try again.")
+                    printError("Oops! ${raw} is not a number. Try again.")
                 }
             }
         }
@@ -69,13 +69,12 @@ struct Terminal {
         }
     }
 
-    // yes/no questions, now with a few extra ways to say yes
-    // because not everyone speaks the same terminal language :/
+    // yes/no questions, now with a few extra ways to say yes, idk why
     function askYesNo(prompt: string) -> bool {
         while (true) {
             let low = @str.toLower(@str.trim(readLine(prompt + " [y/n]: ")))
-            if (low == "y" || low == "yes" || low == "s" || low == "sim") { return true }
-            elif (low == "n" || low == "no" || low == "não" || low == "nao") { return false }
+            if (low == "y" || low == "yes" ) { return true }
+            elif (low == "n" || low == "no" ) { return false }
             printError("Oops! Answer with y or n.")
         }
         return false

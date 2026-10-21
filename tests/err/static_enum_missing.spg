@@ -1,2 +1,2 @@
-enum Cor { Vermelho, Verde }
-print(Cor.nada())
+enum Color { Vermelho, Verde }
+print(Color.nada())

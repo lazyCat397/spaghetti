@@ -1,2 +1,0 @@
-import { folha } from "./sub/folha.spg"
-export function meio() -> string { return "meio+" + folha() }

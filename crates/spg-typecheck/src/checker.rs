@@ -80,7 +80,7 @@ pub struct Checker {
     /// placeholder infer_return_type falls back to would just make
     /// confusing, redundant ReturnTypeMismatch noise on top. nobody needs that.
     uninferrable_functions: std::collections::HashSet<String>,
-    /// `Tipo.nome` functions declared at top level with no `me`: associated functions
+    /// `Type.name` functions declared at top level with no `me`: associated functions
     associated: std::collections::HashSet<String>,
     /// enum matches with no `else` that name every variant, keyed by their
     /// position. they always end in one of their arms, so the return-path
@@ -192,7 +192,7 @@ impl Checker {
     }
 
     fn collect_function_signatures(&mut self, stmts: &[Stmt]) {
-        // associated functions: `function Tipo.nome(...)` with no `me`. the type must be a
+        // associated functions: `function Type.name(...)` with no `me`. the type must be a
         // struct of this program; the names are remembered so calls can be told apart
         for stmt in stmts {
             if let Stmt::FunctionDecl { name, params, pos, .. } = stmt {
@@ -664,7 +664,7 @@ impl Checker {
     /// just arg #0). arity and arg errors count only the args the
     /// caller wrote, never `me`. `me` is free. it's always there.
     fn check_method_call(&mut self, object: &Expr, method: &str, args: &[Expr], pos: &p::Pos) -> Option<TypedExpr> {
-        // `Tipo.nome(args)`: a call to an associated function. the object is a struct NAME,
+        // `Type.name(args)`: a call to an associated function. the object is a struct NAME,
         // not a value. a local variable with that name wins (then it's a plain method call)
         if let Expr::Ident(type_name, _) = object {
             // `Foo.bar()` where `Foo` is not a struct, and a `function Foo.x` was already
@@ -697,7 +697,7 @@ impl Checker {
             }
         }
         let typed_object = self.check_expr(object)?;
-        // an associated function is not a method: `p.nome()` is refused, whatever `p` is
+        // an associated function is not a method: `p.name()` is refused, whatever `p` is
         if let Ty::Named(type_name) = typed_object.ty() {
             if self.associated.contains(&format!("{}.{}", type_name, method)) {
                 self.errors.push(TypeError::AssociatedCalledOnValue {
@@ -2519,7 +2519,7 @@ fn unify_optional(a: &Ty, b: &Ty) -> Option<Ty> {
     }
 }
 
-/// `Tipo.nome` -> `nome`
+/// `Type.name` -> `name`
 fn member_of(qualified: &str) -> &str {
     qualified.split_once('.').map_or(qualified, |(_, m)| m)
 }

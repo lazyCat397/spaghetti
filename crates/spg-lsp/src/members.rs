@@ -33,7 +33,7 @@ pub struct Decls {
     /// exported `const`/`let` with a written type (`export const terminal: Terminal`), taken
     /// from the installed/imported files so their members can be listed
     pub globals: HashMap<String, String>,
-    /// `function Tipo.nome(...) -> R` declarations, as (type, name, signature). they travel
+    /// `function Type.name(...) -> R` declarations, as (type, name, signature). they travel
     /// with `merge`, so an imported type's associated functions are listed too
     pub associated: Vec<(String, String, String)>,
 }
@@ -625,8 +625,8 @@ pub fn after_dot(tokens: &[Token], at: usize, chain: &[String], decls: &Decls) -
     if chain.is_empty() {
         return Vec::new();
     }
-    // `Ponto.` where Ponto is a struct or enum name: its associated functions
-    // (`function Ponto.nome(...)`), the way they are called. not a variable of that name
+    // `Point.` where Point is a struct or enum name: its associated functions
+    // (`function Point.name(...)`), the way they are called. not a variable of that name
     if chain.len() == 1 && (decls.structs.contains_key(&chain[0]) || decls.enums.contains(&chain[0])) {
         let depth = depths(tokens);
         if resolve_head(tokens, &depth, at, &chain[0], decls).is_none() {
@@ -750,20 +750,20 @@ mod tests {
 
     #[test]
     fn type_name_dot_lists_its_associated_functions() {
-        let text = "struct Ponto { x: int }\nfunction Ponto.origem() -> Ponto { return Ponto { x: 0 } }\nfunction Ponto.de(x: int) -> Ponto { return Ponto { x: x } }\n";
+        let text = "struct Point { x: int }\nfunction Point.origin() -> Point { return Point { x: 0 } }\nfunction Point.make(x: int) -> Point { return Point { x: x } }\n";
         let (tokens, at, decls) = setup(text, 3, 0);
-        let got = names(&after_dot(&tokens, at, &["Ponto".to_string()], &decls));
-        assert!(got.contains(&"origem".to_string()) && got.contains(&"de".to_string()), "{:?}", got);
+        let got = names(&after_dot(&tokens, at, &["Point".to_string()], &decls));
+        assert!(got.contains(&"origin".to_string()) && got.contains(&"make".to_string()), "{:?}", got);
     }
 
     #[test]
     fn associated_functions_of_imported_files_are_listed() {
         let lex = |t: &str| spg_lexer::Lexer::new(t).tokenize().unwrap();
-        let mut here = Decls::from_tokens(&lex("struct Ponto { x: int }\nlet p = 1\n"));
-        let there = Decls::from_tokens(&lex("struct Ponto { x: int }\nfunction Ponto.origem() -> Ponto { return Ponto { x: 0 } }\n"));
+        let mut here = Decls::from_tokens(&lex("struct Point { x: int }\nlet p = 1\n"));
+        let there = Decls::from_tokens(&lex("struct Point { x: int }\nfunction Point.origin() -> Point { return Point { x: 0 } }\n"));
         here.merge(there);
-        let got = names(&associated_of(&here, "Ponto"));
-        assert_eq!(got, vec!["origem".to_string()]);
+        let got = names(&associated_of(&here, "Point"));
+        assert_eq!(got, vec!["origin".to_string()]);
         assert_eq!(associated_of(&here, "Outro").len(), 0);
     }
 

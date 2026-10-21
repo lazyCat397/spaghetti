@@ -1,6 +1,6 @@
-enum Cor { Vermelho, Verde }
-function Cor.padrao() -> Cor {
-    return Cor.Verde
+enum Color { Vermelho, Verde }
+function Color.padrao() -> Color {
+    return Color.Verde
 }
-let c = Cor.Verde
+let c = Color.Verde
 print(c.padrao())

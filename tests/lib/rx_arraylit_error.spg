@@ -1,1 +1,0 @@
-export function ruim() -> int { return [naoExiste][0] }

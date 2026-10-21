@@ -1,2 +1,2 @@
-import { Ponto } from "../lib/diaglib.spg"
-function f(p: Ponto) -> int { return p.y }
+import { Point } from "../lib/diaglib.spg"
+function f(p: Point) -> int { return p.y }

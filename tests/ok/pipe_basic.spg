@@ -1,9 +1,9 @@
-function dobra(x: int) -> int { return x * 2 }
-function soma(a: int, b: int) -> int { return a + b }
+function double(x: int) -> int { return x * 2 }
+function sum(a: int, b: int) -> int { return a + b }
 let a = 3
-print(a |> dobra())
-print(a then dobra())
-print(a |> soma(10))
-print(1 + 2 |> dobra())
-print(a |> dobra() |> soma(1))
-print(a then dobra() then soma(100))
+print(a |> double())
+print(a then double())
+print(a |> sum(10))
+print(1 + 2 |> double())
+print(a |> double() |> sum(1))
+print(a then double() then sum(100))

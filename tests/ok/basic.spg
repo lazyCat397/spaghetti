@@ -1,8 +1,8 @@
-import { double, PI2, contador, Ponto, usaSegredo } from "../lib/util.spg"
+import { double, PI2, counter, Point, usesSecret } from "../lib/util.spg"
 
 print(double(21))
 print(PI2)
-print(contador)
-let p: Ponto = Ponto { x: 3, y: 4 }
+print(counter)
+let p: Point = Point { x: 3, y: 4 }
 print(p.x + p.y)
-print(usaSegredo())
+print(usesSecret())

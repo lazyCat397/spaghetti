@@ -614,8 +614,8 @@ impl Parser {
         self.advance(); // function
 
         let mut name = self.parse_binding_name()?;
-        // `function Tipo.nome(...)`: an associated function (no `me`). the name keeps the
-        // dot, so the typechecker and the VM see it as `Tipo.nome`, like a method
+        // `function Type.name(...)`: an associated function (no `me`). the name keeps the
+        // dot, so the typechecker and the VM see it as `Type.name`, like a method
         if self.match_kind(&TokenKind::Dot) {
             let member = self.parse_binding_name()?;
             name = format!("{}.{}", name, member);
@@ -820,7 +820,7 @@ impl Parser {
             Stmt::FunctionDecl { name, .. } if name.contains('.') => {
                 let pos = self.peek_pos();
                 Err(ParseError::Unexpected {
-                    expected: "a method name inside the struct (associated functions go outside: function Tipo.nome())".to_string(),
+                    expected: "a method name inside the struct (associated functions go outside: function Type.name())".to_string(),
                     found: TokenKind::Dot,
                     line: pos.line,
                     col: pos.col,

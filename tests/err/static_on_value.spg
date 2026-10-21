@@ -1,6 +1,6 @@
-struct Ponto { x: int, y: int }
-function Ponto.origem() -> Ponto {
-    return Ponto { x: 0, y: 0 }
+struct Point { x: int, y: int }
+function Point.origin() -> Point {
+    return Point { x: 0, y: 0 }
 }
-let p = Ponto { x: 1, y: 2 }
-print(p.origem())
+let p = Point { x: 1, y: 2 }
+print(p.origin())

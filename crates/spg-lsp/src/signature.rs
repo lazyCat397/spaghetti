@@ -366,8 +366,8 @@ mod tests {
 
     #[test]
     fn lambda_parameters_are_offered_for_completion() {
-        let t = toks("let k = function(valor: int) -> int { return valor }");
-        assert!(all_params(&t).iter().any(|(n, ty)| n == "valor" && ty == "int"));
+        let t = toks("let k = function(value: int) -> int { return value }");
+        assert!(all_params(&t).iter().any(|(n, ty)| n == "value" && ty == "int"));
     }
 
     #[test]

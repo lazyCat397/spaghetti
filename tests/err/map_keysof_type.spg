@@ -1,0 +1,2 @@
+let stock: map<string, int> = ["Crème": 5]
+print(@map.keysOf(stock, "five"))

@@ -1,2 +1,2 @@
-import { Ponto } from "../lib/diaglib.spg"
-let a: int = Ponto { x: 1 }
+import { Point } from "../lib/diaglib.spg"
+let a: int = Point { x: 1 }

@@ -14,7 +14,7 @@ function acha(xs: array<int>, alvo: int) -> int? {
     return none
 }
 
-function dobra(x: int?) -> int {
+function double(x: int?) -> int {
     if (x == none) {
         return -1
     }
@@ -47,7 +47,7 @@ function usaLambda(x: int?) -> int {
 }
 
 print(acha([5, 6, 7], 6), acha([5, 6, 7], 9))
-print(dobra(4), dobra(none))
+print(double(4), double(none))
 let a: int? = none
 let b: int? = 10
 print(a ?? 99, b ?? 99)
@@ -64,9 +64,9 @@ print(xs)
 print(a ?? acha([1, 2], 2) ?? 0)
 print(two(2, 3), two(none, 1), usaLambda(4), usaLambda(none))
 let calls = 0
-function conta() -> int {
+function count() -> int {
     calls += 1
     return 7
 }
-print(b ?? conta(), calls)
-print(a ?? conta(), calls)
+print(b ?? count(), calls)
+print(a ?? count(), calls)

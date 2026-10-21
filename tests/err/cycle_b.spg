@@ -1,2 +1,2 @@
-import { fa } from "./ciclo_a.spg"
+import { fa } from "./cycle_a.spg"
 export function fb() -> int { return 2 }

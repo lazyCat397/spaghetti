@@ -2,8 +2,8 @@
 let say = function(s: string) -> task<void> {
     print("say: ${s}")
 }
-let t = say("oi")
-print("depois")
+let t = say("hi")
+print("after")
 t.wait()
 
 let cap = 10

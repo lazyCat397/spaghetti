@@ -1,2 +1,0 @@
-struct Ponto { x: int }
-let arr: array<Ponto> = 3

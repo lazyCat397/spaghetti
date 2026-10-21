@@ -319,17 +319,17 @@ mod tests {
 
     #[test]
     fn struct_fields_and_methods_have_owners() {
-        let t = toks("struct Ponto {\n  x: int,\n  y: int,\n  function soma(k: int) -> int { return me.x + k }\n}");
+        let t = toks("struct Point {\n  x: int,\n  y: int,\n  function sum(k: int) -> int { return me.x + k }\n}");
         let d = declarations(&t);
-        assert!(d.iter().any(|x| x.name == "x" && x.kind == Kind::Field && x.owner.as_deref() == Some("Ponto")));
-        let m = d.iter().find(|x| x.name == "soma").unwrap();
+        assert!(d.iter().any(|x| x.name == "x" && x.kind == Kind::Field && x.owner.as_deref() == Some("Point")));
+        let m = d.iter().find(|x| x.name == "sum").unwrap();
         assert_eq!(m.kind, Kind::Method);
-        assert_eq!(m.ty, "soma(k: int) -> int");
+        assert_eq!(m.ty, "sum(k: int) -> int");
     }
 
     #[test]
     fn let_type_comes_from_annotation_or_value() {
-        let t = toks("let a: int = 1\nlet f = function(x: int) -> int { return x }\nlet s = \"oi\"");
+        let t = toks("let a: int = 1\nlet f = function(x: int) -> int { return x }\nlet s = \"hi\"");
         let d = declarations(&t);
         assert_eq!(d.iter().find(|x| x.name == "a").unwrap().ty, "int");
         assert_eq!(d.iter().find(|x| x.name == "f").unwrap().ty, "function(int) -> int");
@@ -357,12 +357,12 @@ mod tests {
 
     #[test]
     fn method_call_resolves_through_the_receiver_type() {
-        let src = "struct Ponto {\n  x: int,\n  function soma(k: int) -> int { return me.x + k }\n}\nlet p = Ponto { x: 1 }\nprint(p.soma(3))";
+        let src = "struct Point {\n  x: int,\n  function sum(k: int) -> int { return me.x + k }\n}\nlet p = Point { x: 1 }\nprint(p.sum(3))";
         let t = toks(src);
         let d = declarations(&t);
         let call_at = t.iter().position(|x| x.kind == T::Int(3)).unwrap();
         let (sig, active) = method_signature(&t, &d, call_at).unwrap();
-        assert_eq!(sig.label(), "soma(k: int) -> int");
+        assert_eq!(sig.label(), "sum(k: int) -> int");
         assert_eq!(active, 0);
     }
 }

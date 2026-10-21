@@ -1,0 +1,2 @@
+struct Point { x: int }
+let arr: array<Point> = 3
