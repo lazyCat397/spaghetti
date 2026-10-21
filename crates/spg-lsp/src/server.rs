@@ -676,10 +676,16 @@ impl<W: Write> Server<W> {
             DotContext::Other => {
                 // `p.` / `a.pos.`: the fields and methods of the struct `p` was
                 // declared as (or `value` for an enum), found on the tokens
-                let (Some(chain), Some((tokens, at, decls))) = (self.receiver_chain(uri, pos), self.member_context(uri, pos)) else {
+                // a name chain (`p.`, `a.pos.`) is resolved on the names; anything else
+                // (`"text".`, `42.`, `f().`, `xs[0].`, `Point { }.`) on the tokens
+                let Some((tokens, at, decls)) = self.member_context(uri, pos) else {
                     return Vec::new();
                 };
-                return crate::members::after_dot(&tokens, at, &chain, &decls).iter().map(member_item).collect();
+                let members = match self.receiver_chain(uri, pos) {
+                    Some(chain) => crate::members::after_dot(&tokens, at, &chain, &decls),
+                    None => crate::members::after_dot_expr(&tokens, at, &decls),
+                };
+                return members.iter().map(member_item).collect();
             }
             DotContext::None => {
                 // `Point { `: the fields of the literal that aren't written yet
@@ -1608,10 +1614,20 @@ mod tests {
     }
 
     #[test]
+    fn dot_after_a_literal_or_a_call_offers_its_type_members() {
+        // `"abc".` is a string, `f().` is what f returns: the same members as a variable of that type
+        let lit = labels_of(&complete_at("compl_lit", "let a = \"abc\".\n", 0, 14));
+        assert!(lit.iter().any(|l| l == "trim") && lit.iter().any(|l| l == "padStart"), "{:?}", lit);
+        let call = labels_of(&complete_at("compl_call", "function f() -> string { return \"x\" }\nlet a = f().\n", 1, 12));
+        assert!(call.iter().any(|l| l == "trim"), "{:?}", call);
+    }
+
+    #[test]
     fn dot_after_anything_else_offers_nothing() {
-        // struct field access, float literal, and a dot inside a string must not
-        // dump the global list now that `.` is a trigger character
-        for (n, text, col) in [("a", "let a = p.\n", 10), ("b", "let a = p.xy\n", 12), ("c", "let a = 1.\n", 10), ("d", "print(\"hi.\")\n", 10), ("e", "let a = f(x).\n", 14),
+        // struct field access, a call with no known result, and a dot inside a string must not
+        // dump the global list now that `.` is a trigger character. (`1.`, `"a".`, `f().` offer
+        // their type's members now, see members.rs)
+        for (n, text, col) in [("a", "let a = p.\n", 10), ("b", "let a = p.xy\n", 12), ("d", "print(\"hi.\")\n", 10), ("e", "let a = f(x).\n", 14),
                                // a struct field named like a namespace is a field, and so is a plain
                                // variable: only the `@` spelling is a namespace
                                ("f", "let a = p.time.\n", 15), ("g", "let a = q.r.math.\n", 17), ("h", "let a = math.\n", 13)] {

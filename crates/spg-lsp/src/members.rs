@@ -654,6 +654,182 @@ pub fn after_dot(tokens: &[Token], at: usize, chain: &[String], decls: &Decls) -
     }
 }
 
+/// the members after a `.` whose receiver is not a plain name chain: a literal (`"abc".`,
+/// `42.`, `[1, 2].`), a call (`f().`, `s.trim().`), an index (`xs[0].`) or a struct
+/// literal (`Point { x: 1 }.`). `at` is the number of tokens before the word being typed,
+/// so the dot is the token just before it
+pub fn after_dot_expr(tokens: &[Token], at: usize, decls: &Decls) -> Vec<Member> {
+    let Some(dot) = at.checked_sub(1) else { return Vec::new() };
+    if kind(tokens, dot) != Some(&T::Dot) {
+        return Vec::new();
+    }
+    let Some(end) = dot.checked_sub(1) else { return Vec::new() };
+    let depth = depths(tokens);
+    match expr_type(tokens, &depth, at, end, decls) {
+        Some(t) => members_of(&t, decls),
+        None => Vec::new(),
+    }
+}
+
+/// the type of the expression whose LAST token is `end`. literals, calls, indexes and
+/// struct literals; plain names and field chains go through `resolve_head` and the
+/// struct tables. `None` when the type can't be told from what is written
+fn expr_type(tokens: &[Token], depth: &[i32], at: usize, end: usize, decls: &Decls) -> Option<String> {
+    match &tokens.get(end)?.kind {
+        T::Str(_) => Some("string".to_string()),
+        T::Int(_) => Some("int".to_string()),
+        T::Float(_) => Some("float".to_string()),
+        T::Bool(_) => Some("bool".to_string()),
+        T::Ident(name) => {
+            if end >= 2 && kind(tokens, end - 1) == Some(&T::Dot) {
+                // a field of a struct: `l.tag`, `a.pos.x`
+                let base = expr_type(tokens, depth, at, end - 2, decls)?;
+                decls.structs.get(&base)?.fields.iter().find(|(n, _)| n == name).map(|(_, t)| t.clone())
+            } else {
+                resolve_head(tokens, depth, at, name, decls)
+            }
+        }
+        T::RBracket => {
+            let open = matching_open(tokens, end)?;
+            let indexed = open.checked_sub(1).and_then(|k| kind(tokens, k)).is_some_and(|k| matches!(k, T::Ident(_) | T::RParen | T::RBracket));
+            if indexed {
+                // `xs[0]`: the element of an array, the value of a map
+                let base = expr_type(tokens, depth, at, open - 1, decls)?;
+                let (name, args) = type_args(&base)?;
+                match name.as_str() {
+                    "array" => args.into_iter().next(),
+                    "map" => args.into_iter().nth(1),
+                    _ => None,
+                }
+            } else if bracket_is_map(tokens, open) {
+                // a literal: `[1, 2]` or `["a": 1]`
+                Some("map".to_string())
+            } else {
+                Some("array".to_string())
+            }
+        }
+        T::RParen => {
+            let open = matching_open(tokens, end)?;
+            let callee = match kind(tokens, open.checked_sub(1)?)? {
+                T::Ident(f) => f.clone(),
+                _ => return None,
+            };
+            match open.checked_sub(2).filter(|&d| kind(tokens, d) == Some(&T::Dot)) {
+                // `f(...)`: a function declared in this file or its imports
+                None => decls.functions.get(&callee).filter(|r| !r.is_empty()).cloned(),
+                // `recv.f(...)`
+                Some(dot) => {
+                    let recv_end = dot.checked_sub(1)?;
+                    // `@str.trim(s)`: a builtin of a namespace
+                    if let Some(T::Namespace(ns)) = kind(tokens, recv_end) {
+                        return builtin_return(ns, &callee);
+                    }
+                    // `Point.origin()`: an associated function, called on the type name
+                    if let Some(T::Ident(t)) = kind(tokens, recv_end) {
+                        if let Some((_, _, sig)) = decls.associated.iter().find(|(ty, n, _)| ty == t && *n == callee) {
+                            return sig_return(sig);
+                        }
+                    }
+                    // `s.trim()`, `xs.pop()`, `p.len2()`: a method of the receiver's type
+                    let recv = expr_type(tokens, depth, at, recv_end, decls)?;
+                    if let Some(ns) = native_namespace(&recv) {
+                        let args = type_args(&recv).map(|(_, a)| a).unwrap_or_default();
+                        return match (ns, callee.as_str()) {
+                            ("task", "wait") | ("array", "pop") => args.into_iter().next(),
+                            _ => builtin_return(ns, &callee),
+                        };
+                    }
+                    match recv.as_str() {
+                        "int" | "float" | "bool" => {
+                            let t = match recv.as_str() {
+                                "int" => spg_typecheck::typed_ast::Ty::Int,
+                                "float" => spg_typecheck::typed_ast::Ty::Float,
+                                _ => spg_typecheck::typed_ast::Ty::Bool,
+                            };
+                            spg_typecheck::builtins::methods_of(&t)
+                                .into_iter()
+                                .find(|(name, _, _)| *name == callee)
+                                .map(|(_, _, ret)| ret.to_string())
+                                .filter(|r| r != "void" && r != "any")
+                        }
+                        _ => decls.structs.get(&recv)?.methods.iter().find(|(n, _)| *n == callee).and_then(|(_, sig)| sig_return(sig)),
+                    }
+                }
+            }
+        }
+        T::RBrace => {
+            // `Point { x: 1 }`: the struct it builds
+            let open = matching_open(tokens, end)?;
+            match kind(tokens, open.checked_sub(1)?) {
+                Some(T::Ident(n)) if decls.structs.contains_key(n) => Some(n.clone()),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// index of the `(`, `[` or `{` that opens the group closed at token `close`
+fn matching_open(tokens: &[Token], close: usize) -> Option<usize> {
+    let (open_k, close_k) = match &tokens.get(close)?.kind {
+        T::RParen => (T::LParen, T::RParen),
+        T::RBracket => (T::LBracket, T::RBracket),
+        T::RBrace => (T::LBrace, T::RBrace),
+        _ => return None,
+    };
+    let mut nest = 0;
+    for j in (0..=close).rev() {
+        if tokens[j].kind == close_k {
+            nest += 1;
+        } else if tokens[j].kind == open_k {
+            nest -= 1;
+            if nest == 0 {
+                return Some(j);
+            }
+        }
+    }
+    None
+}
+
+/// the return type written after `->` in a signature (`() -> int`). `None` for void
+fn sig_return(sig: &str) -> Option<String> {
+    let ret = sig.rsplit_once(" -> ")?.1.trim();
+    if ret.is_empty() || ret == "void" {
+        None
+    } else {
+        Some(ret.to_string())
+    }
+}
+
+/// splits a generic type text into its name and arguments: `map<string, int>` gives
+/// (`map`, [`string`, `int`])
+fn type_args(ty: &str) -> Option<(String, Vec<String>)> {
+    let lt = ty.find('<')?;
+    if !ty.ends_with('>') {
+        return None;
+    }
+    let base = ty[..lt].to_string();
+    let inner = &ty[lt + 1..ty.len() - 1];
+    let mut args = Vec::new();
+    let mut cur = String::new();
+    let mut nest = 0;
+    for c in inner.chars() {
+        match c {
+            '<' => nest += 1,
+            '>' => nest -= 1,
+            _ => {}
+        }
+        if c == ',' && nest == 0 {
+            args.push(cur.trim().to_string());
+            cur.clear();
+        } else {
+            cur.push(c);
+        }
+    }
+    args.push(cur.trim().to_string());
+    Some((base, args))
+}
+
 /// inside `Name { `: the fields of the struct literal being written that are
 /// not there yet, offered as `field: `. `None` when the cursor isn't at a
 /// field-name position of a struct literal.
@@ -875,6 +1051,70 @@ mod tests {
         let src = format!("{}let p = Line {{ a: origin(), b: origin(), tag: [] }}\nfunction f() {{\n    let p = origin()\n    p.\n}}\n", SRC);
         let (t, at, d) = setup(&src, 12, 6);
         assert_eq!(names(&after_dot(&t, at, &["p".into()], &d)), ["x", "y", "len2", "shift", "string"]);
+    }
+
+    /// tokens of `text`, with the position right after its last `.`
+    fn dot_at_end(text: &str) -> (Vec<Token>, usize, Decls) {
+        let tokens = spg_lexer::Lexer::new(text).tokenize().unwrap();
+        let at = tokens.iter().rposition(|t| t.kind == T::Dot).unwrap() + 1;
+        let decls = Decls::from_tokens(&tokens);
+        (tokens, at, decls)
+    }
+
+    #[test]
+    fn string_literals_offer_the_string_methods() {
+        let (t, at, d) = dot_at_end("let s = \"abc\".");
+        let got = names(&after_dot_expr(&t, at, &d));
+        assert!(got.iter().any(|n| n == "trim") && got.iter().any(|n| n == "padStart"), "{:?}", got);
+        assert!(!got.iter().any(|n| n == "push"));
+        let (t, at, d) = dot_at_end("let s = 'raw'.");
+        assert!(names(&after_dot_expr(&t, at, &d)).iter().any(|n| n == "trim"));
+    }
+
+    #[test]
+    fn number_and_literal_collections_offer_their_members() {
+        let (t, at, d) = dot_at_end("let n = 42.");
+        assert!(names(&after_dot_expr(&t, at, &d)).iter().any(|n| n == "abs"), "an int literal offers @math");
+        let (t, at, d) = dot_at_end("let xs = [1, 2].");
+        assert!(names(&after_dot_expr(&t, at, &d)).iter().any(|n| n == "push"));
+        let (t, at, d) = dot_at_end("let m = [\"a\": 1].");
+        assert_eq!(names(&after_dot_expr(&t, at, &d)), ["get", "has", "keys", "keysOf", "len", "remove", "values", "string"]);
+    }
+
+    #[test]
+    fn a_range_is_not_a_member_access() {
+        // `1..` is the start of a range, not `1.` followed by a member
+        let tokens = spg_lexer::Lexer::new("for i in 1..").tokenize().unwrap();
+        let at = tokens.len();
+        let decls = Decls::from_tokens(&tokens);
+        assert!(after_dot_expr(&tokens, at, &decls).is_empty());
+    }
+
+    #[test]
+    fn calls_and_struct_literals_offer_the_result_members() {
+        // a user function, a builtin's result, a method's result, a struct literal
+        let src = format!("{}let q = origin().", SRC);
+        let (t, at, d) = dot_at_end(&src);
+        assert_eq!(names(&after_dot_expr(&t, at, &d)), ["x", "y", "len2", "shift", "string"]);
+        let (t, at, d) = dot_at_end("let s = \"  a \".trim().");
+        assert!(names(&after_dot_expr(&t, at, &d)).iter().any(|n| n == "padStart"), "trim gives a string");
+        let src = format!("{}let k = Point {{ x: 1, y: 2 }}.", SRC);
+        let (t, at, d) = dot_at_end(&src);
+        assert_eq!(names(&after_dot_expr(&t, at, &d)), ["x", "y", "len2", "shift", "string"]);
+        let src = format!("{}let p = origin()\nlet l = p.len2().", SRC);
+        let (t, at, d) = dot_at_end(&src);
+        assert!(names(&after_dot_expr(&t, at, &d)).iter().any(|n| n == "abs"), "len2 gives an int");
+    }
+
+    #[test]
+    fn indexes_follow_the_element_type_of_arrays_maps_and_fields() {
+        let src = format!("{}let l = Line {{ a: origin(), b: origin(), tag: [\"x\"] }}\nl.tag[0].", SRC);
+        let (t, at, d) = dot_at_end(&src);
+        assert!(names(&after_dot_expr(&t, at, &d)).iter().any(|n| n == "trim"), "array<string>[0] is a string");
+        let (t, at, d) = dot_at_end("let xs: array<int> = [1]\nlet v = xs[0].");
+        assert!(names(&after_dot_expr(&t, at, &d)).iter().any(|n| n == "abs"), "array<int>[0] is an int");
+        let (t, at, d) = dot_at_end("let m: map<string, float> = [:]\nlet v = m[\"k\"].");
+        assert!(names(&after_dot_expr(&t, at, &d)).iter().any(|n| n == "abs"), "map<string, float>[k] is a float");
     }
 
     #[test]
