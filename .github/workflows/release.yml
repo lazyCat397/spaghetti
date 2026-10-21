@@ -20,6 +20,13 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # the tag is the version: a `v1.1.0` tag built from a Cargo.toml that says 1.0.0 would ship the wrong binary
+      - name: Cargo.toml version matches the tag
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          grep -qE "^version = \"$TAG\"$" Cargo.toml || { echo "Cargo.toml version is not $TAG"; exit 1; }
+
       - name: Rust tests
         run: cargo test --workspace
 
@@ -29,7 +36,7 @@ jobs:
 
       - name: Multi-file suite - default, native code on
         shell: bash
-        run: bash examples/multi/run.sh
+        run: bash tests/run.sh
 
       # same suite with the VM only: the fallback must stay correct too
       - name: Multi-file suite (--no-jit)
@@ -46,7 +53,7 @@ jobs:
           esac
           EOF
           chmod +x "$WRAP"
-          SPG="$WRAP" bash examples/multi/run.sh
+          SPG="$WRAP" bash tests/run.sh
 
   # the .vsix is generated here, not committed to the repository
   vsix:
@@ -65,7 +72,7 @@ jobs:
 
       - name: Package the extension
         working-directory: editors/vscode
-        run: npx --yes @vscode/vsce package --allow-missing-repository --skip-license -o "$RUNNER_TEMP/spaghetti.vsix"
+        run: npx --yes @vscode/vsce@3.9.2 package --allow-missing-repository --skip-license -o "$RUNNER_TEMP/spaghetti.vsix"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -129,7 +136,14 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
+    # the only job that writes: the GITHUB_TOKEN may create the release in this repository
+    permissions:
+      contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the notes list the commits since the previous tag
+
       - uses: actions/download-artifact@v4
         with:
           path: assets
@@ -137,11 +151,14 @@ jobs:
 
       - name: Publish release to the public repository
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          REPO=lazyCat397/spaghetti-releases
-          NOTES="Spaghetti $TAG. Download the installer for Windows or the package for Linux."
+          REPO="${{ github.repository }}"
+          # the commits since the previous v* tag, one line each
+          PREV="$(git tag --list 'v*' --sort=-v:refname | grep -vx "$TAG" | head -1)"
+          if [ -n "$PREV" ]; then RANGE="$PREV..$TAG"; else RANGE="$TAG"; fi
+          NOTES="$(printf '## Changes since %s\n\n%s\n' "${PREV:-the first release}" "$(git log --no-merges --pretty='- %s' "$RANGE")")"
           # a re-run (or a re-publish of the same tag) must not fail on "release already exists":
           # replace the assets and the notes of the existing release instead
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then

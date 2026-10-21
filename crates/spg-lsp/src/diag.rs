@@ -17,14 +17,21 @@ pub struct Diag {
 /// win over disk) and returns everything wrong with it. resolve stops at
 /// its first error. the typechecker reports all of its errors. show-off.
 pub fn analyze(entry: &Path, overlay: &HashMap<PathBuf, String>) -> Vec<Diag> {
+    let entry_canon = spg_modules::canon(entry).unwrap_or_else(|_| entry.to_path_buf());
     let program = match spg_modules::resolve_with(entry, overlay) {
         Ok(p) => p,
         Err(e) => {
             let l = e.locate();
+            // a `#>` line still being typed (`#>`, `#> st`) is not an error yet:
+            // the error would be on that very line, and it goes away once the name is whole
+            if locate_file(Some(&l.file.to_string_lossy()), &entry_canon) == entry_canon
+                && typing_directive_at(&entry_canon, overlay, l.line)
+            {
+                return Vec::new();
+            }
             return vec![Diag { file: l.file, line: l.line, col: l.col, message: l.message }];
         }
     };
-    let entry_canon = spg_modules::canon(entry).unwrap_or_else(|_| entry.to_path_buf());
     // `#> strict` in the header of the file being edited (the open buffer wins
     // over the disk, so the squiggles follow what you type)
     let strict = entry_spec(&entry_canon, overlay).strict;
@@ -51,6 +58,24 @@ pub fn analyze(entry: &Path, overlay: &HashMap<PathBuf, String>) -> Vec<Diag> {
             }],
         },
     }
+}
+
+/// true when line `line` (1-based) of `entry` is a `#>` with a name still being
+/// written: empty (`#>`) or a prefix of a directive that isn't complete yet
+/// (`#> st` for `strict`). a whole wrong name (`#> strikt`) is not, and stays an error
+fn typing_directive_at(entry: &Path, overlay: &HashMap<PathBuf, String>, line: usize) -> bool {
+    let src = overlay.get(entry).cloned().or_else(|| std::fs::read_to_string(entry).ok());
+    let Some(text) = src else { return false };
+    let Some(l) = line.checked_sub(1).and_then(|i| text.lines().nth(i)) else { return false };
+    let Some(rest) = l.trim_start().strip_prefix("#>") else { return false };
+    let name = rest.trim();
+    if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return false;
+    }
+    if spg_lexer::DIRECTIVES.contains(&name) {
+        return false;
+    }
+    spg_lexer::DIRECTIVES.iter().any(|d| d.starts_with(name))
 }
 
 /// the `#>` header of `entry` (empty when it can't be read or is broken. the
@@ -149,5 +174,31 @@ mod tests {
     fn range_past_end_is_empty_not_a_panic() {
         assert_eq!(utf16_range("abc", 99), (3, 3));
         assert_eq!(utf16_range("", 1), (0, 0));
+    }
+}
+
+#[cfg(test)]
+mod typing_directive_tests {
+    use super::*;
+
+    fn run(name: &str, text: &str) -> Vec<Diag> {
+        let dir = std::env::temp_dir().join(format!("spg_diag_{}", name));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("main.spg");
+        std::fs::write(&path, text).unwrap();
+        let mut overlay = HashMap::new();
+        overlay.insert(spg_modules::canon(&path).unwrap(), text.to_string());
+        analyze(&path, &overlay)
+    }
+
+    #[test]
+    fn directive_being_typed_is_not_an_error_but_a_wrong_name_is() {
+        // `#>` and a prefix of `strict` are still being written: no squiggle yet
+        assert!(run("typing_empty", "#>\nprint(1)\n").is_empty());
+        assert!(run("typing_prefix", "#> st\nprint(1)\n").is_empty());
+        // a whole wrong name is an error, as before
+        assert!(!run("wrong_name", "#> strikt\nprint(1)\n").is_empty());
+        // a complete directive without its argument is an error too
+        assert!(!run("timeout_bare", "#> timeout\nprint(1)\n").is_empty());
     }
 }

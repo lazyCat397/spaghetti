@@ -1,6 +1,7 @@
 [package]
 name = "spg-libs"
 version.workspace = true
+license.workspace = true
 edition.workspace = true
 
 # the libraries that ship with the engine but are NOT part of the language (ps, http, ...).

@@ -66,4 +66,4 @@ Ok(LibValue::record("Point", vec![("x", LibValue::Int(1)), ("y", LibValue::Int(2
 - **Pick a name that is free.** Not one of the engine's own: `str`, `array`, `map`, `into`, `math`, `sys`, `task`.
 - **A library only sees plain values.** It can't touch the VM. The one thing a library can't do alone is give the baton away to other tasks (`@time.sleep`), so the VM runs that call itself and `time.rs` only declares it. Keep new libraries to plain work.
 - **Each call copies its values.** Fine for IO, files, JSON, the web. Don't build hot numeric loops on top of a library: those builtins (`@math`, strings, arrays) stay in the engine, where the JIT knows them.
-- **Test it:** `cargo test -p spg-libs` checks that every function has a valid signature and a doc. Add a small script to `examples/multi/ok/` and an entry in `examples/multi/run.sh` like the other libraries have, then run `bash examples/multi/run.sh`.
+- **Test it:** `cargo test -p spg-libs` checks that every function has a valid signature and a doc. Add a small script to `tests/ok/` and an entry in `tests/run.sh` like the other libraries have, then run `bash tests/run.sh`.

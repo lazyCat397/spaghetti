@@ -1,0 +1,14 @@
+// an enum is a closed list of named options
+enum Light { Red, Yellow, Green }
+
+function next(l: Light) -> Light {
+    if (l == Light.Red) { return Light.Green }
+    elif (l == Light.Green) { return Light.Yellow }
+    else { return Light.Red }
+}
+
+let now = Light.Red
+for step in 0..3 {
+    print(step, now)
+    now = next(now)
+}

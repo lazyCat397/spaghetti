@@ -15,7 +15,7 @@ pub static MODULE: NativeModule = NativeModule {
     structs: &[],
     functions: &[
         NativeFn { name: "now", sig: "() -> string", doc: "the current date and time as text", call: now },
-        NativeFn { name: "unix", sig: "() -> int", doc: "seconds since 1970, as an int", call: unix },
+        NativeFn { name: "unix", sig: "() -> int", doc: "milliseconds since 1970 (the Unix epoch), as an int", call: unix },
         NativeFn { name: "elapsed", sig: "() -> string", doc: "time since the program started, as text", call: elapsed },
         NativeFn { name: "sleep", sig: "(int) -> void", doc: "pause for n milliseconds. other tasks keep running meanwhile", call: sleep },
     ],

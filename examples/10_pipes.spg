@@ -1,0 +1,8 @@
+// |> sends the left value into the next function as its first argument
+function double(x: int) -> int { return x * 2 }
+function add(a: int, b: int) -> int { return a + b }
+
+let start = 3
+print(start |> double())                // 6
+print(start |> double() |> add(1))      // 7
+print(start then double() then add(100)) // 106

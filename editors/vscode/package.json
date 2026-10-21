@@ -4,7 +4,7 @@
   "description": "Spaghetti (.spg) language support: syntax highlighting, live errors, completion, formatting, snippets and a Run button.",
   "version": "1.0.0",
   "publisher": "spaghetti",
-  "license": "UNLICENSED",
+  "license": "MIT OR Apache-2.0",
   "private": true,
   "engines": {
     "vscode": "^1.75.0"

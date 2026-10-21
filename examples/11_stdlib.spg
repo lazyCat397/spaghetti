@@ -1,0 +1,10 @@
+// text has methods: write the value, then a dot and the method
+let word = "spaghetti"
+print(word.toUpper())
+print(word.len())
+print(word.contains("ghet"))
+
+// @math holds number helpers
+print(@math.sqrt(16.0))
+print(@math.max(3, 9))
+print(@math.abs(-4))

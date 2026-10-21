@@ -1,0 +1,26 @@
+// if chooses one branch; elif adds more cases
+let score = 72
+if (score >= 90) {
+    print("A")
+} elif (score >= 70) {
+    print("C")
+} else {
+    print("F")
+}
+
+// while repeats while the condition is true
+let n = 3
+while (n > 0) {
+    print("countdown", n)
+    n -= 1
+}
+
+// for walks over a range: 1..4 stops BEFORE 4
+for i in 1..4 {
+    if (i == 2) { continue }   // skip 2
+    print("step", i)
+}
+
+// if can also be an expression that gives a value
+let label = if (score > 50) { "pass" } else { "fail" }
+print(label)

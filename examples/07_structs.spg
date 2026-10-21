@@ -1,0 +1,21 @@
+// a struct groups named fields into one value
+struct Point {
+    x: int,
+    y: int
+}
+
+// a function inside a struct is called with a dot: p.move(...)
+struct Counter {
+    n: int
+
+    function add(by: int) -> Counter {
+        me.n += by
+        return me
+    }
+}
+
+let p = Point { x: 3, y: 4 }
+print("point:", p.x, p.y)
+let c = Counter { n: 0 }
+c.add(5).add(10)
+print("counter:", c.n)

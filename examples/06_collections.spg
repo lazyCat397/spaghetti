@@ -1,0 +1,12 @@
+// an array holds values in order
+let fruits: array<string> = ["apple", "pear"]
+fruits.push("plum")
+print(@array.len(fruits), fruits[0])
+
+// a map links keys to values
+let stock: map<string, int> = ["apple": 4, "pear": 9]
+stock["apple"] += 1
+print(stock["apple"])
+for k in @map.keys(stock) {
+    print(k, stock[k])
+}

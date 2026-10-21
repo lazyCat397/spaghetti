@@ -1,0 +1,14 @@
+// throw stops the code and sends a message up
+function divide(a: int, b: int) -> int {
+    if (b == 0) { throw "cannot divide by zero" }
+    return a / b
+}
+
+// try runs code that may fail; catch receives the message
+try {
+    print(divide(10, 2))
+    print(divide(1, 0))
+    print("this line never runs")
+} catch (e) {
+    print("error:", e)
+}

@@ -33,7 +33,7 @@ pub static MODULE: NativeModule = NativeModule {
         NativeFn { name: "join", sig: "(string, string) -> string", doc: "join path parts with the right separator", call: join },
         NativeFn { name: "deleteAll", sig: "(string) -> void", doc: "delete a folder and everything inside it", call: delete_all },
         NativeFn { name: "size", sig: "(string) -> int", doc: "size of a file in bytes", call: size },
-        NativeFn { name: "modified", sig: "(string) -> int", doc: "last modification time, as seconds since 1970", call: modified },
+        NativeFn { name: "modified", sig: "(string) -> int", doc: "last modification time, as milliseconds since 1970", call: modified },
         NativeFn { name: "modifiedDate", sig: "(string) -> string", doc: "last modification time, as text", call: modified_date },
         NativeFn { name: "readBytes", sig: "(string) -> array<int>", doc: "the bytes of a file, as an array of ints", call: read_bytes },
         NativeFn { name: "writeBytes", sig: "(string, array<int>) -> void", doc: "replace the file's content with the bytes", call: write_bytes },

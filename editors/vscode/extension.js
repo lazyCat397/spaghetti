@@ -370,8 +370,17 @@ async function activate(ctx) {
     }),
 
     vscode.languages.registerCompletionItemProvider(LANG, {
-      async provideCompletionItems(doc, position) {
+      async provideCompletionItems(doc, position, _token, context) {
         if (!client || !client.alive) return undefined;
+        // '#' opens the list only right after `install #` (the libraries); anywhere else
+        // (a comment, a string, a `#>` directive) it stays quiet
+        // '#' opens the libraries only right after `install #`; '>' opens the directives only
+        // when the line is just `#>`. anywhere else (a comment, a string, `a > b`) they stay quiet
+        if (context && (context.triggerCharacter === '#' || context.triggerCharacter === '>')) {
+          const before = doc.lineAt(position.line).text.slice(0, position.character);
+          const ok = context.triggerCharacter === '#' ? /^\s*install\s+#$/.test(before) : /^\s*#>$/.test(before);
+          if (!ok) return undefined;
+        }
         flush(doc);
         try {
           const res = await client.request('textDocument/completion', {
@@ -384,7 +393,7 @@ async function activate(ctx) {
           return undefined;
         }
       },
-    }, '.', '@'), // '.' opens the member list as soon as it is typed; '@' opens the namespace list
+    }, '.', '@', '#', '>'), // '.' opens the member list as soon as it is typed; '@' opens the namespace list; '#' and '>' open the libraries (after `install #`) and the directives (after `#>`)
 
     // `Format Document` and format on save: the server answers with one edit that replaces
     // the whole file, or with none when the file is already formatted or cannot be formatted

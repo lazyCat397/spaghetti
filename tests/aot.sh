@@ -1,9 +1,9 @@
 #!/bin/bash
-# AOT check: every program in examples/multi that `spg build` accepts must print the
+# AOT check: every program in tests/ that `spg build` accepts must print the
 # same output and exit code as `spg run`. Programs that do not compile are refused by
-# both (checked separately). Usage: bash examples/multi/aot.sh
+# both (checked separately). Usage: bash tests/aot.sh
 cd "$(dirname "$0")"
-SPG=$(realpath "${SPG:-../../target/release/spg}")
+SPG=$(realpath "${SPG:-../target/release/spg}")
 diff=0; built=0
 for f in $(find . -name '*.spg' | sort); do
     dir=$(dirname "$f"); base=$(basename "$f")

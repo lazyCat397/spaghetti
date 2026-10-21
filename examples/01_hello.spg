@@ -1,0 +1,2 @@
+// the first program: print shows text on the screen
+print("Hello, Spaghetti!")

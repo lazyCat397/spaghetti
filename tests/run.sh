@@ -5,16 +5,16 @@ tick() { printf '\r[progress] %d passed out of %d, %d failed' "$pass" "$TOTAL" "
 say()  { printf '\r\033[K%s\n' "$*"; }
 # Multi-file regression. Checks the EXACT OUTPUT (not just the exit code):
 # a renaming bug usually gives a wrong result without crashing.
-# Usage (from spaghetti-skeleton/): bash examples/multi/run.sh
+# Usage (from the repository root): bash tests/run.sh
 cd "$(dirname "$0")"
-SPG=${SPG:-../../target/release/spg}
+SPG=${SPG:-../target/release/spg}
 # [progress] precisa do total (Y), contado SEM executar nada: as chamadas diretas
 # (ok/err/exact1/lines/diag/exit124/check), o loop same/ (um por arquivo) e as checagens avulsas.
 count_tests() {
     local n loopn avul f
     n=$(grep -cE '^(ok|err|exact1|lines|diag|exit124|check) ' run.sh)
     loopn=0
-    for f in ok/*.spg ../*.spg; do
+    for f in ok/*.spg lang/*.spg ../examples/*.spg; do
         case "$f" in *time_test*|*sleep*|*ps_missing*) continue;; esac
         loopn=$((loopn+1))
     done
@@ -404,7 +404,7 @@ err file_bytes_type.spg   "'@file.writeBytes' argument #2 expects array<int>, go
 
 # the optimizer must never change behaviour: every program in the project
 # has to print the same thing (and exit the same way) with and without it
-for f in ok/*.spg ../*.spg; do
+for f in ok/*.spg lang/*.spg ../examples/*.spg; do
     # environment-dependent programs: their output depends on the machine (time, PowerShell on the PATH),
     # not on the optimizer. ps_missing is checked on its own below, with PATH controlled.
     case "$f" in *time_test*|*sleep*|*ps_missing*) continue;; esac
