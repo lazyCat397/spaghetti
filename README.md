@@ -1,6 +1,6 @@
 # Spaghetti
 
-A small statically typed language with its own minimally optimized bytecode VM, written in Rust.
+A small statically typed language with its own bytecode VM, written in Rust.
 Files use the `.spg` extension.
 
 ## Layout
