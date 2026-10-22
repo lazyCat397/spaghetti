@@ -479,7 +479,7 @@ pub(crate) fn stringify(v: &LibValue, pretty: bool) -> Result<String, String> {
 
 // ------------------------------------------------------------------ paths (ugh) --
 
-fn split_path(path: &str) -> Result<Vec<String>, String> {
+pub(crate) fn split_path(path: &str) -> Result<Vec<String>, String> {
     if path.is_empty() {
         return Ok(Vec::new());
     }
@@ -514,7 +514,7 @@ fn describe(walked: &[String], j: &Json) -> String {
     }
 }
 
-fn lookup<'a>(root: &'a Json, segs: &[String]) -> Result<&'a Json, String> {
+pub(crate) fn lookup<'a>(root: &'a Json, segs: &[String]) -> Result<&'a Json, String> {
     let mut cur = root;
     for (i, seg) in segs.iter().enumerate() {
         let walked = &segs[..i];

@@ -147,6 +147,10 @@ fn run_cmd(args: &[String], execute: bool) -> i32 {
         .ok()
         .and_then(|src| spg_lexer::read_file_spec(&src).ok())
         .unwrap_or_default();
+    // `#> no-jit` in the file: the VM only, same as --no-jit
+    if spec.no_jit {
+        jit = false;
+    }
     let friendly = spec.friendly_terminal;
     let strict = spec.strict;
 
@@ -195,6 +199,13 @@ fn execute_program(bytecode: &Program, spec: &spg_lexer::FileSpec, program_args:
     spg_vm::set_program_args(program_args);
     spg_vm::set_strict(strict);
     spg_vm::set_safe_party(spec.safe_party);
+    // these must be set before the native code is generated below: spg-jit reads the depth limit
+    if let Some(limit) = spec.stack_limit {
+        spg_vm::set_call_depth_limit(limit);
+    }
+    if let Some(seed) = spec.seed {
+        spg_vm::seed_random(seed);
+    }
     if let Some(ms) = spec.timeout_ms {
         start_watchdog(ms, friendly);
     }
@@ -233,10 +244,14 @@ fn execute_program(bytecode: &Program, spec: &spg_lexer::FileSpec, program_args:
         eprintln!("warning: a task failed and nobody called .wait() on it: {}", e);
         print_trace(trace);
     }
+    // the checks of `install #test`: listed with their place, and any failure makes the run fail
+    let tests = spg_vm::take_test_report();
+    print_test_report(&tests);
+    let tests_failed = !tests.failures.is_empty();
     if let Err(e) = result {
         // `@sys.exit(code)` is the program picking its exit code, not a failure
         if let spg_vm::RuntimeError::Exit { code } = e {
-            return code;
+            return if code == 0 && tests_failed { 1 } else { code };
         }
         if friendly {
             eprintln!("error: {}", e.friendly());
@@ -254,7 +269,25 @@ fn execute_program(bytecode: &Program, spec: &spg_lexer::FileSpec, program_args:
             elapsed.as_micros()
         );
     }
+    if tests_failed {
+        return 1;
+    }
     0
+}
+
+/// every failed `test.expect`, with its file and line, then the count
+fn print_test_report(report: &spg_vm::TestReport) {
+    if report.passed == 0 && report.failures.is_empty() {
+        return;
+    }
+    for f in &report.failures {
+        let place = match &f.file {
+            Some(file) => format!("{}:{}", file, f.line),
+            None => format!("line {}", f.line),
+        };
+        println!("FAIL {}: {}", place, f.message);
+    }
+    println!("test: {} passed, {} failed", report.passed, report.failures.len());
 }
 
 

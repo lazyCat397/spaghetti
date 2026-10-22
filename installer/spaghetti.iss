@@ -35,6 +35,10 @@ Source: "payload\spg.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "payload\spaghetti.vsix"; DestDir: "{app}"; Flags: ignoreversion
 Source: "payload\stdlib\*"; DestDir: "{app}\stdlib"; Flags: ignoreversion recursesubdirs
 
+[InstallDelete]
+; the stdlib folder is ours: clear it so libraries removed in a newer version (fork.spg) don't stay behind
+Type: filesandordirs; Name: "{app}\stdlib"
+
 [Icons]
 Name: "{group}\Spaghetti (terminal)"; Filename: "{cmd}"; Parameters: "/k spg --help"
 Name: "{autodesktop}\Spaghetti"; Filename: "{cmd}"; Parameters: "/k spg --help"; Tasks: desktopicon

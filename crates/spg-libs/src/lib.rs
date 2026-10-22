@@ -10,11 +10,21 @@
 //! this crate depends on no other spg crate, so a library only sees plain Rust values
 //! (`LibValue`); the VM converts to and from its own values at the boundary.
 
+mod chars;
+mod crypto;
+mod csvtext;
 mod file;
 mod http;
 mod json;
+mod json5lib;
+mod cmd;
 mod ps;
+mod regexp;
+mod socket;
+mod sqlite;
+mod testing;
 mod time;
+mod tomlcfg;
 mod util;
 
 /// a value crossing the boundary between the VM and a library
@@ -52,6 +62,8 @@ impl LibValue {
 pub struct CallCtx<'a> {
     /// the script file that made the call (relative paths are relative to its folder)
     pub caller_file: Option<&'a str>,
+    /// the line of the call in that file (0 when unknown)
+    pub caller_line: u32,
 }
 
 /// a failure to do the job. becomes a runtime error, which the program can `catch`.
@@ -110,7 +122,23 @@ pub struct NativeModule {
 }
 
 /// every native library. adding one = one line here.
-pub static MODULES: [&NativeModule; 5] = [&ps::MODULE, &http::MODULE, &file::MODULE, &json::MODULE, &time::MODULE];
+pub static MODULES: [&NativeModule; 15] = [
+    &ps::MODULE,
+    &http::MODULE,
+    &file::MODULE,
+    &json::MODULE,
+    &time::MODULE,
+    &regexp::MODULE,
+    &chars::MODULE,
+    &crypto::MODULE,
+    &csvtext::MODULE,
+    &testing::MODULE,
+    &tomlcfg::MODULE,
+    &sqlite::MODULE,
+    &socket::MODULE,
+    &cmd::MODULE,
+    &json5lib::MODULE,
+];
 
 pub fn modules() -> &'static [&'static NativeModule] {
     &MODULES
@@ -154,3 +182,6 @@ pub use ps::set_safe_party;
 
 /// `Vm::new` calls this so `@time.elapsed` counts from when the program started
 pub use time::mark_program_start;
+
+/// `install #test`: the checks of the running program, for the CLI to report at the end
+pub use testing::{take_report as take_test_report, TestFailure, TestReport};

@@ -378,7 +378,7 @@ async function activate(ctx) {
         // when the line is just `#>`. anywhere else (a comment, a string, `a > b`) they stay quiet
         if (context && (context.triggerCharacter === '#' || context.triggerCharacter === '>')) {
           const before = doc.lineAt(position.line).text.slice(0, position.character);
-          const ok = context.triggerCharacter === '#' ? /^\s*install\s+#$/.test(before) : /^\s*#>$/.test(before);
+          const ok = context.triggerCharacter === '#' ? /^\s*install\s*#$/.test(before) : /^\s*#>$/.test(before);
           if (!ok) return undefined;
         }
         flush(doc);

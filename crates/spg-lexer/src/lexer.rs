@@ -24,7 +24,11 @@ pub enum LexError {
 }
 
 /// every `#>` directive the engine understands. the whole list. three of them.
-pub const DIRECTIVES: [&str; 4] = ["friendly-terminal", "timeout", "strict", "safe-party"];
+/// the most nested calls `#> stack N` may ask for. the same as spg-vm's MAX_CALL_DEPTH (the native
+/// stack of the run is sized for it), and spg-vm checks the two agree
+pub const MAX_STACK_LIMIT: u64 = 100_000;
+
+pub const DIRECTIVES: [&str; 7] = ["friendly-terminal", "timeout", "strict", "safe-party", "no-jit", "stack", "seed"];
 
 /// what a file's `#>` header asked for. the file's wishlist.
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -36,6 +40,12 @@ pub struct FileSpec {
     pub safe_party: bool,
     /// `#> timeout N`: the program gets shot after N milliseconds
     pub timeout_ms: Option<u64>,
+    /// `#> no-jit`: this file runs in the VM only, without the native code
+    pub no_jit: bool,
+    /// `#> stack N`: how many nested calls the program may make (1 to 100000)
+    pub stack_limit: Option<usize>,
+    /// `#> seed N`: the random numbers start from this seed, so the runs repeat
+    pub seed: Option<u64>,
     /// every directive written, in order: (name, line, column)
     pub directives: Vec<(String, usize, usize)>,
 }
@@ -368,8 +378,8 @@ impl<'a> Lexer<'a> {
         while matches!(self.peek(), Some(' ' | '\t')) {
             self.advance();
         }
-        let mut timeout_ms = None;
-        if name == "timeout" {
+        let mut number: Option<u64> = None;
+        if matches!(name.as_str(), "timeout" | "stack" | "seed") {
             let mut digits = String::new();
             while let Some(c) = self.peek() {
                 if c.is_ascii_digit() {
@@ -379,15 +389,20 @@ impl<'a> Lexer<'a> {
                     break;
                 }
             }
-            match digits.parse::<u64>() {
-                Ok(n) if n > 0 => timeout_ms = Some(n),
-                _ => {
-                    return Err(LexError::BadDirectiveArgument {
-                        name,
-                        expected: "a whole number of milliseconds greater than 0, like `#> timeout 5000`",
-                        line,
-                        col,
-                    })
+            let parsed = digits.parse::<u64>().ok().filter(|n| match name.as_str() {
+                "timeout" => *n > 0,
+                "stack" => (1..=MAX_STACK_LIMIT).contains(n),
+                _ => true,
+            });
+            match parsed {
+                Some(n) => number = Some(n),
+                None => {
+                    let expected = match name.as_str() {
+                        "timeout" => "a whole number of milliseconds greater than 0, like `#> timeout 5000`",
+                        "stack" => "a whole number of calls from 1 to 100000, like `#> stack 5000`",
+                        _ => "a whole number, like `#> seed 42`",
+                    };
+                    return Err(LexError::BadDirectiveArgument { name, expected, line, col });
                 }
             }
         }
@@ -399,10 +414,10 @@ impl<'a> Lexer<'a> {
             None | Some('\n') => {}
             Some('/') if self.peek_next() == Some('/') => {}
             Some(_) => {
-                let expected = if name == "timeout" {
-                    "just the number of milliseconds, nothing else on the line"
-                } else {
-                    "no argument"
+                let expected = match name.as_str() {
+                    "timeout" => "just the number of milliseconds, nothing else on the line",
+                    "stack" | "seed" => "just the number, nothing else on the line",
+                    _ => "no argument",
                 };
                 return Err(LexError::BadDirectiveArgument { name, expected, line, col });
             }
@@ -414,7 +429,10 @@ impl<'a> Lexer<'a> {
             "friendly-terminal" => self.spec.friendly_terminal = true,
             "strict" => self.spec.strict = true,
             "safe-party" => self.spec.safe_party = true,
-            _ => self.spec.timeout_ms = timeout_ms,
+            "no-jit" => self.spec.no_jit = true,
+            "stack" => self.spec.stack_limit = number.map(|n| n as usize),
+            "seed" => self.spec.seed = number,
+            _ => self.spec.timeout_ms = number,
         }
         self.spec.directives.push((name, line, col));
         Ok(())
@@ -1097,5 +1115,26 @@ mod directive_args_tests {
         let toks: Vec<TokenKind> = Lexer::new("print(1) //]] nothing to close\nprint(2)").tokenize().unwrap().into_iter().map(|t| t.kind).collect();
         let text = format!("{:?}", toks);
         assert!(text.contains("Int(2)"), "{}", text);
+    }
+}
+
+#[cfg(test)]
+mod header_value_tests {
+    use crate::read_file_spec;
+
+    #[test]
+    fn the_new_directives_read_their_values() {
+        let spec = read_file_spec("#> no-jit\n#> stack 50\n#> seed 7\nprint(1)\n").unwrap();
+        assert!(spec.no_jit);
+        assert_eq!(spec.stack_limit, Some(50));
+        assert_eq!(spec.seed, Some(7));
+    }
+
+    #[test]
+    fn a_stack_outside_its_range_and_a_missing_number_are_refused() {
+        assert!(read_file_spec("#> stack 0\nprint(1)\n").is_err());
+        assert!(read_file_spec("#> stack 100001\nprint(1)\n").is_err());
+        assert!(read_file_spec("#> seed\nprint(1)\n").is_err());
+        assert!(read_file_spec("#> no-jit 3\nprint(1)\n").is_err());
     }
 }

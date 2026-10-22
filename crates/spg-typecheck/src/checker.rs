@@ -1651,6 +1651,8 @@ impl Checker {
                 }
                 Some(Ty::Array(Box::new(args[1].clone())))
             }
+            BuiltinId::ArrayPick => Some(if matches!(elem, Ty::Void) { Ty::Any } else { elem.clone() }),
+            BuiltinId::ArrayShuffle => Some(args[0].clone()),
             BuiltinId::ArrayConcat => {
                 if args[0] != args[1] {
                     mismatch(&mut self.errors, 1, args[0]);

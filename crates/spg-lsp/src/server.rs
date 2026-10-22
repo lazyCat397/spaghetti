@@ -82,6 +82,9 @@ const DIRECTIVE_DOCS: &[(&str, &str, &str)] = &[
     ("timeout", "timeout ", "#> timeout <ms>: stops the program after <ms> milliseconds (exit code 124)"),
     ("strict", "strict", "#> strict: int overflow, hidden names and unreachable code become errors"),
     ("safe-party", "safe-party", "#> safe-party: ps.runFile only takes a .ps1 inside the script's folder (no absolute paths, no ..)"),
+    ("no-jit", "no-jit", "#> no-jit: run this file in the VM only, without the native code"),
+    ("stack", "stack ", "#> stack <n>: how many nested calls the program may make, from 1 to 100000"),
+    ("seed", "seed ", "#> seed <n>: the random numbers start from this seed, so the runs repeat"),
 ];
 
 impl<W: Write> Server<W> {
@@ -340,7 +343,8 @@ impl<W: Write> Server<W> {
     fn std_lib_completion(&self, uri: &str, pos: Option<(usize, usize)>) -> Option<Vec<Json>> {
         let before = self.line_before_cursor(uri, pos)?;
         let rest = before.trim_start().strip_prefix("install")?;
-        if !rest.starts_with(char::is_whitespace) {
+        // `install #` and `install#` both work; `installer#` is another word
+        if rest.starts_with(|c: char| c.is_alphanumeric() || c == '_') {
             return None;
         }
         let partial = rest.trim_start().strip_prefix('#')?;
@@ -1548,6 +1552,11 @@ mod tests {
         for want in ["ps", "http", "terminal"] {
             assert!(names.iter().any(|l| l == want), "missing {} in {:?}", want, names);
         }
+        // the same without the space (`install#`), and another word that starts with install
+        let tight = labels_of(&complete_at("compl_std_tight", "install#\n", 0, 8));
+        assert!(tight.iter().any(|l| l == "ps"), "missing ps in {:?}", tight);
+        let word = labels_of(&complete_at("compl_std_word", "installer#\n", 0, 10));
+        assert!(!word.iter().any(|l| l == "ps"), "library list offered for installer#: {:?}", word);
         // private members (`_v`, the struct's filler field) aren't offered
         assert!(!labels.iter().any(|l| l.starts_with('_')), "private member offered: {:?}", labels);
         // a name that isn't a standard module offers nothing (and doesn't crash)

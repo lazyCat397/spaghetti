@@ -14,10 +14,10 @@ mod index_ops;
 pub mod value;
 pub mod vm;
 
-pub use builtins::{call_builtin, flush_stdout, flush_stdout_in_panic, set_program_args};
+pub use builtins::{call_builtin, flush_stdout, flush_stdout_in_panic, seed_random, set_program_args};
 pub use chunk::{Chunk, OpCode, Program};
 pub use arith::set_strict;
-pub use spg_libs::set_safe_party;
+pub use spg_libs::{set_safe_party, take_test_report, TestFailure, TestReport};
 pub use error::RuntimeError;
 pub use value::{ArrayRef, EnumDef, Value};
-pub use vm::{NativeCalls, TraceFrame, Vm, MAX_CALL_DEPTH};
+pub use vm::{call_depth_limit, set_call_depth_limit, NativeCalls, TraceFrame, Vm, MAX_CALL_DEPTH};

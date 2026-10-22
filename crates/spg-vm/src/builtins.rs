@@ -655,7 +655,43 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
         MaxInt => Value::Int(as_int(args.remove(0)).max(as_int(args.remove(0)))),
         MinFloat => Value::Float(as_float(args.remove(0)).min(as_float(args.remove(0)))),
         MaxFloat => Value::Float(as_float(args.remove(0)).max(as_float(args.remove(0)))),
-        Random => Value::Float(pseudo_random()),
+        Random => Value::Float(unit_float()),
+        RandomInt => {
+            let (lo, hi) = (as_int(args.remove(0)), as_int(args.remove(0)));
+            if lo > hi {
+                return Err(RuntimeError::EmptyRange { function: "@math.random", low: lo.to_string(), high: hi.to_string() });
+            }
+            Value::Int(int_in(lo, hi))
+        }
+        RandomFloat => {
+            let (lo, hi) = (as_float(args.remove(0)), as_float(args.remove(0)));
+            // written as `!(lo <= hi)` so a NaN bound is refused too
+            if !(lo <= hi) {
+                return Err(RuntimeError::EmptyRange { function: "@math.random", low: lo.to_string(), high: hi.to_string() });
+            }
+            Value::Float(lo + unit_float() * (hi - lo))
+        }
+        MathSeed => {
+            set_seed(as_int(args.remove(0)) as u64);
+            Value::Void
+        }
+        ArrayPick => {
+            let arr = as_array(args.remove(0));
+            let items = arr.borrow();
+            if items.is_empty() {
+                return Err(RuntimeError::EmptyArray { function: "@array.pick" });
+            }
+            items[int_in(0, items.len() as i64 - 1) as usize].clone()
+        }
+        ArrayShuffle => {
+            let mut items = as_array(args.remove(0)).borrow().clone();
+            // Fisher-Yates: every order equally likely
+            for i in (1..items.len()).rev() {
+                let j = int_in(0, i as i64) as usize;
+                items.swap(i, j);
+            }
+            Value::Array(Rc::new(std::cell::RefCell::new(items)))
+        }
         // ---- more @math (we're so back) ----
         Sin => Value::Float(as_float(args.remove(0)).sin()),
         Cos => Value::Float(as_float(args.remove(0)).cos()),
@@ -817,12 +853,54 @@ fn compare_values(a: &Value, b: &Value) -> std::cmp::Ordering {
 /// crypto or serious simulation), but calls
 /// in the same ns tick could in theory repeat. acceptable for v1.0.
 /// revisit if anyone ever notices. nobody will. probably.
-fn pseudo_random() -> f64 {
-    let seed = SystemTime::now().duration_since(UNIX_EPOCH).expect("system clock is before the Unix epoch").as_nanos()
-        as u64;
-    let mut x = seed ^ 0x9E3779B97F4A7C15;
-    x ^= x << 13;
-    x ^= x >> 7;
-    x ^= x << 17;
-    (x as f64 / u64::MAX as f64).abs().fract()
+/// the random source behind `@math.random`, `@array.pick` and `@array.shuffle`: splitmix64 on a
+/// counter. it is seeded from the clock on first use, or by `@math.seed(n)` (same seed, same
+/// sequence). one thread runs the VM, so relaxed atomics are plenty.
+static RNG_STATE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static RNG_SEEDED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+const RNG_GAMMA: u64 = 0x9E37_79B9_7F4A_7C15;
+
+/// `#> seed N`: the random numbers from now on start from this seed
+pub fn seed_random(seed: u64) {
+    set_seed(seed);
+}
+
+fn set_seed(seed: u64) {
+    use std::sync::atomic::Ordering::Relaxed;
+    RNG_STATE.store(seed, Relaxed);
+    RNG_SEEDED.store(true, Relaxed);
+}
+
+fn next_u64() -> u64 {
+    use std::sync::atomic::Ordering::Relaxed;
+    if !RNG_SEEDED.load(Relaxed) {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0);
+        set_seed(now ^ (std::process::id() as u64).rotate_left(32));
+    }
+    let mut z = RNG_STATE.fetch_add(RNG_GAMMA, Relaxed).wrapping_add(RNG_GAMMA);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
+/// a float from 0 up to (not including) 1, with the 53 bits a f64 keeps
+fn unit_float() -> f64 {
+    (next_u64() >> 11) as f64 * (1.0 / (1u64 << 53) as f64)
+}
+
+/// an int from `lo` to `hi`, both included. rejection sampling, so no value is favoured
+fn int_in(lo: i64, hi: i64) -> i64 {
+    let span = (hi as i128 - lo as i128 + 1) as u128;
+    if span > u64::MAX as u128 {
+        // the whole i64 range
+        return next_u64() as i64;
+    }
+    let span = span as u64;
+    let zone = u64::MAX - u64::MAX % span;
+    loop {
+        let r = next_u64();
+        if r < zone {
+            return lo.wrapping_add((r % span) as i64);
+        }
+    }
 }

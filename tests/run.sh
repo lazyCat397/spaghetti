@@ -218,7 +218,7 @@ err ns_reservado_param.spg  "'@array' is a reserved namespace"
 err ns_reservado_struct.spg "'@str' is a reserved namespace" '(line 1, column 8)'
 err ns_no_member.spg       "'@math' is a namespace; use '@math.<name>(...)'"
 err ns_membro_inexistente.spg "namespace '@math' has no member 'foo'"
-err ns_desconhecido.spg     "unknown namespace '@mth'" '(available: @str, @array, @map, @into, @math, @sys, @task, @file, @json, @time)' 'line 1, column 7'
+err ns_desconhecido.spg     "unknown namespace '@mth'" '(available: @str, @array, @map, @into, @math, @sys, @task, @file, @json, @time, @char)' 'line 1, column 7'
 err ns_arroba_solto.spg     "'@' must be followed by a namespace name" 'line 1, column 14'
 err ns_sintaxe_antiga.spg   "'math.sqrt' uses the old namespace spelling" "use '@math.sqrt'"
 err ns_string_antigo.spg    "'string.len' uses the old namespace spelling; use '@str.len'"

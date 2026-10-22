@@ -58,7 +58,7 @@
       "name": "meta.directive.spg",
       "captures": {
         "1": {
-          "name": "punctuation.definition.directive.spg"
+          "name": "keyword.other.directive.spg"
         },
         "2": {
           "name": "keyword.other.directive.spg"
@@ -275,14 +275,14 @@
     "namespaces": {
       "patterns": [
         {
-          "match": "\\b(install)\\s+(#[A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(install)\\s*(#[A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "keyword.control.spg" },
             "2": { "name": "entity.name.namespace.spg" }
           }
         },
         {
-          "match": "(?<![.A-Za-z0-9_@])(@(?:str|array|map|into|math|time|file|sys|json|task))(\\.)([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
+          "match": "(?<![.A-Za-z0-9_@])(@(?:str|array|map|into|math|time|file|sys|json|task|char))(\\.)([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
           "captures": {
             "1": {
               "name": "entity.name.namespace.spg"
@@ -296,11 +296,11 @@
           }
         },
         {
-          "match": "(?<![.A-Za-z0-9_@])@(?:str|array|map|into|math|time|file|sys|json|task)\\b(?=\\s*\\.)",
+          "match": "(?<![.A-Za-z0-9_@])@(?:str|array|map|into|math|time|file|sys|json|task|char)\\b(?=\\s*\\.)",
           "name": "entity.name.namespace.spg"
         },
         {
-          "match": "(?<![.A-Za-z0-9_@])((?:ps|http|terminal))(\\.)([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
+          "match": "(?<![.A-Za-z0-9_@])((?:ps|http|terminal|regex|crypto|csv|test|toml|sqlite|net|cmd|json5))(\\.)([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
           "captures": {
             "1": { "name": "entity.name.namespace.spg" },
             "2": { "name": "punctuation.accessor.spg" },

@@ -43,7 +43,7 @@ use cranelift_module::{FuncId, Linkage, Module};
 use spg_typecheck::builtins::BuiltinId;
 use spg_vm::chunk::{Chunk, ElemKind, NativeKind as K, OpCode, Program};
 use spg_vm::value::Value;
-use spg_vm::{NativeCalls, MAX_CALL_DEPTH};
+use spg_vm::{call_depth_limit, NativeCalls};
 
 /// offset of the "failed" flag in the context block: [failed, unused]
 const CTX_FAILED: i32 = 0;
@@ -872,7 +872,7 @@ fn lower(
 
     // depth limit, like the VM's MAX_CALL_DEPTH. deeper calls fall back to the VM.
     // the depth travels in an arg register, not in memory. fast.
-    let limit = b.ins().iconst(I64, MAX_CALL_DEPTH as i64);
+    let limit = b.ins().iconst(I64, call_depth_limit() as i64);
     let too_deep = b.ins().icmp(IntCC::SignedGreaterThanOrEqual, depth, limit);
     let body = b.create_block();
     b.ins().brif(too_deep, fail, &[], body, &[]);

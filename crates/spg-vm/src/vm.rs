@@ -84,6 +84,19 @@ pub struct Vm<'p> {
 /// and nobody wants that at 4am.
 pub const MAX_CALL_DEPTH: usize = 100_000;
 
+/// the call depth the program may reach: `MAX_CALL_DEPTH`, unless `#> stack N` lowered it
+static CALL_DEPTH_LIMIT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(MAX_CALL_DEPTH);
+
+/// `#> stack N`: sets how many nested calls the next run may make (1 up to `MAX_CALL_DEPTH`)
+pub fn set_call_depth_limit(limit: usize) {
+    CALL_DEPTH_LIMIT.store(limit.clamp(1, MAX_CALL_DEPTH), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// the call depth in force right now
+pub fn call_depth_limit() -> usize {
+    CALL_DEPTH_LIMIT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// native version of some `int`-only functions (see spg-jit). fast, and fragile.
 /// `call` returns `None` when native can't answer for sure (overflow,
 /// div by zero, too deep, a callee that gave up...): the VM runs the
@@ -334,8 +347,8 @@ impl<'p> Vm<'p> {
     }
 
     fn run_chunk_body(&mut self, chunk: &'p Chunk, args: Vec<Value>, value_stack: &mut Vec<Value>) -> Result<Value, RuntimeError> {
-        if self.depth >= MAX_CALL_DEPTH {
-            return Err(RuntimeError::StackOverflow { limit: MAX_CALL_DEPTH });
+        if self.depth >= call_depth_limit() {
+            return Err(RuntimeError::StackOverflow { limit: call_depth_limit() });
         }
         self.depth += 1;
         let mut frame = CallFrame::new(chunk, args, value_stack);
@@ -742,8 +755,8 @@ impl<'p> Vm<'p> {
                 let mut args: Vec<Value> = (0..argc).map(|_| frame.pop()).collect::<Result<_, _>>()?;
                 args.reverse();
                 // the script that made the call: relative paths in a library start at its folder
-                let here = frame.chunk.locs.get(frame.ip.saturating_sub(1)).and_then(|loc| loc.file.as_deref());
-                let value = crate::libs::call(self.program, index, args, here)?;
+                let loc = frame.chunk.locs.get(frame.ip.saturating_sub(1)).cloned().unwrap_or_default();
+                let value = crate::libs::call(self.program, index, args, loc.file.as_deref(), loc.line)?;
                 frame.push(value);
             }
             // `@time.sleep` gives the baton away while it sleeps, so other tasks can run

@@ -16,11 +16,17 @@ const MAX_DEPTH: usize = 512;
 
 /// runs function number `index` of the library registry. `caller_file` is the script that
 /// made the call (a library may resolve relative paths from its folder).
-pub fn call(program: &Program, index: u16, args: Vec<Value>, caller_file: Option<&str>) -> Result<Value, RuntimeError> {
+pub fn call(
+    program: &Program,
+    index: u16,
+    args: Vec<Value>,
+    caller_file: Option<&str>,
+    caller_line: u32,
+) -> Result<Value, RuntimeError> {
     let (_, function) = spg_libs::function(index)
         .ok_or_else(|| RuntimeError::Process { function: "lib", reason: format!("internal: no library function #{index}") })?;
     let args: Vec<LibValue> = args.into_iter().map(|v| to_lib(v, 0)).collect();
-    let answer = (function.call)(&CallCtx { caller_file }, args).map_err(|e| match e.path {
+    let answer = (function.call)(&CallCtx { caller_file, caller_line }, args).map_err(|e| match e.path {
         Some(path) => RuntimeError::Io { function: e.function, path, reason: e.reason },
         None => RuntimeError::Process { function: e.function, reason: e.reason },
     })?;

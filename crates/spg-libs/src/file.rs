@@ -31,6 +31,10 @@ pub static MODULE: NativeModule = NativeModule {
         NativeFn { name: "copy", sig: "(string, string) -> void", doc: "copy a file to another path", call: copy },
         NativeFn { name: "rename", sig: "(string, string) -> void", doc: "move or rename a file or folder", call: rename },
         NativeFn { name: "join", sig: "(string, string) -> string", doc: "join path parts with the right separator", call: join },
+        NativeFn { name: "dir", sig: "(string) -> string", doc: "the folder part of a path (\"\" if there is none)", call: dir },
+        NativeFn { name: "name", sig: "(string) -> string", doc: "the file or folder name, with the extension", call: name },
+        NativeFn { name: "stem", sig: "(string) -> string", doc: "the file name without its extension", call: stem },
+        NativeFn { name: "ext", sig: "(string) -> string", doc: "the extension, without the dot (\"\" if there is none)", call: ext },
         NativeFn { name: "deleteAll", sig: "(string) -> void", doc: "delete a folder and everything inside it", call: delete_all },
         NativeFn { name: "size", sig: "(string) -> int", doc: "size of a file in bytes", call: size },
         NativeFn { name: "modified", sig: "(string) -> int", doc: "last modification time, as milliseconds since 1970", call: modified },
@@ -180,6 +184,28 @@ fn join(_: &CallCtx, a: Vec<LibValue>) -> Out {
     Ok(LibValue::Str(std::path::Path::new(s(&a, 0)).join(s(&a, 1)).to_string_lossy().into_owned()))
 }
 
+/// the pure path pieces: no disk access, so they never fail. `Path` already knows both `/` and
+/// `\` on Windows, so `dir("a/b.txt")` and `dir("a\\b.txt")` agree.
+fn piece(a: &[LibValue], take: impl Fn(&std::path::Path) -> Option<String>) -> Out {
+    Ok(LibValue::Str(take(std::path::Path::new(s(a, 0))).unwrap_or_default()))
+}
+
+fn dir(_: &CallCtx, a: Vec<LibValue>) -> Out {
+    piece(&a, |p| p.parent().map(|d| d.to_string_lossy().into_owned()))
+}
+
+fn name(_: &CallCtx, a: Vec<LibValue>) -> Out {
+    piece(&a, |p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+}
+
+fn stem(_: &CallCtx, a: Vec<LibValue>) -> Out {
+    piece(&a, |p| p.file_stem().map(|n| n.to_string_lossy().into_owned()))
+}
+
+fn ext(_: &CallCtx, a: Vec<LibValue>) -> Out {
+    piece(&a, |p| p.extension().map(|n| n.to_string_lossy().into_owned()))
+}
+
 /// a file or a whole directory tree. refuses a filesystem root. we're not monsters.
 fn delete_all(_: &CallCtx, a: Vec<LibValue>) -> Out {
     let p = s(&a, 0);
@@ -251,4 +277,36 @@ fn write_bytes(_: &CallCtx, a: Vec<LibValue>) -> Out {
     }
     std::fs::write(p, &bytes).map_err(|e| io("@file.writeBytes", p, e))?;
     Ok(LibValue::Void)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::LibFn;
+
+    fn run(f: LibFn, path: &str) -> String {
+        match f(&CallCtx { caller_file: None, caller_line: 0 }, vec![LibValue::Str(path.to_string())]) {
+            Ok(LibValue::Str(s)) => s,
+            other => panic!("unexpected {:?}", other),
+        }
+    }
+
+    #[test]
+    fn path_pieces_split_a_file_name() {
+        assert_eq!(run(dir, "a/b/notes.txt"), "a/b");
+        assert_eq!(run(name, "a/b/notes.txt"), "notes.txt");
+        assert_eq!(run(stem, "a/b/notes.txt"), "notes");
+        assert_eq!(run(ext, "a/b/notes.txt"), "txt");
+    }
+
+    #[test]
+    fn missing_pieces_are_empty_text_not_errors() {
+        assert_eq!(run(dir, "notes.txt"), "");
+        assert_eq!(run(ext, "README"), "");
+        assert_eq!(run(ext, ".gitignore"), "");
+        assert_eq!(run(name, "/"), "");
+        // a double extension keeps only the last part
+        assert_eq!(run(stem, "archive.tar.gz"), "archive.tar");
+        assert_eq!(run(ext, "archive.tar.gz"), "gz");
+    }
 }

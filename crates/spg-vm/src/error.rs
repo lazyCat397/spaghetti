@@ -32,6 +32,8 @@ pub enum RuntimeError {
     InvalidByte { index: usize, value: i64 },
     /// `@array.pop` on an empty array. pop nothing, get an error. fair.
     EmptyArray { function: &'static str },
+    /// a random range whose low bound is above its high bound (`@math.random(20, 1)`)
+    EmptyRange { function: &'static str, low: String, high: String },
     /// `@array.fill(n, x)` with a negative `n`. you can't fill -3 things.
     NegativeCount { function: &'static str, count: i64 },
     /// `@math.clamp(x, low, high)` with `low > high`. flipped, bro.
@@ -133,6 +135,9 @@ impl fmt::Display for RuntimeError {
                 limit
             ),
             RuntimeError::EmptyArray { function } => write!(f, "{} on an empty array", function),
+            RuntimeError::EmptyRange { function, low, high } => {
+                write!(f, "{}: the low bound {} is above the high bound {}", function, low, high)
+            }
             RuntimeError::NegativeCount { function, count } => {
                 write!(f, "{} needs a count of 0 or more, got {}", function, count)
             }

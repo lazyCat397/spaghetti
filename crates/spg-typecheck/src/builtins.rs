@@ -151,6 +151,11 @@ pub enum BuiltinId {
     MinFloat,
     MaxFloat,
     Random,
+    RandomInt,
+    RandomFloat,
+    MathSeed,
+    ArrayPick,
+    ArrayShuffle,
     /// `@math.pi(n)` / `@math.e(n)`: the constant rounded to `n` decimal places
     PiDecimals,
     EDecimals,
@@ -193,6 +198,8 @@ impl BuiltinId {
                 | BuiltinId::ArrayInsert
                 | BuiltinId::ArrayFill
                 | BuiltinId::ArrayConcat
+                | BuiltinId::ArrayPick
+                | BuiltinId::ArrayShuffle
         )
     }
 
@@ -468,6 +475,9 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
     add("@array.insert", BuiltinSig { id: BuiltinId::ArrayInsert, params: vec![Ty::AnyArray, Ty::Int, Ty::Any], return_type: Ty::Void });
     add("@array.remove", BuiltinSig { id: BuiltinId::ArrayRemove, params: vec![Ty::AnyArray, Ty::Int], return_type: Ty::Any });
     add("@array.clear", BuiltinSig { id: BuiltinId::ArrayClear, params: vec![Ty::AnyArray], return_type: Ty::Void });
+    // placeholders typed by `check_array_call`: pick -> the element type, shuffle -> the array's own type
+    add("@array.pick", BuiltinSig { id: BuiltinId::ArrayPick, params: vec![Ty::AnyArray], return_type: Ty::Any });
+    add("@array.shuffle", BuiltinSig { id: BuiltinId::ArrayShuffle, params: vec![Ty::AnyArray], return_type: Ty::AnyArray });
     // placeholders: `check_array_call` types these two (fill -> array<T> of the value, concat -> the arrays' type)
     add("@array.fill", BuiltinSig { id: BuiltinId::ArrayFill, params: vec![Ty::Int, Ty::Any], return_type: Ty::AnyArray });
     add("@array.concat", BuiltinSig { id: BuiltinId::ArrayConcat, params: vec![Ty::AnyArray, Ty::AnyArray], return_type: Ty::AnyArray });
@@ -516,6 +526,10 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
         BuiltinSig { id: BuiltinId::MaxFloat, params: vec![Ty::Float, Ty::Float], return_type: Ty::Float },
     );
     add("@math.random", BuiltinSig { id: BuiltinId::Random, params: vec![], return_type: Ty::Float });
+    // the same name with more params: `random(1, 20)` is an int, `random(0.0, 2.5)` a float
+    add("@math.random", BuiltinSig { id: BuiltinId::RandomInt, params: vec![Ty::Int, Ty::Int], return_type: Ty::Int });
+    add("@math.random", BuiltinSig { id: BuiltinId::RandomFloat, params: vec![Ty::Float, Ty::Float], return_type: Ty::Float });
+    add("@math.seed", BuiltinSig { id: BuiltinId::MathSeed, params: vec![Ty::Int], return_type: Ty::Void });
     // constants: `pi(n)` / `e(n)` give n decimal places (rounded). without an
     // argument, 2 decimals (3.14 / 2.72). the `(int)`
     // form is registered first, so a wrong arg reports against it. order matters.
@@ -654,11 +668,12 @@ pub const METHOD_NAMESPACES: [&str; 5] = ["str", "array", "map", "math", "into"]
 /// builtins that never act as methods, even with an int/float first param:
 /// constants, a random source, and the two builders whose first
 /// arg is a count or a bound, not a receiver. not everything is a method.
-pub const NOT_METHOD_BUILTINS: [&str; 6] = [
+pub const NOT_METHOD_BUILTINS: [&str; 7] = [
     "@math.pi",
     "@math.e",
     "@math.tau",
     "@math.random",
+    "@math.seed",
     "@array.range",
     "@array.fill",
 ];

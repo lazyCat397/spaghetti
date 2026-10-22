@@ -321,7 +321,7 @@ impl TypeError {
             ),
             TypeError::MissingReturn { function_name, expected, .. } => write!(
                 f, "{}function '{}' must return {} on every path, but a return is missing",
-                self.location(), display_name(function_name), expected
+                self.location(), shown(function_name), expected
             ),
             TypeError::MatchSubjectType { found, .. } => write!(
                 f, "{}'when' can only match an int, a string or an enum, but this value is {}",
@@ -346,7 +346,7 @@ impl TypeError {
             ),
             TypeError::UndefinedVariable { name, .. } => write!(
                 f, "{}undefined variable '{}'",
-                self.location(), display_name(name)
+                self.location(), shown(name)
             ),
             TypeError::NeedsInstall { lib, .. } => write!(
                 f, "{}'{}' is an installable library, not a variable: it needs `install #{}` at the top of the file, and is used as {}.member(...)",
@@ -368,7 +368,7 @@ impl TypeError {
             ),
             TypeError::CaptureAssign { name, .. } => write!(
                 f, "{}a lambda cannot assign '{}': it is a copy of a variable from the function it was written in",
-                self.location(), display_name(name)
+                self.location(), shown(name)
             ),
             TypeError::UndefinedFunction { name, .. } => match name.split_once('.') {
                 // `@math.foo`: the namespace exists, the member doesn't. sad.
@@ -378,20 +378,20 @@ impl TypeError {
                 ),
                 None => write!(
                     f, "{}undefined function '{}'",
-                    self.location(), display_name(name)
+                    self.location(), shown(name)
                 ),
             },
             TypeError::RemovedBuiltin { name, replacement, .. } => write!(
                 f, "{}'{}' is no longer a global function; use '{}'",
-                self.location(), display_name(name), replacement
+                self.location(), shown(name), replacement
             ),
             TypeError::ArityMismatch { function_name, expected, found, .. } => write!(
                 f, "{}'{}' expects {} argument(s), got {}",
-                self.location(), display_name(function_name), expected, found
+                self.location(), shown(function_name), expected, found
             ),
             TypeError::ArgTypeMismatch { function_name, param_index, expected, found, .. } => write!(
                 f, "{}'{}' argument #{} expects {}, got {}",
-                self.location(), display_name(function_name), param_index + 1, expected, found
+                self.location(), shown(function_name), param_index + 1, expected, found
             ),
             TypeError::InvalidOperandTypes { op, left, right, .. } => write!(
                 f, "{}operator {} not supported for {} and {}",
@@ -411,11 +411,11 @@ impl TypeError {
             ),
             TypeError::DuplicateDeclaration { name, .. } => write!(
                 f, "{}'{}' is already declared in this scope",
-                self.location(), display_name(name)
+                self.location(), shown(name)
             ),
             TypeError::ShadowedDeclaration { name, .. } => write!(
                 f, "{}'{}' hides a name from an outer scope (not allowed with #> strict)",
-                self.location(), display_name(name)
+                self.location(), shown(name)
             ),
             TypeError::UnreachableCode { keyword, .. } => write!(
                 f, "{}code after '{}' can never run (not allowed with #> strict)",
@@ -427,11 +427,11 @@ impl TypeError {
             ),
             TypeError::AssignToConst { name, .. } => write!(
                 f, "{}cannot assign to '{}' — it's declared as const",
-                self.location(), display_name(name)
+                self.location(), shown(name)
             ),
             TypeError::AssignTypeMismatch { name, expected, found, .. } => write!(
                 f, "{}cannot assign {} to '{}' — it's declared as {}",
-                self.location(), found, display_name(name), expected
+                self.location(), found, shown(name), expected
             ),
             TypeError::LoopControlOutsideLoop { keyword, .. } => write!(
                 f, "{}'{}' used outside of a loop",
@@ -439,7 +439,7 @@ impl TypeError {
             ),
             TypeError::CannotInferReturnType { function_name, found_types, .. } => write!(
                 f, "{}cannot infer return type of '{}' — its return statements disagree ({}); add an explicit '-> Type'",
-                self.location(), display_name(function_name),
+                self.location(), shown(function_name),
                 found_types.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", ")
             ),
             TypeError::NotIndexable { found, .. } => write!(
@@ -492,27 +492,27 @@ impl TypeError {
             ),
             TypeError::UndefinedStruct { name, .. } => write!(
                 f, "{}undefined struct '{}'",
-                self.location(), display_name(name)
+                self.location(), shown(name)
             ),
             TypeError::MissingFields { struct_name, missing, .. } => write!(
                 f, "{}struct literal for '{}' is missing field(s): {}",
-                self.location(), display_name(struct_name), missing.join(", ")
+                self.location(), shown(struct_name), missing.join(", ")
             ),
             TypeError::UnknownField { struct_name, field, .. } => write!(
                 f, "{}struct '{}' has no field '{}'",
-                self.location(), display_name(struct_name), field
+                self.location(), shown(struct_name), field
             ),
             TypeError::StructFieldTypeMismatch { struct_name, field, expected, found, .. } => write!(
                 f, "{}field '{}' of struct '{}' expects {}, found {}",
-                self.location(), field, display_name(struct_name), expected, found
+                self.location(), field, shown(struct_name), expected, found
             ),
             TypeError::NoSuchVariant { enum_name, variant, variants, .. } => write!(
                 f, "{}enum '{}' has no variant '{}' (variants: {})",
-                self.location(), display_name(enum_name), variant, variants.join(", ")
+                self.location(), shown(enum_name), variant, variants.join(", ")
             ),
             TypeError::EnumAsValue { name, .. } => write!(
                 f, "{}'{}' is an enum, not a value; pick a variant ('{}.<Variant>') or loop over it ('for x in {}')",
-                self.location(), display_name(name), display_name(name), display_name(name)
+                self.location(), shown(name), shown(name), shown(name)
             ),
             TypeError::NotAStruct { found, .. } => write!(
                 f, "{}type {} has no fields (not a struct)",
@@ -567,24 +567,24 @@ impl TypeError {
             },
             TypeError::MethodNotCalled { struct_name, method, .. } => write!(
                 f, "{}'{}' is a method of struct '{}', not a field; call it with '.{}()'",
-                self.location(), method, display_name(struct_name), method
+                self.location(), method, shown(struct_name), method
             ),
             TypeError::NoSuchMethod { struct_name, method, is_field, .. } => {
                 if *is_field {
                     write!(
                         f, "{}'{}' is a field of struct '{}', not a method (fields cannot be called)",
-                        self.location(), method, display_name(struct_name)
+                        self.location(), method, shown(struct_name)
                     )
                 } else {
                     write!(
                         f, "{}struct '{}' has no method '{}'",
-                        self.location(), display_name(struct_name), method
+                        self.location(), shown(struct_name), method
                     )
                 }
             }
             TypeError::NoSuchField { struct_name, field, .. } => write!(
                 f, "{}struct '{}' has no field '{}'",
-                self.location(), display_name(struct_name), field
+                self.location(), shown(struct_name), field
             ),
         }
     }
@@ -600,4 +600,18 @@ impl TypeError {
         };
         spg_lexer::friendly_sentence(&self.to_string(), hint)
     }
+}
+
+/// how a function name reads in a message: no mangling, and `regex.matches` for an installed
+/// library (only the core ones are written with `@`, so `@regex.matches` would be wrong)
+fn shown(name: &str) -> String {
+    let base = display_name(name);
+    if let Some(rest) = base.strip_prefix('@') {
+        if let Some((ns, _)) = rest.split_once('.') {
+            if spg_libs::module(ns).is_some_and(|m| m.kind == spg_libs::Kind::Install) {
+                return rest.to_string();
+            }
+        }
+    }
+    base.to_string()
 }
