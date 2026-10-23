@@ -18,6 +18,7 @@ fn not_struct(other: &Value) -> RuntimeError {
 pub(crate) fn add_const(locals: &[Value], local: usize, field: usize, k: i64) -> Result<(), RuntimeError> {
     match &locals[local] {
         Value::Struct(s) => {
+            crate::frozen::check_struct(s)?;
             let mut b = s.borrow_mut();
             match &mut b.1[field] {
                 Value::Int(n) => {
@@ -40,6 +41,7 @@ macro_rules! op_locals {
             let v = $local(locals, x)?;
             match &locals[local] {
                 Value::Struct(s) => {
+                    crate::frozen::check_struct(s)?;
                     let mut b = s.borrow_mut();
                     match &mut b.1[field] {
                         Value::$variant(n) => {
@@ -65,6 +67,7 @@ op_locals!(float_mul, local_float, Float, "float", |a: f64, b: f64| -> Result<f6
 fn store(locals: &[Value], local: usize, field: usize, value: Value) -> Result<(), RuntimeError> {
     match &locals[local] {
         Value::Struct(s) => {
+            crate::frozen::check_struct(s)?;
             s.borrow_mut().1[field] = value;
             Ok(())
         }

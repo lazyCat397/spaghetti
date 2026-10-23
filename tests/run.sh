@@ -532,9 +532,30 @@ err static_missing.spg "has no associated function"
 err static_unknown_type.spg "needs a struct named"
 err static_with_me.spg "associated functions have none"
 ok static_enum.spg "true true true"
+ok const_alias.spg          '1\n1'
+ok const_copies_nested.spg  '1'
+ok const_catchable.spg      'caught: cannot modify a const value (it is read-only); use .copy() to change a copy\n1'
+ok copy_array.spg            '3\n2'
+ok copy_struct.spg           '1\n9'
+ok copy_map.spg              '2\n1'
+ok copy_nested.spg           '1\n5'
+ok copy_user_method.spg      '30'
 err static_enum_clash.spg "clashes with the variant"
 err static_enum_on_value.spg "is an associated function of"
 err static_enum_missing.spg "has no associated function"
+err const_push.spg 'cannot modify a const value'
+err const_nested_write.spg 'cannot modify a const value'
+err const_struct_field.spg 'cannot modify a const value'
+err const_map_write.spg 'cannot modify a const value'
+err const_param_mutates.spg 'cannot modify a const value'
+err const_return_mutable.spg 'cannot modify a const value'
+err const_jit_loop.spg 'cannot modify a const value'
+err const_cycle_field.spg 'cannot modify a const value'
+err const_friendly.spg 'Oops! cannot modify a const value (it is read-only). Make a copy with .copy() and change that copy instead.'
+err friendly_undefined.spg 'Check the spelling of the name, and declare it before it'
+err friendly_parse_eof.spg 'but I found the end of the file'
+err friendly_parse_else.spg 'needs an '"'"'else'"'"' too'
+err friendly_parse_token.spg 'but I found '"'"'='"'"'.'
 
 say "multi-file: $pass ok, $fail failed"
 [ "$fail" = 0 ]

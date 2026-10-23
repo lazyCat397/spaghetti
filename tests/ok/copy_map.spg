@@ -1,0 +1,5 @@
+const m = ["a": 1]
+let n = m.copy()
+n["b"] = 2
+print(n.len())
+print(m.len())

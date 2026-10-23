@@ -1613,7 +1613,7 @@ mod tests {
         };
         // `it.` -> the fields and the method of the imported struct, with their kinds
         let items = at(2, 3);
-        assert_eq!(labels_of(&items), ["name", "qty", "total", "string"]);
+        assert_eq!(labels_of(&items), ["name", "qty", "total", "string", "copy"]);
         let kind = |l: &str| items.iter().find(|i| i.get("label").and_then(Json::as_str) == Some(l)).unwrap().get("kind").and_then(Json::as_f64);
         assert_eq!((kind("name"), kind("total")), (Some(5.0), Some(2.0)));
         // `Item { name: "y", ` -> only the field not written yet, inserted as `qty: `

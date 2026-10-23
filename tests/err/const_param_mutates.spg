@@ -1,0 +1,4 @@
+function f(x: array<int>) { x.push(9) }
+const c = [1]
+f(c)
+print("no error")

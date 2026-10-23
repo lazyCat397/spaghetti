@@ -1,0 +1,6 @@
+struct Q {
+    x: int
+    function copy() -> int { return me.x * 10 }
+}
+let q = Q { x: 3 }
+print(q.copy())

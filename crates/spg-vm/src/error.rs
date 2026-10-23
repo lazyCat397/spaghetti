@@ -22,6 +22,8 @@ pub enum RuntimeError {
     /// even in a perfectly typed program, e.g. `arr[i]` where `i` came
     /// from user input or a computed offset. life is unfair.
     IndexOutOfBounds { index: i64, len: usize },
+    /// a write to a `const` value, or to anything reachable from one. it's read-only.
+    ReadOnly,
     /// `@sys.exit(code)`: end the program now. never catchable. the CLI turns it into the exit code.
     Exit { code: i32 },
     /// a failed `@file.*` / `@sys.*` op (missing file, no permission...). catchable.
@@ -112,6 +114,7 @@ impl fmt::Display for RuntimeError {
             RuntimeError::IndexOutOfBounds { index, len } => {
                 write!(f, "index out of bounds: {} (array has {} element(s))", index, len)
             }
+            RuntimeError::ReadOnly => write!(f, "cannot modify a const value (it is read-only); use .copy() to change a copy"),
             RuntimeError::Exit { code } => write!(f, "exit({})", code),
             RuntimeError::Io { function, path, reason } => {
                 if path.is_empty() {
@@ -174,8 +177,12 @@ impl std::error::Error for RuntimeError {}
 impl RuntimeError {
     /// the same fact, in the friendly tone (`#> friendly-terminal`). the nice version.
     pub fn friendly(&self) -> String {
+        if let RuntimeError::ReadOnly = self {
+            return spg_lexer::friendly_sentence("cannot modify a const value (it is read-only)", spg_lexer::HINT_READONLY);
+        }
         let hint = match self {
             RuntimeError::IntegerOverflow { .. } => spg_lexer::HINT_OVERFLOW,
+            RuntimeError::ReadOnly => spg_lexer::HINT_READONLY,
             _ => spg_lexer::HINT_RUNTIME,
         };
         spg_lexer::friendly_sentence(&self.to_string(), hint)

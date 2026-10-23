@@ -1,0 +1,5 @@
+struct P { x: int }
+let ps = [P { x: 1 }]
+const c = ps
+ps[0].x = 50
+print(c[0].x)

@@ -33,6 +33,8 @@ pub fn is_install_namespace(name: &str) -> bool {
 }
 
 /// hints for the friendly tone (`#> friendly-terminal`), one per stage
+pub const HINT_EOF: &str = "The file ends before the code is finished. Check whether a {, ( or [ was opened and never closed.";
+pub const HINT_ELSE: &str = "Add an 'else' branch, so the value exists in every case.";
 pub const HINT_SYNTAX: &str = "Check the syntax around that spot: a missing or extra symbol, or a keyword in the wrong place, is the usual cause.";
 pub const HINT_TYPES: &str = "Check the types on both sides of that spot. They must agree, or convert the value explicitly with @into.";
 pub const HINT_COMPILE: &str = "This one is on the compiler's side, not yours. Simplify the code around that spot, and report it if it keeps happening.";
@@ -67,4 +69,9 @@ mod friendly_tests {
 pub const HINT_SHADOW: &str = "Rename the inner one, or reuse the outer one. Strict mode (#> strict) doesn't let a name hide another.";
 pub const HINT_UNREACHABLE: &str = "Nothing after that line can ever run. Remove the extra code, or move it before that line.";
 pub const HINT_OVERFLOW: &str = "The number doesn't fit in an int (64 bits) anymore. Use smaller values, or a float. Strict mode (#> strict) stops here instead of wrapping around.";
+pub const HINT_READONLY: &str = "Make a copy with .copy() and change that copy instead.";
+pub const HINT_NAMES: &str = "Check the spelling of the name, and declare it before it's used.";
+pub const HINT_INSTALL: &str = "Add its install line at the top of the file, for example install #http.";
+pub const HINT_ARITY: &str = "Check how many arguments that function takes, and pass exactly that many.";
+pub const HINT_CONST: &str = "This name was declared const, so it can't change. Declare it with let if it has to change.";
 pub const HINT_TIMEOUT: &str = "Check for an endless loop, or a wait (sleep, readLine) that takes too long. If the program really needs more time, raise the number in `#> timeout`.";

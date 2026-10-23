@@ -1,0 +1,8 @@
+const c = [1]
+try {
+    c.push(2)
+    print("no error")
+} catch (e) {
+    print("caught: " + e)
+}
+print(len(c))

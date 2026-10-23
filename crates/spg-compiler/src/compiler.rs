@@ -486,6 +486,9 @@ impl<'a> FunctionCompiler<'a> {
         match stmt {
             TypedStmt::Let { name, value, .. } | TypedStmt::Const { name, value, .. } => {
                 self.compile_expr(value)?;
+                if matches!(stmt, TypedStmt::Const { .. }) {
+                    self.chunk.emit(OpCode::FreezeConst);
+                }
                 if self.at_root_scope() {
                     // root-scope declaration -> global slot (pre-assigned
                     // in pass 1c). nothing to declare locally. the global already exists, relax.

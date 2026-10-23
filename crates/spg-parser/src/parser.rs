@@ -1479,6 +1479,130 @@ impl Parser {
 impl ParseError {
     /// the same fact, friendly tone (`#> friendly-terminal`). the nice version.
     pub fn friendly(&self) -> String {
-        spg_lexer::friendly_sentence(&self.to_string(), spg_lexer::HINT_SYNTAX)
+        self.friendly_text(None)
+    }
+
+    /// the friendly message for an error in `file` (the parser's own file name)
+    pub fn friendly_in(&self, file: &str) -> String {
+        self.friendly_text(Some(file))
+    }
+
+    fn friendly_text(&self, file: Option<&str>) -> String {
+        let place = |line: &usize, col: &usize| match file {
+            Some(f) => format!("on line {}, column {} in `{}`", line, col, f),
+            None => format!("on line {}, column {}", line, col),
+        };
+        match self {
+            ParseError::Unexpected { expected, found, line, col } => {
+                let hint = if matches!(found, TokenKind::Eof) { spg_lexer::HINT_EOF } else { spg_lexer::HINT_SYNTAX };
+                format!(
+                    "Oops! {} I expected {}, but I found {}. {}",
+                    place(line, col), expected, describe_token(found), hint
+                )
+            }
+            ParseError::UnexpectedEof { expected } => match file {
+                Some(f) => format!("Oops! the file `{}` ended too early, while I was still waiting for {}. {}", f, expected, spg_lexer::HINT_EOF),
+                None => format!("Oops! the file ended too early, while I was still waiting for {}. {}", expected, spg_lexer::HINT_EOF),
+            },
+            ParseError::MissingElseInIfExpr { line, col } => format!(
+                "Oops! {} an 'if' used as a value needs an 'else' too. {}",
+                place(line, col), spg_lexer::HINT_ELSE
+            ),
+            // the rarer ones keep their own wording, with the general hint
+            _ => {
+                let fact = match file {
+                    Some(f) => format!("{} in `{}`", self, f),
+                    None => self.to_string(),
+                };
+                spg_lexer::friendly_sentence(&fact, spg_lexer::HINT_SYNTAX)
+            }
+        }
+    }
+}
+
+/// a token as a person would say it: `the name 'x'`, `the number 4`, `'(' `, `the end of the file`
+fn describe_token(k: &TokenKind) -> String {
+    match k {
+        TokenKind::Eof => "the end of the file".to_string(),
+        TokenKind::Newline => "the end of the line".to_string(),
+        TokenKind::Ident(s) => format!("the name '{}'", s),
+        TokenKind::Int(n) => format!("the number {}", n),
+        TokenKind::Float(x) => format!("the number {}", x),
+        TokenKind::Str(_) => "a text".to_string(),
+        TokenKind::Bool(b) => format!("'{}'", b),
+        TokenKind::NoneLit => "'none'".to_string(),
+        other => format!("'{}'", symbol_text(other)),
+    }
+}
+
+/// the written form of a symbol or keyword token (for messages)
+fn symbol_text(k: &TokenKind) -> &'static str {
+    match k {
+        TokenKind::Plus => "+",
+        TokenKind::Minus => "-",
+        TokenKind::Star => "*",
+        TokenKind::Slash => "/",
+        TokenKind::Percent => "%",
+        TokenKind::StarStar => "**",
+        TokenKind::Eq => "=",
+        TokenKind::EqEq => "==",
+        TokenKind::NotEq => "!=",
+        TokenKind::PlusEq => "+=",
+        TokenKind::MinusEq => "-=",
+        TokenKind::StarEq => "*=",
+        TokenKind::SlashEq => "/=",
+        TokenKind::Lt => "<",
+        TokenKind::Gt => ">",
+        TokenKind::LtEq => "<=",
+        TokenKind::GtEq => ">=",
+        TokenKind::AndAnd => "&&",
+        TokenKind::OrOr => "||",
+        TokenKind::PipeArrow => "|>",
+        TokenKind::Question => "?",
+        TokenKind::QuestionQuestion => "??",
+        TokenKind::Not => "!",
+        TokenKind::Arrow => "->",
+        TokenKind::Colon => ":",
+        TokenKind::Comma => ",",
+        TokenKind::Dot => ".",
+        TokenKind::DotDot => "..",
+        TokenKind::LParen => "(",
+        TokenKind::RParen => ")",
+        TokenKind::LBrace => "{",
+        TokenKind::RBrace => "}",
+        TokenKind::LAngle => "<",
+        TokenKind::RAngle => ">",
+        TokenKind::LBracket => "[",
+        TokenKind::RBracket => "]",
+        TokenKind::Semicolon => ";",
+        TokenKind::Let => "let",
+        TokenKind::Const => "const",
+        TokenKind::Function => "function",
+        TokenKind::Return => "return",
+        TokenKind::If => "if",
+        TokenKind::Else => "else",
+        TokenKind::While => "while",
+        TokenKind::For => "for",
+        TokenKind::In => "in",
+        TokenKind::Try => "try",
+        TokenKind::Catch => "catch",
+        TokenKind::Throw => "throw",
+        TokenKind::Break => "break",
+        TokenKind::Continue => "continue",
+        TokenKind::When => "when",
+        TokenKind::Elif => "elif",
+        TokenKind::Import => "import",
+        TokenKind::Install => "install",
+        TokenKind::Export => "export",
+        TokenKind::From => "from",
+        TokenKind::Struct => "struct",
+        TokenKind::Enum => "enum",
+        TokenKind::TypeInt => "int",
+        TokenKind::TypeFloat => "float",
+        TokenKind::TypeBool => "bool",
+        TokenKind::TypeString => "string",
+        TokenKind::TypeVoid => "void",
+        TokenKind::TypeArray => "array",
+        _ => "this part of the code",
     }
 }

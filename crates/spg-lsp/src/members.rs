@@ -334,7 +334,23 @@ fn native_namespace(ty: &str) -> Option<&'static str> {
 /// the methods of a string, array or map: the builtins of its namespace whose first
 /// param takes the value (`xs.push(1)` is `@array.push(xs, 1)`), shown without
 /// that first param
+/// the methods of a native namespace (`array`, `map`, `string`, `task`), and `copy` for the two
+/// that have it. the checker types `.copy()` itself (see `check_method_call`), so it's not in the table
 fn native_methods(ns: &str) -> Vec<Member> {
+    let mut out = native_methods_table(ns);
+    if matches!(ns, "array" | "map") && !out.iter().any(|m| m.name == "copy") {
+        out.push(Member {
+            name: "copy".to_string(),
+            detail: "copy() -> same type".to_string(),
+            kind: KIND_METHOD,
+            insert: None,
+            doc: None,
+        });
+    }
+    out
+}
+
+fn native_methods_table(ns: &str) -> Vec<Member> {
     use spg_typecheck::typed_ast::Ty;
     // a task has one method: `t.wait()` gives back the T. `@task.all` takes a list, not a task
     if ns == "task" {
@@ -529,6 +545,10 @@ fn members_of(ty: &str, decls: &Decls) -> Vec<Member> {
         }
     };
     shortcut("string", "text of this value (@into.string)");
+    // `.copy()` is checked by the typechecker for every array, map and struct (not enums)
+    if ty.starts_with("array<") || ty.starts_with("map<") || decls.structs.contains_key(ty) {
+        shortcut("copy", "deep, mutable copy of this value (.copy())");
+    }
     if matches!(ty, "int" | "float") {
         shortcut("int", "convert to int (@into.int)");
         shortcut("float", "convert to float (@into.float)");
@@ -959,27 +979,27 @@ mod tests {
     fn dot_after_a_local_a_param_a_global_and_me() {
         let local = format!("{}function f() {{\n    let p = Point {{ x: 1, y: 2 }}\n    p.\n}}\n", SRC);
         let (t, at, d) = setup(&local, 11, 6);
-        assert_eq!(names(&after_dot(&t, at, &["p".into()], &d)), ["x", "y", "len2", "shift", "string"]);
+        assert_eq!(names(&after_dot(&t, at, &["p".into()], &d)), ["x", "y", "len2", "shift", "string", "copy"]);
 
         let param = format!("{}function f(q: Point, n: int) {{\n    q.\n}}\n", SRC);
         let (t, at, d) = setup(&param, 10, 6);
-        assert_eq!(names(&after_dot(&t, at, &["q".into()], &d)), ["x", "y", "len2", "shift", "string"]);
+        assert_eq!(names(&after_dot(&t, at, &["q".into()], &d)), ["x", "y", "len2", "shift", "string", "copy"]);
         assert!(names(&after_dot(&t, at, &["n".into()], &d)).iter().any(|n| n == "abs"), "an int offers its @math methods");
 
         let global = format!("{}let g = origin()\nfunction f() {{\n    g.\n}}\n", SRC);
         let (t, at, d) = setup(&global, 11, 6);
-        assert_eq!(names(&after_dot(&t, at, &["g".into()], &d)).len(), 5);
+        assert_eq!(names(&after_dot(&t, at, &["g".into()], &d)).len(), 6);
 
         let me = "struct S {\n    n: int\n    function f() -> int {\n        return me.\n    }\n}\n";
         let (t, at, d) = setup(me, 3, 18);
-        assert_eq!(names(&after_dot(&t, at, &["me".into()], &d)), ["n", "f", "string"]);
+        assert_eq!(names(&after_dot(&t, at, &["me".into()], &d)), ["n", "f", "string", "copy"]);
     }
 
     #[test]
     fn chains_follow_field_types_and_enums_offer_value() {
         let src = format!("{}let l = Line {{ a: origin(), b: origin(), tag: [] }}\nlet c = Color.Red\nl.a.\n", SRC);
         let (t, at, d) = setup(&src, 11, 4);
-        assert_eq!(names(&after_dot(&t, at, &["l".into(), "a".into()], &d)).len(), 5);
+        assert_eq!(names(&after_dot(&t, at, &["l".into(), "a".into()], &d)).len(), 6);
         let tag = names(&after_dot(&t, at, &["l".into(), "tag".into()], &d));
         assert!(tag.iter().any(|n| n == "push"), "array<string> offers the array methods: {:?}", tag);
         assert!(names(&after_dot(&t, at, &["l".into(), "a".into(), "x".into()], &d)).iter().any(|n| n == "abs"), "an int field offers its @math methods");
@@ -1021,7 +1041,7 @@ mod tests {
         let st = names(&after_dot(&t, at, &["s".into()], &d));
         assert!(st.iter().any(|n| n == "trim") && st.iter().any(|n| n == "padStart") && !st.iter().any(|n| n == "push"));
         let mp = names(&after_dot(&t, at, &["m".into()], &d));
-        assert_eq!(mp, ["get", "has", "keys", "keysOf", "len", "remove", "values", "string"]);
+        assert_eq!(mp, ["get", "has", "keys", "keysOf", "len", "remove", "values", "copy", "string"]);
         assert_eq!(names(&after_dot(&t, at, &["e".into()], &d)), mp, "`[:]` is a map");
         // a struct field of type array<string>
         assert_eq!(names(&after_dot(&t, at, &["l".into(), "tag".into()], &d)), arr);
@@ -1050,7 +1070,7 @@ mod tests {
     fn shadowing_picks_the_nearest_declaration() {
         let src = format!("{}let p = Line {{ a: origin(), b: origin(), tag: [] }}\nfunction f() {{\n    let p = origin()\n    p.\n}}\n", SRC);
         let (t, at, d) = setup(&src, 12, 6);
-        assert_eq!(names(&after_dot(&t, at, &["p".into()], &d)), ["x", "y", "len2", "shift", "string"]);
+        assert_eq!(names(&after_dot(&t, at, &["p".into()], &d)), ["x", "y", "len2", "shift", "string", "copy"]);
     }
 
     /// tokens of `text`, with the position right after its last `.`
@@ -1078,7 +1098,7 @@ mod tests {
         let (t, at, d) = dot_at_end("let xs = [1, 2].");
         assert!(names(&after_dot_expr(&t, at, &d)).iter().any(|n| n == "push"));
         let (t, at, d) = dot_at_end("let m = [\"a\": 1].");
-        assert_eq!(names(&after_dot_expr(&t, at, &d)), ["get", "has", "keys", "keysOf", "len", "remove", "values", "string"]);
+        assert_eq!(names(&after_dot_expr(&t, at, &d)), ["get", "has", "keys", "keysOf", "len", "remove", "values", "copy", "string"]);
     }
 
     #[test]
@@ -1095,12 +1115,12 @@ mod tests {
         // a user function, a builtin's result, a method's result, a struct literal
         let src = format!("{}let q = origin().", SRC);
         let (t, at, d) = dot_at_end(&src);
-        assert_eq!(names(&after_dot_expr(&t, at, &d)), ["x", "y", "len2", "shift", "string"]);
+        assert_eq!(names(&after_dot_expr(&t, at, &d)), ["x", "y", "len2", "shift", "string", "copy"]);
         let (t, at, d) = dot_at_end("let s = \"  a \".trim().");
         assert!(names(&after_dot_expr(&t, at, &d)).iter().any(|n| n == "padStart"), "trim gives a string");
         let src = format!("{}let k = Point {{ x: 1, y: 2 }}.", SRC);
         let (t, at, d) = dot_at_end(&src);
-        assert_eq!(names(&after_dot_expr(&t, at, &d)), ["x", "y", "len2", "shift", "string"]);
+        assert_eq!(names(&after_dot_expr(&t, at, &d)), ["x", "y", "len2", "shift", "string", "copy"]);
         let src = format!("{}let p = origin()\nlet l = p.len2().", SRC);
         let (t, at, d) = dot_at_end(&src);
         assert!(names(&after_dot_expr(&t, at, &d)).iter().any(|n| n == "abs"), "len2 gives an int");

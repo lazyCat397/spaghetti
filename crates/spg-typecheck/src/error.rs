@@ -593,12 +593,44 @@ impl TypeError {
 impl TypeError {
     /// the same fact, friendly tone (`#> friendly-terminal`). the nice version.
     pub fn friendly(&self) -> String {
-        let hint = match self {
+        spg_lexer::friendly_sentence(&self.to_string(), self.hint())
+    }
+
+    /// the friendly line for the CLI list: where it is, what's wrong, what to do.
+    /// `in file.spg, line 2, column 1: declared type is int but value is string. ...`
+    pub fn friendly_at(&self) -> String {
+        let pos = self.pos();
+        let place = match &pos.file {
+            Some(file) => format!("in {}, line {}, column {}", file, pos.line, pos.col),
+            None => format!("at line {}, column {}", pos.line, pos.col),
+        };
+        let fact = self.message();
+        let fact = fact.trim_end_matches('.');
+        format!("{}: {}. {}", place, fact, self.hint())
+    }
+
+    /// the advice that fits this kind of error. a wrong hint is worse than none
+    fn hint(&self) -> &'static str {
+        match self {
             TypeError::ShadowedDeclaration { .. } => spg_lexer::HINT_SHADOW,
             TypeError::UnreachableCode { .. } => spg_lexer::HINT_UNREACHABLE,
+            TypeError::AssignToConst { .. } => spg_lexer::HINT_CONST,
+            TypeError::NeedsInstall { .. } => spg_lexer::HINT_INSTALL,
+            TypeError::ArityMismatch { .. } => spg_lexer::HINT_ARITY,
+            TypeError::UndefinedVariable { .. }
+            | TypeError::UndefinedFunction { .. }
+            | TypeError::UndefinedStruct { .. }
+            | TypeError::RemovedBuiltin { .. }
+            | TypeError::OldNamespace { .. }
+            | TypeError::NoSuchField { .. }
+            | TypeError::NoSuchMethod { .. }
+            | TypeError::NoSuchNativeMethod { .. }
+            | TypeError::NoSuchVariant { .. }
+            | TypeError::DuplicateDeclaration { .. }
+            | TypeError::AssociatedOnUnknownType { .. }
+            | TypeError::NoAssociatedFunction { .. } => spg_lexer::HINT_NAMES,
             _ => spg_lexer::HINT_TYPES,
-        };
-        spg_lexer::friendly_sentence(&self.to_string(), hint)
+        }
     }
 }
 

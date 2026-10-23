@@ -611,6 +611,7 @@ impl<'p> Vm<'p> {
                 let value = frame.pop()?;
                 let key = frame.pop()?;
                 let map = expect_map(frame.pop()?)?;
+                crate::frozen::check_map(&map)?;
                 if !map.borrow_mut().insert(key.clone(), value) {
                     return Err(RuntimeError::TypeMismatch { expected: "int, string, bool or enum key", found: key.type_name() });
                 }
@@ -628,6 +629,7 @@ impl<'p> Vm<'p> {
                 let value = frame.pop()?;
                 let index = expect_int(frame.pop()?)?;
                 let array = expect_array(frame.pop()?)?;
+                crate::frozen::check_array(&array)?;
                 let mut items = array.borrow_mut();
                 if index < 0 || index as usize >= items.len() {
                     return Err(RuntimeError::IndexOutOfBounds { index, len: items.len() });
@@ -656,9 +658,14 @@ impl<'p> Vm<'p> {
             OpCode::FieldSet { field_index } => {
                 let value = frame.pop()?;
                 let s = expect_struct(frame.pop()?)?;
+                crate::frozen::check_struct(&s)?;
                 s.borrow_mut().1[field_index] = value;
             }
 
+            OpCode::FreezeConst => {
+                let v = frame.pop()?;
+                frame.push(crate::frozen::copy_frozen(&v));
+            }
             OpCode::Jump(target) => frame.ip = target,
             OpCode::JumpIfFalse(target) => {
                 let cond = expect_bool(frame.pop()?)?;

@@ -28,6 +28,8 @@ pub enum BuiltinId {
 
     // ---- tasks. `t.wait()` only, the checker builds it (the result type depends on T) ----
     TaskWait,
+    /// `x.copy()` on an array, map or struct: a deep, mutable copy. typed by the checker (the receiver's own type)
+    ValueCopy,
     /// `@task.all(tasks)`: waits for every task, gives back their results. the checker types it
     TaskAll,
 

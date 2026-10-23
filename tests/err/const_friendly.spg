@@ -1,0 +1,3 @@
+#> friendly-terminal
+const c = [1]
+c.push(2)

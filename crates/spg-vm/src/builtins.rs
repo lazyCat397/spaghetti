@@ -231,11 +231,13 @@ pub(crate) fn call_builtin_on_stack(stack: &mut Vec<Value>, id: BuiltinId, argc:
         ArrayPush => {
             let item = pop!();
             let arr = as_array(pop!());
+            crate::frozen::check_array(&arr)?;
             arr.borrow_mut().push(item);
             Value::Void
         }
         ArrayPop => {
             let arr = as_array(pop!());
+            crate::frozen::check_array(&arr)?;
             let popped = arr.borrow_mut().pop();
             match popped {
                 Some(v) => v,
@@ -418,6 +420,11 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             Value::Void
         }
         SysReadLine => Value::String(Rc::new(read_stdin_line("@sys.readLine")?)),
+        // `x.copy()`: deep and mutable, whatever the container. nothing read-only comes out of it
+        ValueCopy => {
+            let v = args.remove(0);
+            crate::frozen::copy_mutable(&v)
+        }
         // `t.wait()` is handled in the VM loop (it may re-throw a task error). never gets here.
         TaskWait => unreachable!("@task.wait is handled by the VM loop"),
         TaskAll => unreachable!("@task.all is handled by the VM loop"),
@@ -473,6 +480,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
         ArrayPush => {
             let arr = as_array(args.remove(0));
             let item = args.remove(0);
+            crate::frozen::check_array(&arr)?;
             arr.borrow_mut().push(item);
             Value::Void
         }
@@ -489,6 +497,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
         }
         MapRemove => {
             let map = as_map(args.remove(0));
+            crate::frozen::check_map(&map)?;
             let removed = map.borrow_mut().remove(&args[0]);
             Value::Bool(removed)
         }
@@ -517,6 +526,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
         }
         ArrayPop => {
             let arr = as_array(args.remove(0));
+            crate::frozen::check_array(&arr)?;
             let popped = arr.borrow_mut().pop();
             match popped {
                 Some(v) => v,
@@ -532,6 +542,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             if at < 0 || at as u64 > len as u64 {
                 return Err(RuntimeError::IndexOutOfBounds { index: at, len });
             }
+            crate::frozen::check_array(&arr)?;
             arr.borrow_mut().insert(at as usize, item);
             Value::Void
         }
@@ -542,11 +553,14 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             if at < 0 || at as u64 >= len as u64 {
                 return Err(RuntimeError::IndexOutOfBounds { index: at, len });
             }
+            crate::frozen::check_array(&arr)?;
             let removed = arr.borrow_mut().remove(at as usize);
             removed
         }
         ArrayClear => {
-            as_array(args.remove(0)).borrow_mut().clear();
+            let arr = as_array(args.remove(0));
+            crate::frozen::check_array(&arr)?;
+            arr.borrow_mut().clear();
             Value::Void
         }
         ArrayFill => {
@@ -624,11 +638,13 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
         }
         ArrayReverse => {
             let arr = as_array(args.remove(0));
+            crate::frozen::check_array(&arr)?;
             arr.borrow_mut().reverse();
             Value::Array(arr)
         }
         ArraySort => {
             let arr = as_array(args.remove(0));
+            crate::frozen::check_array(&arr)?;
             arr.borrow_mut().sort_by(|a, b| compare_values(a, b));
             Value::Array(arr)
         }

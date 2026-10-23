@@ -11,6 +11,7 @@ mod libs;
 mod sched;
 mod field_ops;
 mod index_ops;
+pub mod frozen;
 pub mod value;
 pub mod vm;
 

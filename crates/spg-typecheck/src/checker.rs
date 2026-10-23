@@ -727,6 +727,23 @@ impl Checker {
             });
             return None;
         }
+        // `x.copy()`: a deep, mutable copy of an array, map or struct, typed as the receiver.
+        // a struct's own `copy` method wins, like any other method name
+        if method == "copy" && args.is_empty() {
+            let user_method = match typed_object.ty() {
+                Ty::Named(n) => self.functions.contains_key(&format!("{}.copy", n)),
+                _ => false,
+            };
+            if !user_method && matches!(typed_object.ty(), Ty::Array(_) | Ty::Map(..) | Ty::Named(_)) {
+                let ty = typed_object.ty().clone();
+                return Some(TypedExpr::Call {
+                    callee: Box::new(TypedExpr::Ident { name: "@copy".to_string(), ty: Ty::Void }),
+                    args: vec![typed_object],
+                    ty,
+                    builtin: Some(BuiltinId::ValueCopy),
+                });
+            }
+        }
         // `t.wait()`: the value of a task. the result type is the task's own T
         if let (Ty::Task(inner), "wait", true) = (typed_object.ty().clone(), method, args.is_empty()) {
             return Some(TypedExpr::Call {

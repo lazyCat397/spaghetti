@@ -277,10 +277,7 @@ impl ModuleError {
     pub fn friendly(&self) -> String {
         match self {
             ModuleError::Lex { path, error, .. } => error.friendly(&friendly(path)),
-            ModuleError::Parse { path, error, .. } => spg_lexer::friendly_sentence(
-                &format!("{} in `{}`", error, friendly(path)),
-                spg_lexer::HINT_SYNTAX,
-            ),
+            ModuleError::Parse { path, error, .. } => error.friendly_in(&friendly(path)),
             _ => spg_lexer::friendly_sentence(&self.to_string(), spg_lexer::HINT_MODULE),
         }
     }

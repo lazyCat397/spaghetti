@@ -203,6 +203,10 @@ impl Obj {
 
     /// the slots, mutably borrowed. None when something else holds a borrow
     fn slots(&self) -> Option<std::cell::RefMut<'_, Vec<Value>>> {
+        // read-only (a const): None sends the call back to the VM, which raises the error
+        if spg_vm::frozen::is_frozen_addr(self.addr()) {
+            return None;
+        }
         match self {
             Obj::Arr(r) => r.try_borrow_mut().ok(),
             Obj::Rec(r) => r.try_borrow_mut().ok().map(|t| std::cell::RefMut::map(t, |t| &mut t.1)),

@@ -56,6 +56,7 @@ pub(crate) fn add_const_locals(locals: &[Value], arr: usize, idx: usize, k: i64)
     let index = local_int(locals, idx)?;
     match &locals[arr] {
         Value::Array(a) => {
+            crate::frozen::check_array(a)?;
             let mut items = a.borrow_mut();
             if index < 0 || index as usize >= items.len() {
                 return Err(out_of_bounds(index, items.len()));
@@ -81,6 +82,7 @@ macro_rules! op_locals {
             let index = local_int(locals, idx)?;
             match &locals[arr] {
                 Value::Array(a) => {
+                    crate::frozen::check_array(a)?;
                     let mut items = a.borrow_mut();
                     if index < 0 || index as usize >= items.len() {
                         return Err(out_of_bounds(index, items.len()));
@@ -121,6 +123,7 @@ fn store(locals: &[Value], arr: usize, idx: usize, value: Value) -> Result<(), R
     let index = local_int(locals, idx)?;
     match &locals[arr] {
         Value::Array(a) => {
+            crate::frozen::check_array(a)?;
             let mut items = a.borrow_mut();
             if index < 0 || index as usize >= items.len() {
                 return Err(out_of_bounds(index, items.len()));
@@ -140,6 +143,7 @@ pub(crate) fn set_local_local(locals: &[Value], stack: &mut Vec<Value>, idx: usi
     let value = locals[v].clone();
     match stack.pop() {
         Some(Value::Array(array)) => {
+            crate::frozen::check_array(&array)?;
             let mut items = array.borrow_mut();
             if index < 0 || index as usize >= items.len() {
                 return Err(out_of_bounds(index, items.len()));

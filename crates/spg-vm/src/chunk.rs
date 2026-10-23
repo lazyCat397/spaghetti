@@ -330,6 +330,8 @@ pub enum OpCode {
     /// fused `GetLocal(arr); GetLocal(idx); Const(c); IndexSet`. `arr[idx] = <const>`.
     /// (`c` is a const pool index. the numbers are the point)
     IndexSetLocalsConst { arr: usize, idx: usize, c: usize },
+    /// `const` declaration: replaces the value on top with a deep, read-only copy (see `frozen`)
+    FreezeConst,
     /// fused `GetLocal(idx); GetLocal(v); IndexSet`. the array is already on the
     /// stack (`m[i][j] = v`). nested arrays, the classic pain.
     IndexSetLocalLocal { idx: usize, v: usize },

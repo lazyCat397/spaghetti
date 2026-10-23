@@ -472,7 +472,7 @@ fn compile_resolved(program: spg_parser::ast::Program, optimize: bool, friendly:
         if friendly {
             eprintln!("Oops! I found {} problem(s) with the types:", errors.len());
             for e in &errors {
-                eprintln!("  {}", e.friendly().trim_start_matches("Oops! "));
+                eprintln!("  {}", e.friendly_at());
             }
         } else {
             eprintln!("{} type error(s) found:", errors.len());

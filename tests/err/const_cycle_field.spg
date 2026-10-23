@@ -1,0 +1,7 @@
+struct Node { value: int, next: Node? }
+let n = Node { value: 1, next: none }
+n.next = n
+const c = n
+print(c.value)
+c.next = none
+print("no error")

@@ -1,0 +1,6 @@
+struct P { x: int }
+const p = P { x: 1 }
+let q = p.copy()
+q.x = 9
+print(p.x)
+print(q.x)
