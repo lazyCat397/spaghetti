@@ -25,6 +25,7 @@ mod sqlite;
 mod testing;
 mod time;
 mod tomlcfg;
+mod ui;
 mod util;
 
 /// a value crossing the boundary between the VM and a library
@@ -122,7 +123,7 @@ pub struct NativeModule {
 }
 
 /// every native library. adding one = one line here.
-pub static MODULES: [&NativeModule; 15] = [
+pub static MODULES: [&NativeModule; 16] = [
     &ps::MODULE,
     &http::MODULE,
     &file::MODULE,
@@ -138,6 +139,7 @@ pub static MODULES: [&NativeModule; 15] = [
     &socket::MODULE,
     &cmd::MODULE,
     &json5lib::MODULE,
+    &ui::MODULE,
 ];
 
 pub fn modules() -> &'static [&'static NativeModule] {

@@ -1,0 +1,22 @@
+// `install #ui`: a window, a rectangle moved with the arrow keys, closed with Esc.
+// needs a display, so it is not in tests/run.sh (the CI has none).
+install #ui
+
+let win = ui.window("ui demo", 800, 600)
+let x = 100.0
+let y = 100.0
+let color = ui.hex("#ff3300")
+
+while (true) {
+    let dt = ui.nextFrame(win)          // -1.0 when the window closes (Esc, the X, or ui.close)
+    if (dt < 0.0) { break }
+
+    if (ui.isDown(win, "left"))  { x = x - 200.0 * dt }
+    if (ui.isDown(win, "right")) { x = x + 200.0 * dt }
+    if (ui.isDown(win, "up"))    { y = y - 200.0 * dt }
+    if (ui.isDown(win, "down"))  { y = y + 200.0 * dt }
+
+    ui.clear(win, ui.hex("#101010"))
+    ui.rect(win, x, y, 40.0, 40.0, color)
+}
+print("bye")

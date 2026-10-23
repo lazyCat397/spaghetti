@@ -12,6 +12,7 @@ members = [
     "crates/spg-fmt",
     "crates/spg-cli",
     "crates/spg-jit",
+    "crates/ui-core",
 ]
 
 [workspace.package]

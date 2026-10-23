@@ -1,0 +1,14 @@
+[package]
+name = "ui-core"
+version = "1.0.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+# the core of `install #ui`: window, loop, keyboard and rectangles. it knows nothing of
+# spg: spg-libs wraps it. the real backend (minifb) is behind a feature; tests use the null one.
+[features]
+default = []
+minifb = ["dep:minifb"]
+
+[dependencies]
+minifb = { version = "0.28", optional = true }
