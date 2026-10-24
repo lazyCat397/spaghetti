@@ -4,7 +4,7 @@
 
 use ui_core::color;
 use ui_core::null::NullBackend;
-use ui_core::{key_from_name, Backend, Key, Session, State, MAX_DT};
+use ui_core::{Backend, Key, Session, State, MAX_DT};
 
 const RED: u32 = 0x00FF_3300;
 const BG: u32 = 0x0010_1010;
@@ -36,9 +36,23 @@ fn rgb_checks_each_channel() {
 
 #[test]
 fn key_names_map_to_keys() {
-    assert_eq!(key_from_name("left"), Some(Key::Left));
-    assert_eq!(key_from_name("escape"), Some(Key::Escape));
-    assert_eq!(key_from_name("enter"), None, "not in slice 1");
+    assert_eq!(Key::from_name("Left"), Some(Key::Left));
+    assert_eq!(Key::from_name("Escape"), Some(Key::Escape));
+    assert_eq!(Key::from_name("Num7"), Some(Key::Num7));
+    assert_eq!(Key::from_name("left"), None, "names are the variant names, case included");
+    assert_eq!(Key::from_name("Enter2"), None);
+}
+
+#[test]
+fn every_key_has_a_distinct_name() {
+    let mut names: Vec<String> = Key::ALL.iter().map(|k| format!("{k:?}")).collect();
+    let total = names.len();
+    names.sort();
+    names.dedup();
+    assert_eq!(names.len(), total);
+    for key in Key::ALL {
+        assert_eq!(Key::from_name(&format!("{key:?}")), Some(*key));
+    }
 }
 
 // --- opening and states --------------------------------------------------------
@@ -238,5 +252,68 @@ fn a_boxed_backend_works_the_same() {
     assert_eq!(s.begin_frame(0.0).unwrap(), Some(0.0));
     s.clear(BG).unwrap();
     s.request_close().unwrap();
+    assert_eq!(s.begin_frame(0.016).unwrap(), None);
+}
+
+// --- key events --------------------------------------------------------------------
+
+#[test]
+fn a_press_is_seen_on_one_frame_only() {
+    let mut s = session(8, 8);
+    s.begin_frame(0.0).unwrap();
+    s.backend_mut().press(Key::Space);
+    s.begin_frame(0.016).unwrap();
+    assert!(s.was_pressed(Key::Space), "pressed during the previous frame");
+    assert!(s.is_down(Key::Space));
+    s.begin_frame(0.032).unwrap();
+    assert!(!s.was_pressed(Key::Space), "still held, but not a new press");
+    assert!(s.is_down(Key::Space));
+}
+
+#[test]
+/// the contract for a backend that reports every event. the minifb backend can miss taps
+/// shorter than a frame (see the spec), so this runs on the null backend only
+fn a_tap_shorter_than_a_frame_is_still_a_press() {
+    let mut s = session(8, 8);
+    s.begin_frame(0.0).unwrap();
+    s.backend_mut().press(Key::Space);
+    s.backend_mut().release(Key::Space); // down and up before the next frame starts
+    s.begin_frame(0.016).unwrap();
+    assert!(s.was_pressed(Key::Space), "the tap must not be lost");
+    assert!(s.was_released(Key::Space));
+    assert!(!s.is_down(Key::Space));
+}
+
+#[test]
+fn a_release_is_seen_on_one_frame_only() {
+    let mut s = session(8, 8);
+    s.begin_frame(0.0).unwrap();
+    s.backend_mut().press(Key::Up);
+    s.begin_frame(0.016).unwrap();
+    s.backend_mut().release(Key::Up);
+    s.begin_frame(0.032).unwrap();
+    assert!(s.was_released(Key::Up));
+    s.begin_frame(0.048).unwrap();
+    assert!(!s.was_released(Key::Up));
+}
+
+#[test]
+fn keys_are_a_snapshot_for_the_whole_frame() {
+    let mut s = session(8, 8);
+    s.begin_frame(0.0).unwrap();
+    s.backend_mut().press(Key::Left);
+    // the user presses Right in the middle of the frame: the frame does not see it yet
+    assert!(!s.is_down(Key::Left));
+    assert!(!s.is_down(Key::Right));
+    s.begin_frame(0.016).unwrap();
+    assert!(s.is_down(Key::Left));
+}
+
+#[test]
+fn escape_pressed_and_released_inside_one_frame_still_closes() {
+    let mut s = session(8, 8);
+    s.begin_frame(0.0).unwrap();
+    s.backend_mut().press(Key::Escape);
+    s.backend_mut().release(Key::Escape);
     assert_eq!(s.begin_frame(0.016).unwrap(), None);
 }

@@ -12,7 +12,8 @@
 //! while (true) {
 //!     let dt = ui.nextFrame(win)
 //!     if (dt < 0.0) { break }              // closed: Esc, the X button or ui.close(win)
-//!     if (ui.isDown(win, "right")) { x = x + 200.0 * dt }
+//!     if (ui.isDown(win, Key.Right)) { x = x + 200.0 * dt }
+//!     if (ui.wasPressed(win, Key.Space)) { print("jump") }
 //!     ui.clear(win, ui.hex("#101010"))
 //!     ui.rect(win, x, 100.0, 40.0, 40.0, ui.hex("#ff3300"))
 //! }
@@ -25,7 +26,7 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::time::Instant;
 
-use ui_core::{color, key_from_name, Backend, Session};
+use ui_core::{color, Backend, Key, Session};
 
 use crate::{CallCtx, Kind, LibError, LibValue, NativeFn, NativeModule};
 
@@ -35,17 +36,23 @@ const MAX_SIDE: i64 = 8192;
 /// the largest color value: `0xFFFFFF`
 const MAX_COLOR: i64 = 0xFF_FFFF;
 
+/// the `Key` enum the program sees. it lists the same names as `ui_core::Key`; a test checks
+/// that the two stay equal
+const KEY_ENUM: &str = "enum Key { A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, Num0, Num1, Num2, Num3, Num4, Num5, Num6, Num7, Num8, Num9, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, Left, Right, Up, Down, Space, Enter, Escape, Tab, Backspace, Delete, Home, End, LeftShift, RightShift, LeftCtrl, RightCtrl, LeftAlt, RightAlt }";
+
 pub static MODULE: NativeModule = NativeModule {
     kind: Kind::Install,
     name: "ui",
     doc: "a window to draw rectangles in, and the keyboard (install #ui)",
-    structs: &["struct Window {\n    id: int\n}\n"],
+    structs: &["struct Window {\n    id: int\n}\n", KEY_ENUM],
     functions: &[
         NativeFn { name: "window", sig: "(string, int, int) -> Window", doc: "opens a window of the given size, in pixels. it shows when the loop starts", call: window },
         NativeFn { name: "nextFrame", sig: "(Window) -> float", doc: "starts the next frame: shows the last one, reads the keys and gives the seconds since the last frame (at most 0.1). gives -1.0 when the window is closing, which ends the loop", call: next_frame },
         NativeFn { name: "clear", sig: "(Window, int) -> void", doc: "paints the whole window with a color (ui.hex or ui.rgb)", call: clear },
         NativeFn { name: "rect", sig: "(Window, float, float, float, float, int) -> void", doc: "draws a filled rectangle: x, y, width, height in pixels, then a color. the part outside the window is cut off", call: rect },
-        NativeFn { name: "isDown", sig: "(Window, string) -> bool", doc: "true while the key is held. keys: \"left\", \"right\", \"up\", \"down\", \"escape\", \"w\", \"a\", \"s\", \"d\"", call: is_down },
+        NativeFn { name: "isDown", sig: "(Window, Key) -> bool", doc: "true on every frame the key is held", call: is_down },
+        NativeFn { name: "wasPressed", sig: "(Window, Key) -> bool", doc: "true on the one frame the key went down. a tap shorter than one frame can be missed", call: was_pressed },
+        NativeFn { name: "wasReleased", sig: "(Window, Key) -> bool", doc: "true on the one frame the key went up", call: was_released },
         NativeFn { name: "close", sig: "(Window) -> void", doc: "asks the window to close. the frame in progress finishes, then the loop ends", call: close },
         NativeFn { name: "hex", sig: "(string) -> int", doc: "a color from \"#rrggbb\"", call: hex },
         NativeFn { name: "rgb", sig: "(int, int, int) -> int", doc: "a color from red, green and blue, each from 0 to 255", call: rgb },
@@ -131,12 +138,25 @@ fn rect(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
 fn is_down(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
     const F: &str = "ui.isDown";
     let id = window_id(F, &args)?;
-    let name = text(F, &args, 1)?;
-    let key = key_from_name(&name).ok_or_else(|| {
-        LibError::new(F, format!("unknown key \"{name}\": use left, right, up, down, escape, w, a, s or d"))
-    })?;
+    let key = key_arg(F, &args, 1)?;
     let down = with_window(F, id, |w| Ok(w.is_down(key)))?;
     Ok(LibValue::Bool(down))
+}
+
+fn was_pressed(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "ui.wasPressed";
+    let id = window_id(F, &args)?;
+    let key = key_arg(F, &args, 1)?;
+    let pressed = with_window(F, id, |w| Ok(w.was_pressed(key)))?;
+    Ok(LibValue::Bool(pressed))
+}
+
+fn was_released(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "ui.wasReleased";
+    let id = window_id(F, &args)?;
+    let key = key_arg(F, &args, 1)?;
+    let released = with_window(F, id, |w| Ok(w.was_released(key)))?;
+    Ok(LibValue::Bool(released))
 }
 
 fn close(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
@@ -180,6 +200,15 @@ fn window_id(function: &'static str, args: &[LibValue]) -> Result<i64, LibError>
             })
             .ok_or_else(|| LibError::new(function, "the Window has no id")),
         _ => Err(LibError::new(function, "expected a Window, made by ui.window")),
+    }
+}
+
+/// a `Key` argument: the enum value, which is the variant's name
+fn key_arg(function: &'static str, args: &[LibValue], i: usize) -> Result<Key, LibError> {
+    match args.get(i) {
+        Some(LibValue::Enum(name)) => Key::from_name(name)
+            .ok_or_else(|| LibError::new(function, format!("unknown key {name}"))),
+        _ => Err(LibError::new(function, format!("argument {} must be a Key, like Key.Space", i + 1))),
     }
 }
 
@@ -241,6 +270,10 @@ mod tests {
         LibValue::Str(v.to_string())
     }
 
+    fn key(name: &str) -> LibValue {
+        LibValue::Enum(name.to_string())
+    }
+
     /// opens a window with the test backend and returns its `Window` value
     fn open(title: &str, w: i64, h: i64) -> LibValue {
         window(&ctx(), vec![s(title), LibValue::Int(w), LibValue::Int(h)]).unwrap()
@@ -250,6 +283,20 @@ mod tests {
         match v {
             LibValue::Float(f) => f,
             other => panic!("expected a float, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_declared_key_enum_lists_exactly_the_core_keys() {
+        let declared: Vec<&str> = KEY_ENUM
+            .trim_start_matches("enum Key { ")
+            .trim_end_matches(" }")
+            .split(", ")
+            .collect();
+        let core: Vec<String> = Key::ALL.iter().map(|k| format!("{k:?}")).collect();
+        assert_eq!(declared.len(), core.len());
+        for (spg, rust) in declared.iter().zip(core.iter()) {
+            assert_eq!(spg, rust);
         }
     }
 
@@ -264,23 +311,23 @@ mod tests {
     #[test]
     fn a_window_opens_and_the_loop_runs_then_ends() {
         let win = open("loop", 32, 32);
-        // first frame: dt is zero
         assert_eq!(float_of(next_frame(&ctx(), vec![win.clone()]).unwrap()), 0.0);
         clear(&ctx(), vec![win.clone(), LibValue::Int(0x101010)]).unwrap();
         rect(&ctx(), vec![win.clone(), LibValue::Float(2.0), LibValue::Float(2.0), LibValue::Float(4.0), LibValue::Float(4.0), LibValue::Int(0xff3300)]).unwrap();
-        // the program asks to close: the next frame ends the loop
         close(&ctx(), vec![win.clone()]).unwrap();
         assert_eq!(float_of(next_frame(&ctx(), vec![win.clone()]).unwrap()), -1.0);
-        // after the loop, drawing is an error
         assert!(clear(&ctx(), vec![win.clone(), LibValue::Int(0)]).is_err());
     }
 
     #[test]
-    fn keys_are_read_by_name() {
+    fn keys_are_read_as_enum_values() {
         let win = open("keys", 16, 16);
         next_frame(&ctx(), vec![win.clone()]).unwrap();
-        assert_eq!(is_down(&ctx(), vec![win.clone(), s("left")]).unwrap(), LibValue::Bool(false));
-        assert!(is_down(&ctx(), vec![win.clone(), s("enter")]).is_err(), "unknown key");
+        assert_eq!(is_down(&ctx(), vec![win.clone(), key("Left")]).unwrap(), LibValue::Bool(false));
+        assert_eq!(was_pressed(&ctx(), vec![win.clone(), key("Space")]).unwrap(), LibValue::Bool(false));
+        assert_eq!(was_released(&ctx(), vec![win.clone(), key("Space")]).unwrap(), LibValue::Bool(false));
+        assert!(is_down(&ctx(), vec![win.clone(), key("Nope")]).is_err(), "not a key of the enum");
+        assert!(is_down(&ctx(), vec![win.clone(), s("Left")]).is_err(), "a string is not a Key");
     }
 
     #[test]

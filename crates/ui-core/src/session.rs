@@ -1,5 +1,7 @@
-//! a window while it runs: the loop state, the framebuffer and the frame time.
+//! a window while it runs: the loop state, the framebuffer, the keys and the frame time.
 //! it knows neither the window library nor spg: it gets the backend and the time from outside.
+
+use std::collections::HashSet;
 
 use crate::backend::{Backend, Key};
 
@@ -24,6 +26,11 @@ pub struct Session<B: Backend> {
     state: State,
     last_time: Option<f64>,
     close_requested: bool,
+    /// the keys read at the start of the current frame. a snapshot: the whole frame sees
+    /// the same keys, even if the user presses one in the middle of it
+    down: HashSet<Key>,
+    pressed: HashSet<Key>,
+    released: HashSet<Key>,
 }
 
 impl<B: Backend> Session<B> {
@@ -41,6 +48,9 @@ impl<B: Backend> Session<B> {
             state: State::Created,
             last_time: None,
             close_requested: false,
+            down: HashSet::new(),
+            pressed: HashSet::new(),
+            released: HashSet::new(),
         })
     }
 
@@ -61,8 +71,9 @@ impl<B: Backend> Session<B> {
             self.backend.show(&self.pixels, self.width, self.height)?;
         }
         let still_open = self.backend.poll();
-        let escape = self.backend.is_down(Key::Escape);
+        self.read_keys();
 
+        let escape = self.pressed.contains(&Key::Escape) || self.down.contains(&Key::Escape);
         if !still_open || escape || self.close_requested {
             self.close_now();
             return Ok(None);
@@ -109,9 +120,20 @@ impl<B: Backend> Session<B> {
         Ok(())
     }
 
-    /// whether the key is down right now
+    /// whether the key is held down, as of the start of this frame
     pub fn is_down(&self, key: Key) -> bool {
-        self.backend.is_down(key)
+        self.down.contains(&key)
+    }
+
+    /// whether the key went down since the previous frame: true on one frame only, even when
+    /// the key is held for many
+    pub fn was_pressed(&self, key: Key) -> bool {
+        self.pressed.contains(&key)
+    }
+
+    /// whether the key went up since the previous frame
+    pub fn was_released(&self, key: Key) -> bool {
+        self.released.contains(&key)
     }
 
     /// a pixel of the current framebuffer, for tests and debugging
@@ -129,6 +151,12 @@ impl<B: Backend> Session<B> {
 
     pub fn backend_mut(&mut self) -> &mut B {
         &mut self.backend
+    }
+
+    fn read_keys(&mut self) {
+        self.down = Key::ALL.iter().copied().filter(|&k| self.backend.is_down(k)).collect();
+        self.pressed = Key::ALL.iter().copied().filter(|&k| self.backend.was_pressed(k)).collect();
+        self.released = Key::ALL.iter().copied().filter(|&k| self.backend.was_released(k)).collect();
     }
 
     fn require_running(&self) -> Result<(), String> {

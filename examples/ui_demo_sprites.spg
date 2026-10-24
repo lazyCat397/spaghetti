@@ -1,0 +1,32 @@
+// `install #ui` with structs: each sprite carries its own position and draws itself.
+// needs a display, so run.sh skips it (the name matches *ui_demo*).
+install #ui
+
+struct Sprite {
+    x: float,
+    y: float,
+    size: float,
+    color: int,
+    dx: float,
+    function draw(win: Window) -> void {
+        ui.rect(win, me.x, me.y, me.size, me.size, me.color)
+    }
+    function step(dt: float) -> void {
+        me.x = me.x + me.dx * dt
+    }
+}
+
+let win = ui.window("sprites", 400, 200)
+let red = Sprite { x: 20.0, y: 60.0, size: 40.0, color: ui.hex("#ff3300"), dx: 120.0 }
+let blue = Sprite { x: 20.0, y: 120.0, size: 30.0, color: ui.rgb(40, 120, 255), dx: 60.0 }
+
+while (true) {
+    let dt = ui.nextFrame(win)
+    if (dt < 0.0) { break }
+    red.step(dt)
+    blue.step(dt)
+    ui.clear(win, ui.hex("#101010"))
+    red.draw(win)
+    blue.draw(win)
+}
+print("bye")

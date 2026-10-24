@@ -11,10 +11,10 @@ while (true) {
     let dt = ui.nextFrame(win)          // -1.0 when the window closes (Esc, the X, or ui.close)
     if (dt < 0.0) { break }
 
-    if (ui.isDown(win, "left"))  { x = x - 200.0 * dt }
-    if (ui.isDown(win, "right")) { x = x + 200.0 * dt }
-    if (ui.isDown(win, "up"))    { y = y - 200.0 * dt }
-    if (ui.isDown(win, "down"))  { y = y + 200.0 * dt }
+    if (ui.isDown(win, Key.Left))  { x = x - 200.0 * dt }
+    if (ui.isDown(win, Key.Right)) { x = x + 200.0 * dt }
+    if (ui.isDown(win, Key.Up))    { y = y - 200.0 * dt }
+    if (ui.isDown(win, Key.Down))  { y = y + 200.0 * dt }
 
     ui.clear(win, ui.hex("#101010"))
     ui.rect(win, x, y, 40.0, 40.0, color)

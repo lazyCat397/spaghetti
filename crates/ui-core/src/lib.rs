@@ -11,5 +11,5 @@ pub mod session;
 #[cfg(feature = "minifb")]
 pub mod minifb_backend;
 
-pub use backend::{key_from_name, Backend, Key};
+pub use backend::{Backend, Key};
 pub use session::{Session, State, MAX_DT};

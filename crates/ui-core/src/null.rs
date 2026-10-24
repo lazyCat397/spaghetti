@@ -10,6 +10,12 @@ use crate::backend::{Backend, Key};
 #[derive(Default)]
 pub struct NullBackend {
     down: HashSet<Key>,
+    /// presses and releases made since the last `poll`
+    pending_pressed: HashSet<Key>,
+    pending_released: HashSet<Key>,
+    /// what the last `poll` reports
+    just_pressed: HashSet<Key>,
+    just_released: HashSet<Key>,
     user_closed: bool,
     open: bool,
     /// how many frames were shown
@@ -26,14 +32,16 @@ impl NullBackend {
         Self::default()
     }
 
-    /// simulates a key being pressed
+    /// simulates a key going down
     pub fn press(&mut self, key: Key) {
         self.down.insert(key);
+        self.pending_pressed.insert(key);
     }
 
-    /// simulates a key being released
+    /// simulates a key going up
     pub fn release(&mut self, key: Key) {
         self.down.remove(&key);
+        self.pending_released.insert(key);
     }
 
     /// simulates the user clicking the window's X button
@@ -64,11 +72,21 @@ impl Backend for NullBackend {
     }
 
     fn poll(&mut self) -> bool {
+        self.just_pressed = std::mem::take(&mut self.pending_pressed);
+        self.just_released = std::mem::take(&mut self.pending_released);
         !self.user_closed
     }
 
     fn is_down(&self, key: Key) -> bool {
         self.down.contains(&key)
+    }
+
+    fn was_pressed(&self, key: Key) -> bool {
+        self.just_pressed.contains(&key)
+    }
+
+    fn was_released(&self, key: Key) -> bool {
+        self.just_released.contains(&key)
     }
 
     fn close(&mut self) {
