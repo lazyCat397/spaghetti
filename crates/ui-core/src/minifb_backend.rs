@@ -14,6 +14,8 @@ pub struct MinifbBackend {
     pumped: bool,
     pressed: HashSet<Key>,
     released: HashSet<Key>,
+    focused: bool,
+    size: (usize, usize),
 }
 
 fn to_minifb(key: Key) -> MKey {
@@ -94,8 +96,10 @@ fn from_minifb(key: MKey) -> Option<Key> {
 
 impl Backend for MinifbBackend {
     fn open(&mut self, title: &str, width: usize, height: usize) -> Result<(), String> {
-        let window = Window::new(title, width, height, WindowOptions::default())
-            .map_err(|e| e.to_string())?;
+        // resizable: the program can react to the size with onResize
+        let options = WindowOptions { resize: true, ..WindowOptions::default() };
+        let window = Window::new(title, width, height, options).map_err(|e| e.to_string())?;
+        self.size = (width, height);
         self.window = Some(window);
         Ok(())
     }
@@ -121,6 +125,8 @@ impl Backend for MinifbBackend {
             .filter_map(from_minifb)
             .collect();
         self.released = window.get_keys_released().into_iter().filter_map(from_minifb).collect();
+        self.focused = window.is_active();
+        self.size = window.get_size();
         window.is_open()
     }
 
@@ -136,6 +142,14 @@ impl Backend for MinifbBackend {
 
     fn was_released(&self, key: Key) -> bool {
         self.released.contains(&key)
+    }
+
+    fn is_focused(&self) -> bool {
+        self.focused
+    }
+
+    fn size(&self) -> (usize, usize) {
+        self.size
     }
 
     fn close(&mut self) {

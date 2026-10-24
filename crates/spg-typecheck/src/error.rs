@@ -149,6 +149,13 @@ pub enum TypeError {
     /// declared type. same song.
     StructFieldTypeMismatch { struct_name: String, field: String, expected: Ty, found: Ty, pos: Pos },
 
+    /// `obj.field = value` on a field a native object only lets the program read (`win.width`)
+    ReadOnlyField { struct_name: String, field: String, pos: Pos },
+
+    /// `expr.field += v` on a native object, where `expr` is not a plain name path: the object
+    /// would be evaluated twice, once to read and once to write
+    CompoundOnNativeNeedsName { struct_name: String, field: String, pos: Pos },
+
     /// `expr.field` where `expr` isn't a struct at all. fields need structs.
     NotAStruct { found: Ty, pos: Pos },
 
@@ -241,6 +248,8 @@ impl TypeError {
             | TypeError::MissingFields { pos, .. }
             | TypeError::UnknownField { pos, .. }
             | TypeError::StructFieldTypeMismatch { pos, .. }
+            | TypeError::ReadOnlyField { pos, .. }
+            | TypeError::CompoundOnNativeNeedsName { pos, .. }
             | TypeError::NotAStruct { pos, .. }
             | TypeError::NoSuchVariant { pos, .. }
             | TypeError::EnumAsValue { pos, .. }
@@ -501,6 +510,14 @@ impl TypeError {
             TypeError::UnknownField { struct_name, field, .. } => write!(
                 f, "{}struct '{}' has no field '{}'",
                 self.location(), shown(struct_name), field
+            ),
+            TypeError::CompoundOnNativeNeedsName { struct_name, field, .. } => write!(
+                f, "{}'{}.{}' can not be changed with a compound operator here: the object is used twice. put it in a name first, like `let o = ...` and then `o.{} += ...`",
+                self.location(), struct_name, field, field
+            ),
+            TypeError::ReadOnlyField { struct_name, field, .. } => write!(
+                f, "{}cannot assign to '{}.{}' — it is read-only, the program can only read it",
+                self.location(), struct_name, field
             ),
             TypeError::StructFieldTypeMismatch { struct_name, field, expected, found, .. } => write!(
                 f, "{}field '{}' of struct '{}' expects {}, found {}",

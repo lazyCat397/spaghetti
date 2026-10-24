@@ -94,6 +94,21 @@ pub struct Checker {
     current_return: Option<Ty>,
     /// lambdas whose bodies are being checked, outermost first
     lambdas: Vec<LambdaFrame>,
+    /// the native objects of the libraries this program installs: struct name -> (module, object).
+    /// their fields and methods are lowered to calls of the module's functions (see `lower`)
+    native_objects: HashMap<String, (&'static str, &'static spg_libs::NativeObject)>,
+}
+
+/// the native objects of the installed libraries, by struct name
+fn native_objects_of(natives: &[String]) -> HashMap<String, (&'static str, &'static spg_libs::NativeObject)> {
+    let mut out = HashMap::new();
+    for name in natives {
+        let Some(module) = spg_libs::module(name) else { continue };
+        for object in module.objects {
+            out.insert(object.name.to_string(), (module.name, object));
+        }
+    }
+    out
 }
 
 pub fn type_check(program: p::Program) -> Result<TypedProgram, Vec<TypeError>> {
@@ -103,7 +118,9 @@ pub fn type_check(program: p::Program) -> Result<TypedProgram, Vec<TypeError>> {
 /// `strict` is the file's `#> strict`. it only HARDENS the rules (hidden names and
 /// dead code become errors). the language accepted is the same
 pub fn type_check_with(program: p::Program, strict: bool) -> Result<TypedProgram, Vec<TypeError>> {
+    let native_objects = native_objects_of(&program.natives);
     let mut checker = Checker {
+        native_objects,
         functions: HashMap::new(),
         struct_defs: HashMap::new(),
         enum_defs: HashMap::new(),
@@ -697,6 +714,23 @@ impl Checker {
             }
         }
         let typed_object = self.check_expr(object)?;
+        // a method of a native object is a call of the module's function, with the object first
+        if let Some((module, native)) = self.native_object_of(typed_object.ty()) {
+            if !native.methods.contains(&method) {
+                self.errors.push(TypeError::NoSuchMethod {
+                    struct_name: native.name.to_string(),
+                    method: method.to_string(),
+                    is_field: native.fields.iter().any(|f| f.name == method),
+                    pos: pos.clone(),
+                });
+                return None;
+            }
+            let mut typed_args = vec![typed_object];
+            for arg in args {
+                typed_args.push(self.check_expr(arg)?);
+            }
+            return self.lib_call(module, method, typed_args, pos);
+        }
         // an associated function is not a method: `p.name()` is refused, whatever `p` is
         if let Ty::Named(type_name) = typed_object.ty() {
             if self.associated.contains(&format!("{}.{}", type_name, method)) {
@@ -1433,6 +1467,20 @@ impl Checker {
                 let typed_object = self.check_expr(object)?;
                 let typed_value = self.check_expr(value)?;
 
+                if let Some((module, native)) = self.native_object_of(typed_object.ty()) {
+                    let struct_name = native.name.to_string();
+                    let Some(def) = native.fields.iter().find(|f| f.name == field) else {
+                        self.errors.push(TypeError::NoSuchField { struct_name, field: field.clone(), pos: pos.clone() });
+                        return None;
+                    };
+                    let Some(setter) = def.set else {
+                        self.errors.push(TypeError::ReadOnlyField { struct_name, field: field.clone(), pos: pos.clone() });
+                        return None;
+                    };
+                    let call = self.lib_call(module, setter, vec![typed_object, typed_value], pos)?;
+                    return Some(TypedStmt::ExprStmt(call));
+                }
+
                 let (struct_name, field_ty) = self.resolve_field(typed_object.ty(), field, pos)?;
 
                 if !field_ty.accepts(typed_value.ty()) {
@@ -1452,6 +1500,36 @@ impl Checker {
             Stmt::FieldCompoundAssign { object, field, op, value, pos } => {
                 let typed_object = self.check_expr(object)?;
                 let typed_value = self.check_expr(value)?;
+
+                if let Some((module, native)) = self.native_object_of(typed_object.ty()) {
+                    let struct_name = native.name.to_string();
+                    let Some(def) = native.fields.iter().find(|f| f.name == field) else {
+                        self.errors.push(TypeError::NoSuchField { struct_name, field: field.clone(), pos: pos.clone() });
+                        return None;
+                    };
+                    let Some(setter) = def.set else {
+                        self.errors.push(TypeError::ReadOnlyField { struct_name, field: field.clone(), pos: pos.clone() });
+                        return None;
+                    };
+                    if !is_name_path(object) {
+                        self.errors.push(TypeError::CompoundOnNativeNeedsName {
+                            struct_name: native.name.to_string(),
+                            field: field.clone(),
+                            pos: pos.clone(),
+                        });
+                        return None;
+                    }
+                    let current = self.lib_call(module, def.get, vec![typed_object.clone()], pos)?;
+                    let result_ty = self.binary_result_type(op, current.ty(), typed_value.ty(), pos)?;
+                    let next = TypedExpr::Binary {
+                        left: Box::new(current),
+                        op: op.clone(),
+                        right: Box::new(typed_value),
+                        ty: result_ty,
+                    };
+                    let call = self.lib_call(module, setter, vec![typed_object, next], pos)?;
+                    return Some(TypedStmt::ExprStmt(call));
+                }
 
                 let (struct_name, field_ty) = self.resolve_field(typed_object.ty(), field, pos)?;
 
@@ -2164,6 +2242,9 @@ impl Checker {
                         return Some(TypedExpr::EnumValue { operand: Box::new(typed_object), enum_name, ty });
                     }
                 }
+                if let Some((module, object)) = self.native_object_of(typed_object.ty()) {
+                    return self.native_field_read(module, object, typed_object, field, pos);
+                }
                 let (_struct_name, field_ty) = self.resolve_field(typed_object.ty(), field, pos)?;
                 Some(TypedExpr::Field { object: Box::new(typed_object), field: field.clone(), ty: field_ty })
             }
@@ -2242,6 +2323,39 @@ impl Checker {
                 })
             }
         }
+    }
+
+    /// the native object `ty` is, if it is one of the installed libraries' objects
+    fn native_object_of(&self, ty: &Ty) -> Option<(&'static str, &'static spg_libs::NativeObject)> {
+        match ty {
+            Ty::Named(name) => self.native_objects.get(name).copied(),
+            _ => None,
+        }
+    }
+
+    /// `module.function(args)` as a checked builtin call: the same path a plain library call takes
+    fn lib_call(&mut self, module: &str, function: &str, args: Vec<TypedExpr>, pos: &p::Pos) -> Option<TypedExpr> {
+        self.check_builtin_call(format!("@{}.{}", module, function), args, pos)
+    }
+
+    /// `obj.field` on a native object: the getter's call. `obj` is typed already
+    fn native_field_read(
+        &mut self,
+        module: &str,
+        object: &spg_libs::NativeObject,
+        typed_object: TypedExpr,
+        field: &str,
+        pos: &p::Pos,
+    ) -> Option<TypedExpr> {
+        let Some(def) = object.fields.iter().find(|f| f.name == field) else {
+            self.errors.push(TypeError::NoSuchField {
+                struct_name: object.name.to_string(),
+                field: field.to_string(),
+                pos: pos.clone(),
+            });
+            return None;
+        };
+        self.lib_call(module, def.get, vec![typed_object], pos)
     }
 
     /// resolves `ty.field` to `(struct_name, field_type)`, or pushes the
@@ -2541,4 +2655,13 @@ fn unify_optional(a: &Ty, b: &Ty) -> Option<Ty> {
 /// `Type.name` -> `name`
 fn member_of(qualified: &str) -> &str {
     qualified.split_once('.').map_or(qualified, |(_, m)| m)
+}
+
+/// a plain name, or fields of names (`red`, `me.shape`): reading it twice has no effect
+fn is_name_path(expr: &p::Expr) -> bool {
+    match expr {
+        p::Expr::Ident(..) => true,
+        p::Expr::Field { object, .. } => is_name_path(object),
+        _ => false,
+    }
 }

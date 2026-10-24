@@ -1,5 +1,5 @@
-//! the slice-1 contract, against the null backend.
-//! covered here: call order, dt, held keys, closing and errors.
+//! the contract of the core, against the null backend.
+//! covered here: the scene, call order, dt, held keys, closing and errors.
 //! not covered: a real window (checked by hand on Windows).
 
 use ui_core::color;
@@ -7,10 +7,25 @@ use ui_core::null::NullBackend;
 use ui_core::{Backend, Key, Session, State, MAX_DT};
 
 const RED: u32 = 0x00FF_3300;
+const GREEN: u32 = 0x0000_FF00;
+const BLUE: u32 = 0x0000_00FF;
 const BG: u32 = 0x0010_1010;
 
 fn session(w: usize, h: usize) -> Session<NullBackend> {
     Session::open(NullBackend::new(), "test", w, h).unwrap()
+}
+
+/// a session with its first frame already started, so the scene is "live"
+fn running(w: usize, h: usize) -> Session<NullBackend> {
+    let mut s = session(w, h);
+    s.begin_frame(0.0).unwrap();
+    s
+}
+
+/// draws one more frame and returns the pixel that frame ended up with at (x, y)
+fn drawn(s: &mut Session<NullBackend>, now: f64, x: usize, y: usize) -> u32 {
+    s.begin_frame(now).unwrap();
+    s.backend().last_frame[y * s.width() + x]
 }
 
 fn approx(a: f64, b: f64) -> bool {
@@ -32,6 +47,14 @@ fn rgb_checks_each_channel() {
     assert_eq!(color::rgb(255, 51, 0), Ok(RED));
     assert!(color::rgb(256, 0, 0).is_err());
     assert!(color::rgb(0, -1, 0).is_err());
+}
+
+#[test]
+fn a_color_number_must_fit_in_three_bytes() {
+    assert_eq!(color::check(0), Ok(0));
+    assert_eq!(color::check(0xFF_FFFF), Ok(0xFF_FFFF));
+    assert!(color::check(-1).is_err());
+    assert!(color::check(0x100_0000).is_err());
 }
 
 #[test]
@@ -65,17 +88,18 @@ fn window_size_must_be_positive() {
 
 #[test]
 fn window_starts_created_and_opens_the_backend() {
-    let s = session(8, 8);
+    let s = session(8, 6);
     assert_eq!(s.state(), State::Created);
+    assert_eq!((s.width(), s.height()), (8, 6));
     assert!(s.backend().is_open());
 }
 
 #[test]
-fn drawing_before_the_first_frame_is_an_error() {
+fn shapes_can_be_made_before_the_loop_starts() {
     let mut s = session(8, 8);
-    assert!(s.clear(BG).is_err());
-    assert!(s.rect(0.0, 0.0, 1.0, 1.0, RED).is_err());
-    assert!(s.request_close().is_err());
+    let id = s.add_rect(1.0, 1.0, 2.0, 2.0, RED).unwrap();
+    assert_eq!(s.shape(id).unwrap().color(), RED);
+    assert_eq!(s.state(), State::Created);
 }
 
 // --- dt --------------------------------------------------------------------------
@@ -106,46 +130,193 @@ fn dt_is_capped_after_a_long_pause() {
 fn dt_is_never_negative() {
     let mut s = session(8, 8);
     s.begin_frame(10.0).unwrap();
-    let dt = s.begin_frame(9.0).unwrap().unwrap();
-    assert_eq!(dt, 0.0);
+    assert_eq!(s.begin_frame(9.0).unwrap().unwrap(), 0.0);
 }
 
-// --- order and drawing -----------------------------------------------------------
+// --- the scene is drawn by the frame -----------------------------------------
 
 #[test]
-fn clear_then_rect_is_visible_in_the_shown_frame() {
+fn the_first_frame_already_shows_the_scene() {
     let mut s = session(10, 10);
+    s.scene_mut().unwrap().set_background(BG);
+    s.add_rect(2.0, 2.0, 3.0, 3.0, RED).unwrap();
+    assert_eq!(s.backend().frames_shown, 0);
     s.begin_frame(0.0).unwrap();
-    s.clear(BG).unwrap();
-    s.rect(2.0, 2.0, 3.0, 3.0, RED).unwrap();
-    s.begin_frame(0.016).unwrap(); // shows the previous frame
-
+    assert_eq!(s.backend().frames_shown, 1, "no empty first frame");
     let shown = &s.backend().last_frame;
     assert_eq!(shown.len(), 100);
     assert_eq!(shown[2 * 10 + 2], RED, "corner of the rectangle");
     assert_eq!(shown[4 * 10 + 4], RED, "last pixel of the rectangle");
     assert_eq!(shown[5 * 10 + 5], BG, "outside the rectangle");
-    assert_eq!(s.backend().frames_shown, 1);
 }
 
 #[test]
-fn rect_outside_the_window_is_clipped_not_an_error() {
+fn every_frame_shows_one_frame() {
+    let mut s = session(4, 4);
+    for i in 0..5 {
+        s.begin_frame(i as f64 * 0.016).unwrap();
+    }
+    assert_eq!(s.backend().frames_shown, 5);
+}
+
+#[test]
+fn a_change_shows_up_on_the_next_frame_and_not_before() {
+    let mut s = running(10, 10);
+    let id = s.add_rect(0.0, 0.0, 4.0, 4.0, RED).unwrap();
+    // changed after the frame started: the frame already shown does not have it
+    assert_eq!(s.backend().last_frame[0], 0);
+    s.shape_mut(id).unwrap().set_color(GREEN);
+    assert_eq!(drawn(&mut s, 0.016, 0, 0), GREEN);
+}
+
+#[test]
+fn the_background_is_painted_under_everything() {
+    let mut s = running(6, 6);
+    s.scene_mut().unwrap().set_background(BG);
+    assert_eq!(drawn(&mut s, 0.016, 5, 5), BG);
+}
+
+#[test]
+fn a_shape_outside_the_window_is_cut_not_an_error() {
     let mut s = session(10, 10);
+    s.scene_mut().unwrap().set_background(BG);
+    s.add_rect(-5.0, -5.0, 8.0, 8.0, RED).unwrap();
+    s.add_rect(8.0, 8.0, 50.0, 50.0, BLUE).unwrap();
+    s.add_rect(100.0, 100.0, 5.0, 5.0, GREEN).unwrap();
     s.begin_frame(0.0).unwrap();
-    s.clear(BG).unwrap();
-    assert!(s.rect(-5.0, -5.0, 8.0, 8.0, RED).is_ok());
-    // the rectangle covers x in [-5, 3) and y in [-5, 3): pixels 0..=2
+    // the first covers x and y in [-5, 3): pixels 0..=2
     assert_eq!(s.pixel(0, 0), Some(RED));
     assert_eq!(s.pixel(2, 2), Some(RED));
     assert_eq!(s.pixel(3, 3), Some(BG), "the end of the rectangle is exclusive");
+    assert_eq!(s.pixel(9, 9), Some(BLUE));
 }
 
 #[test]
-fn rect_with_non_finite_numbers_is_an_error() {
-    let mut s = session(10, 10);
+fn a_shape_of_size_zero_draws_nothing() {
+    let mut s = session(6, 6);
+    s.scene_mut().unwrap().set_background(BG);
+    s.add_rect(2.0, 2.0, 0.0, 3.0, RED).unwrap();
+    s.add_rect(3.0, 3.0, 3.0, 0.0, RED).unwrap();
     s.begin_frame(0.0).unwrap();
-    assert!(s.rect(f64::NAN, 0.0, 1.0, 1.0, RED).is_err());
-    assert!(s.rect(0.0, 0.0, f64::INFINITY, 1.0, RED).is_err());
+    assert!(s.backend().last_frame.iter().all(|&p| p == BG));
+}
+
+#[test]
+fn an_invisible_shape_is_kept_but_not_drawn() {
+    let mut s = session(6, 6);
+    s.scene_mut().unwrap().set_background(BG);
+    let id = s.add_rect(0.0, 0.0, 6.0, 6.0, RED).unwrap();
+    s.shape_mut(id).unwrap().set_visible(false);
+    assert_eq!(drawn(&mut s, 0.0, 3, 3), BG);
+    assert!(!s.shape(id).unwrap().visible(), "still there, and still readable");
+    s.shape_mut(id).unwrap().set_visible(true);
+    assert_eq!(drawn(&mut s, 0.016, 3, 3), RED);
+}
+
+#[test]
+fn the_last_shape_made_is_on_top() {
+    let mut s = session(6, 6);
+    s.add_rect(0.0, 0.0, 6.0, 6.0, RED).unwrap();
+    s.add_rect(0.0, 0.0, 6.0, 6.0, GREEN).unwrap();
+    assert_eq!(drawn(&mut s, 0.0, 3, 3), GREEN);
+}
+
+#[test]
+fn a_higher_layer_is_on_top_whatever_the_creation_order() {
+    let mut s = session(6, 6);
+    let high = s.add_rect(0.0, 0.0, 6.0, 6.0, RED).unwrap();
+    s.add_rect(0.0, 0.0, 6.0, 6.0, GREEN).unwrap(); // made later, but layer 0
+    s.shape_mut(high).unwrap().set_layer(5);
+    assert_eq!(drawn(&mut s, 0.0, 3, 3), RED);
+}
+
+#[test]
+fn a_negative_layer_goes_under_the_default_one() {
+    let mut s = session(6, 6);
+    s.add_rect(0.0, 0.0, 6.0, 6.0, RED).unwrap();
+    let low = s.add_rect(0.0, 0.0, 6.0, 6.0, GREEN).unwrap();
+    s.shape_mut(low).unwrap().set_layer(-1);
+    assert_eq!(drawn(&mut s, 0.0, 3, 3), RED);
+}
+
+#[test]
+fn shapes_on_one_layer_keep_creation_order() {
+    let mut s = session(6, 6);
+    let a = s.add_rect(0.0, 0.0, 6.0, 6.0, RED).unwrap();
+    let b = s.add_rect(0.0, 0.0, 6.0, 6.0, GREEN).unwrap();
+    let c = s.add_rect(0.0, 0.0, 6.0, 6.0, BLUE).unwrap();
+    for id in [a, b, c] {
+        s.shape_mut(id).unwrap().set_layer(2);
+    }
+    assert_eq!(drawn(&mut s, 0.0, 3, 3), BLUE);
+}
+
+// --- killing -------------------------------------------------------------------
+
+#[test]
+fn a_killed_shape_is_gone_from_the_screen() {
+    let mut s = session(6, 6);
+    s.scene_mut().unwrap().set_background(BG);
+    let id = s.add_rect(0.0, 0.0, 6.0, 6.0, RED).unwrap();
+    assert_eq!(drawn(&mut s, 0.0, 3, 3), RED);
+    s.kill_shape(id);
+    assert_eq!(drawn(&mut s, 0.016, 3, 3), BG);
+}
+
+#[test]
+fn using_a_killed_shape_is_an_error() {
+    let mut s = session(6, 6);
+    let id = s.add_rect(0.0, 0.0, 1.0, 1.0, RED).unwrap();
+    s.kill_shape(id);
+    assert_eq!(s.shape(id).unwrap_err(), "this shape was killed");
+    assert_eq!(s.shape_mut(id).unwrap_err(), "this shape was killed");
+}
+
+#[test]
+fn killing_twice_does_nothing() {
+    let mut s = session(6, 6);
+    let id = s.add_rect(0.0, 0.0, 1.0, 1.0, RED).unwrap();
+    s.kill_shape(id);
+    s.kill_shape(id);
+    s.kill_shape(999);
+    assert!(s.scene().unwrap().is_empty());
+}
+
+#[test]
+fn a_shape_id_is_never_reused() {
+    let mut s = session(6, 6);
+    let first = s.add_rect(0.0, 0.0, 1.0, 1.0, RED).unwrap();
+    s.kill_shape(first);
+    let second = s.add_rect(0.0, 0.0, 1.0, 1.0, GREEN).unwrap();
+    assert_ne!(first, second);
+    assert!(s.shape(first).is_err(), "the old handle must not reach the new shape");
+    assert_eq!(s.shape(second).unwrap().color(), GREEN);
+}
+
+// --- values are checked --------------------------------------------------------------
+
+#[test]
+fn bad_numbers_are_refused_when_a_shape_is_made() {
+    let mut s = session(6, 6);
+    assert!(s.add_rect(f64::NAN, 0.0, 1.0, 1.0, RED).is_err());
+    assert!(s.add_rect(0.0, f64::INFINITY, 1.0, 1.0, RED).is_err());
+    assert!(s.add_rect(0.0, 0.0, -1.0, 1.0, RED).is_err(), "negative width");
+    assert!(s.add_rect(0.0, 0.0, 1.0, -0.5, RED).is_err(), "negative height");
+    assert!(s.add_rect(0.0, 0.0, f64::NAN, 1.0, RED).is_err());
+    assert!(s.scene().unwrap().is_empty(), "nothing was added");
+}
+
+#[test]
+fn bad_numbers_are_refused_by_the_setters_and_the_old_value_stays() {
+    let mut s = session(6, 6);
+    let id = s.add_rect(1.0, 2.0, 3.0, 4.0, RED).unwrap();
+    let shape = s.shape_mut(id).unwrap();
+    assert!(shape.set_x(f64::NAN).is_err());
+    assert!(shape.set_y(f64::NEG_INFINITY).is_err());
+    assert!(shape.set_w(-1.0).is_err());
+    assert!(shape.set_h(f64::NAN).is_err());
+    assert_eq!((shape.x(), shape.y(), shape.w(), shape.h()), (1.0, 2.0, 3.0, 4.0));
+    assert!(shape.set_w(0.0).is_ok(), "zero is fine");
 }
 
 // --- held keys -------------------------------------------------------------------
@@ -170,91 +341,6 @@ fn released_key_is_no_longer_down() {
     assert!(!s.is_down(Key::Up));
 }
 
-// --- closing ---------------------------------------------------------------------
-
-#[test]
-fn escape_closes_the_window() {
-    let mut s = session(8, 8);
-    s.begin_frame(0.0).unwrap();
-    s.backend_mut().press(Key::Escape);
-    assert_eq!(s.begin_frame(0.016).unwrap(), None);
-    assert_eq!(s.state(), State::Closed);
-    assert!(!s.backend().is_open(), "the backend is closed");
-}
-
-#[test]
-fn closing_the_window_with_the_button_ends_the_loop() {
-    let mut s = session(8, 8);
-    s.begin_frame(0.0).unwrap();
-    s.backend_mut().close_by_user();
-    assert_eq!(s.begin_frame(0.016).unwrap(), None);
-    assert_eq!(s.state(), State::Closed);
-}
-
-#[test]
-fn request_close_inside_a_frame_finishes_that_frame() {
-    let mut s = session(8, 8);
-    s.begin_frame(0.0).unwrap();
-    s.clear(BG).unwrap();
-    s.request_close().unwrap();
-    // drawing is still allowed: the frame finishes normally
-    s.rect(0.0, 0.0, 1.0, 1.0, RED).unwrap();
-    assert_eq!(s.state(), State::Running, "nothing is released in the middle of a frame");
-    assert_eq!(s.begin_frame(0.016).unwrap(), None);
-    assert_eq!(s.state(), State::Closed);
-}
-
-#[test]
-fn drawing_after_close_is_an_error() {
-    let mut s = session(8, 8);
-    s.begin_frame(0.0).unwrap();
-    s.request_close().unwrap();
-    s.begin_frame(0.016).unwrap();
-    assert!(s.clear(BG).is_err());
-    assert!(s.rect(0.0, 0.0, 1.0, 1.0, RED).is_err());
-}
-
-#[test]
-fn begin_frame_after_close_keeps_returning_none() {
-    let mut s = session(8, 8);
-    s.begin_frame(0.0).unwrap();
-    s.request_close().unwrap();
-    assert_eq!(s.begin_frame(0.016).unwrap(), None);
-    assert_eq!(s.begin_frame(0.032).unwrap(), None);
-}
-
-#[test]
-fn backend_is_closed_exactly_once() {
-    let mut s = session(8, 8);
-    let closes = s.backend().close_counter();
-    s.begin_frame(0.0).unwrap();
-    s.request_close().unwrap();
-    s.begin_frame(0.016).unwrap();
-    s.begin_frame(0.032).unwrap();
-    drop(s);
-    assert_eq!(closes.get(), 1, "closing twice must not free the window twice");
-}
-
-#[test]
-fn dropping_an_open_window_closes_it() {
-    let mut s = session(8, 8);
-    let closes = s.backend().close_counter();
-    s.begin_frame(0.0).unwrap();
-    assert_eq!(closes.get(), 0, "still open");
-    drop(s); // no closing begin_frame: the drop must close it
-    assert_eq!(closes.get(), 1);
-}
-
-#[test]
-fn a_boxed_backend_works_the_same() {
-    let boxed: Box<dyn Backend> = Box::new(NullBackend::new());
-    let mut s = Session::open(boxed, "boxed", 4, 4).unwrap();
-    assert_eq!(s.begin_frame(0.0).unwrap(), Some(0.0));
-    s.clear(BG).unwrap();
-    s.request_close().unwrap();
-    assert_eq!(s.begin_frame(0.016).unwrap(), None);
-}
-
 // --- key events --------------------------------------------------------------------
 
 #[test]
@@ -270,9 +356,9 @@ fn a_press_is_seen_on_one_frame_only() {
     assert!(s.is_down(Key::Space));
 }
 
-#[test]
 /// the contract for a backend that reports every event. the minifb backend can miss taps
 /// shorter than a frame (see the spec), so this runs on the null backend only
+#[test]
 fn a_tap_shorter_than_a_frame_is_still_a_press() {
     let mut s = session(8, 8);
     s.begin_frame(0.0).unwrap();
@@ -302,9 +388,8 @@ fn keys_are_a_snapshot_for_the_whole_frame() {
     let mut s = session(8, 8);
     s.begin_frame(0.0).unwrap();
     s.backend_mut().press(Key::Left);
-    // the user presses Right in the middle of the frame: the frame does not see it yet
+    // the user presses a key in the middle of the frame: the frame does not see it yet
     assert!(!s.is_down(Key::Left));
-    assert!(!s.is_down(Key::Right));
     s.begin_frame(0.016).unwrap();
     assert!(s.is_down(Key::Left));
 }
@@ -316,4 +401,198 @@ fn escape_pressed_and_released_inside_one_frame_still_closes() {
     s.backend_mut().press(Key::Escape);
     s.backend_mut().release(Key::Escape);
     assert_eq!(s.begin_frame(0.016).unwrap(), None);
+}
+
+// --- closing ---------------------------------------------------------------------
+
+#[test]
+fn escape_closes_the_window() {
+    let mut s = running(8, 8);
+    s.backend_mut().press(Key::Escape);
+    assert_eq!(s.begin_frame(0.016).unwrap(), None);
+    assert_eq!(s.state(), State::Closed);
+    assert!(!s.backend().is_open(), "the backend is closed");
+}
+
+#[test]
+fn closing_the_window_with_the_button_ends_the_loop() {
+    let mut s = running(8, 8);
+    s.backend_mut().close_by_user();
+    assert_eq!(s.begin_frame(0.016).unwrap(), None);
+    assert_eq!(s.state(), State::Closed);
+}
+
+#[test]
+fn request_close_lets_the_current_frame_finish() {
+    let mut s = running(8, 8);
+    let id = s.add_rect(0.0, 0.0, 1.0, 1.0, RED).unwrap();
+    s.request_close();
+    // everything still works until the next frame starts
+    s.shape_mut(id).unwrap().set_x(3.0).unwrap();
+    s.add_rect(0.0, 0.0, 1.0, 1.0, GREEN).unwrap();
+    assert_eq!(s.state(), State::Running, "nothing is released in the middle of a frame");
+    assert_eq!(s.begin_frame(0.016).unwrap(), None);
+    assert_eq!(s.state(), State::Closed);
+}
+
+#[test]
+fn request_close_before_the_first_frame_ends_the_loop_at_once() {
+    let mut s = session(8, 8);
+    s.request_close();
+    assert_eq!(s.begin_frame(0.0).unwrap(), None);
+}
+
+#[test]
+fn the_shapes_die_with_the_window() {
+    let mut s = running(8, 8);
+    let id = s.add_rect(0.0, 0.0, 1.0, 1.0, RED).unwrap();
+    s.request_close();
+    s.begin_frame(0.016).unwrap();
+    assert_eq!(s.shape(id).unwrap_err(), "the window is closed");
+    assert_eq!(s.shape_mut(id).unwrap_err(), "the window is closed");
+    assert!(s.add_rect(0.0, 0.0, 1.0, 1.0, RED).is_err());
+    assert!(s.scene().is_err());
+}
+
+#[test]
+fn killing_after_the_window_closed_is_not_an_error() {
+    let mut s = running(8, 8);
+    let id = s.add_rect(0.0, 0.0, 1.0, 1.0, RED).unwrap();
+    s.request_close();
+    s.begin_frame(0.016).unwrap();
+    s.kill_shape(id); // the shape is already gone: nothing to do
+    s.request_close(); // so is closing a closed window
+}
+
+#[test]
+fn begin_frame_after_close_keeps_returning_none() {
+    let mut s = running(8, 8);
+    s.request_close();
+    assert_eq!(s.begin_frame(0.016).unwrap(), None);
+    assert_eq!(s.begin_frame(0.032).unwrap(), None);
+    assert_eq!(s.backend().frames_shown, 2, "no frame is shown after the close");
+}
+
+#[test]
+fn backend_is_closed_exactly_once() {
+    let mut s = running(8, 8);
+    let closes = s.backend().close_counter();
+    s.request_close();
+    s.begin_frame(0.016).unwrap();
+    s.begin_frame(0.032).unwrap();
+    drop(s);
+    assert_eq!(closes.get(), 1, "closing twice must not free the window twice");
+}
+
+#[test]
+fn dropping_an_open_window_closes_it() {
+    let s = running(8, 8);
+    let closes = s.backend().close_counter();
+    assert_eq!(closes.get(), 0, "still open");
+    drop(s); // no closing begin_frame: the drop must close it
+    assert_eq!(closes.get(), 1);
+}
+
+#[test]
+fn a_boxed_backend_works_the_same() {
+    let boxed: Box<dyn Backend> = Box::new(NullBackend::new());
+    let mut s = Session::open(boxed, "boxed", 4, 4).unwrap();
+    s.add_rect(0.0, 0.0, 4.0, 4.0, RED).unwrap();
+    assert_eq!(s.begin_frame(0.0).unwrap(), Some(0.0));
+    assert_eq!(s.pixel(1, 1), Some(RED));
+    s.request_close();
+    assert_eq!(s.begin_frame(0.016).unwrap(), None);
+}
+
+// --- focus --------------------------------------------------------------------------
+
+#[test]
+fn the_first_frame_is_not_a_focus_change() {
+    let mut s = session(4, 4);
+    s.begin_frame(0.0).unwrap();
+    assert!(s.take_focus_changes().is_empty(), "opening is not a change");
+}
+
+#[test]
+fn losing_and_gaining_the_focus_are_reported_once_each() {
+    let mut s = session(4, 4);
+    let focus = s.backend().focus_handle();
+    s.begin_frame(0.0).unwrap();
+    focus.set(false);
+    s.begin_frame(0.016).unwrap();
+    s.begin_frame(0.032).unwrap(); // still unfocused: nothing new
+    focus.set(true);
+    s.begin_frame(0.048).unwrap();
+    assert_eq!(s.take_focus_changes(), vec![false, true]);
+    assert!(s.take_focus_changes().is_empty(), "taking them empties the list");
+}
+
+#[test]
+fn a_window_that_starts_unfocused_reports_its_first_gain_only_when_it_changes() {
+    let mut s = session(4, 4);
+    let focus = s.backend().focus_handle();
+    focus.set(false);
+    s.begin_frame(0.0).unwrap();
+    assert!(s.take_focus_changes().is_empty());
+    focus.set(true);
+    s.begin_frame(0.016).unwrap();
+    assert_eq!(s.take_focus_changes(), vec![true]);
+}
+
+#[test]
+fn closing_does_not_report_a_focus_change() {
+    let mut s = session(4, 4);
+    let focus = s.backend().focus_handle();
+    s.begin_frame(0.0).unwrap();
+    focus.set(false);
+    s.request_close();
+    assert_eq!(s.begin_frame(0.016).unwrap(), None);
+    assert_eq!(s.take_focus_changes(), vec![false], "the change of this frame is still reported");
+    assert_eq!(s.begin_frame(0.032).unwrap(), None);
+    assert!(s.take_focus_changes().is_empty());
+}
+
+// --- resize -------------------------------------------------------------------------
+
+#[test]
+fn the_first_frame_is_not_a_resize() {
+    let mut s = session(8, 6);
+    s.begin_frame(0.0).unwrap();
+    assert!(s.take_resizes().is_empty(), "opening at the given size is not a change");
+}
+
+#[test]
+fn each_new_size_is_reported_once_in_order() {
+    let mut s = session(8, 6);
+    let size = s.backend().size_handle();
+    s.begin_frame(0.0).unwrap();
+    size.set((640, 480));
+    s.begin_frame(0.016).unwrap();
+    s.begin_frame(0.032).unwrap(); // same size again: nothing new
+    size.set((1024, 768));
+    s.begin_frame(0.048).unwrap();
+    assert_eq!(s.take_resizes(), vec![(640, 480), (1024, 768)]);
+    assert!(s.take_resizes().is_empty());
+}
+
+#[test]
+fn the_framebuffer_keeps_its_size_when_the_window_is_resized() {
+    let mut s = running(4, 4);
+    let size = s.backend().size_handle();
+    s.backend_mut().press(Key::Right); // keep the backend busy
+    size.set((400, 400));
+    s.begin_frame(0.016).unwrap();
+    assert_eq!((s.width(), s.height()), (4, 4));
+    assert_eq!(s.backend().last_frame.len(), 16, "the frame shown is still 4x4");
+}
+
+#[test]
+fn closing_does_not_report_a_resize() {
+    let mut s = session(8, 6);
+    let size = s.backend().size_handle();
+    s.begin_frame(0.0).unwrap();
+    size.set((100, 100));
+    s.request_close();
+    assert_eq!(s.begin_frame(0.016).unwrap(), None);
+    assert_eq!(s.take_resizes(), vec![(100, 100)], "the change of the closing frame is reported");
 }

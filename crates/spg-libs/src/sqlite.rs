@@ -17,6 +17,7 @@ pub static MODULE: NativeModule = NativeModule {
     name: "sqlite",
     doc: "a database in one file: exec and query (install #sqlite)",
     structs: &[],
+    objects: &[],
     functions: &[
         NativeFn { name: "exec", sig: "(string, string) -> void", doc: "run SQL. several statements are fine. the file is created if it is not there", call: exec },
         NativeFn { name: "exec", sig: "(string, string, array<string>) -> int", doc: "run one statement with ? filled in order from the array. gives back how many rows it changed", call: exec_params },

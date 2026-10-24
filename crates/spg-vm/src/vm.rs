@@ -77,6 +77,9 @@ pub struct Vm<'p> {
     sched: Arc<Sched>,
     /// tasks that ended with an error, for the unwaited-failure warning
     failed_tasks: Vec<Rc<TaskCell>>,
+    /// functions the program passed to a library (`win.onClose(...)`). the library names them by
+    /// their position here, and the VM runs them when the library asks
+    handlers: Vec<Rc<Closure>>,
 }
 
 /// Max spg call depth. The CLI gives the VM a 1 GiB stack, so this fits fine.
@@ -137,6 +140,7 @@ impl<'p> Vm<'p> {
             trace_omitted: 0,
             depth: 0,
             native: None,
+            handlers: Vec::new(),
             sched: Arc::new(Sched::new()),
             failed_tasks: Vec::new(),
         }
@@ -243,6 +247,18 @@ impl<'p> Vm<'p> {
     /// every call goes through here. a `-> task<T>` function runs its body right
     /// now (tasks are eager), then the result, or the error and its trace, goes
     /// into the task. the caller never sees the error itself: `.wait()` throws it.
+    /// runs the handler `id` (see `handlers`) with `args`. a handler returns nothing. captured
+    /// values go before the arguments, as for any closure call
+    fn run_handler(&mut self, id: u64, args: Vec<Value>, value_stack: &mut Vec<Value>) -> Result<(), RuntimeError> {
+        let closure = self.handlers.get(id as usize).cloned().ok_or(RuntimeError::InvalidFunctionIndex(id as usize))?;
+        let program = self.program;
+        let callee = program.functions.get(closure.index).ok_or(RuntimeError::InvalidFunctionIndex(closure.index))?;
+        let mut all = closure.captures.clone();
+        all.extend(args);
+        self.run_chunk(callee, all, value_stack)?;
+        Ok(())
+    }
+
     fn run_chunk(&mut self, chunk: &'p Chunk, args: Vec<Value>, value_stack: &mut Vec<Value>) -> Result<Value, RuntimeError> {
         if !chunk.is_task {
             return self.run_chunk_body(chunk, args, value_stack);
@@ -763,7 +779,12 @@ impl<'p> Vm<'p> {
                 args.reverse();
                 // the script that made the call: relative paths in a library start at its folder
                 let loc = frame.chunk.locs.get(frame.ip.saturating_sub(1)).cloned().unwrap_or_default();
-                let value = crate::libs::call(self.program, index, args, loc.file.as_deref(), loc.line)?;
+                let value = crate::libs::call(self.program, index, args, &mut self.handlers, loc.file.as_deref(), loc.line)?;
+                // the library may have asked for handlers to run: they run before the value goes on
+                for (id, args) in spg_libs::take_handlers() {
+                    let args = args.into_iter().map(|a| crate::libs::from_handler_arg(self.program, a)).collect::<Result<Vec<_>, _>>()?;
+                    self.run_handler(id, args, frame.value_stack)?;
+                }
                 frame.push(value);
             }
             // `@time.sleep` gives the baton away while it sleeps, so other tasks can run

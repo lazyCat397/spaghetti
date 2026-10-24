@@ -10,6 +10,7 @@ pub static MODULE: NativeModule = NativeModule {
     name: "csv",
     doc: "comma-separated text: parse and write (install #csv)",
     structs: &[],
+    objects: &[],
     functions: &[
         NativeFn { name: "parse", sig: "(string) -> array<map<string, string>>", doc: "the rows of a CSV text, one map per row, keyed by the first line's column names", call: parse },
         NativeFn { name: "rows", sig: "(string) -> array<array<string>>", doc: "the rows of a CSV text as plain lists of fields (the first line included)", call: rows },

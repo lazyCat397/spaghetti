@@ -225,10 +225,39 @@ impl BuiltinId {
 /// the types a native library can name: int, float, bool, string, void, array<T>, map<K, V>,
 /// or the name of one of its structs.
 pub fn parse_sig(sig: &str) -> (Vec<Ty>, Ty) {
+    // `(params) -> ret`: the params end at the parenthesis that closes the first one, and the
+    // return type follows the arrow after it. the arrow inside a `function(..) -> T` parameter
+    // is therefore never mistaken for the signature's arrow
+    let trimmed = sig.trim();
+    if let Some(open) = trimmed.find('(').filter(|&i| i == 0) {
+        let close = matching_close(trimmed, open).expect("a library signature has a closing `)`");
+        let params_text = &trimmed[open + 1..close];
+        let ret = trimmed[close + 1..].trim_start().strip_prefix("->").expect("a library signature has a `->`");
+        let params = if params_text.trim().is_empty() { Vec::new() } else { split_top_level(params_text).into_iter().map(parse_ty).collect() };
+        return (params, parse_ty(ret));
+    }
     let (params, ret) = sig.split_once("->").expect("a library signature has a `->`");
     let params = params.trim().trim_start_matches('(').trim_end_matches(')');
     let params = if params.trim().is_empty() { Vec::new() } else { split_top_level(params).into_iter().map(parse_ty).collect() };
     (params, parse_ty(ret))
+}
+
+/// the index of the `)` that closes the `(` at `open`
+fn matching_close(text: &str, open: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    for (i, c) in text.char_indices().skip_while(|(i, _)| *i < open) {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn parse_ty(text: &str) -> Ty {
@@ -241,7 +270,15 @@ fn parse_ty(text: &str) -> Ty {
         "void" => Ty::Void,
         "any" => Ty::Any,
         _ => {
-            if let Some(inner) = t.strip_prefix("array<").and_then(|r| r.strip_suffix('>')) {
+            if let Some(rest) = t.strip_prefix("function") {
+                // `function(a, b) -> ret`: a function value, as a parameter of a library function
+                let open = rest.find('(').expect("a function type in a library signature has `(`");
+                let close = matching_close(rest, open).expect("a function type in a library signature has `)`");
+                let params_text = &rest[open + 1..close];
+                let ret = rest[close + 1..].trim_start().strip_prefix("->").expect("a function type has `->`");
+                let params = if params_text.trim().is_empty() { Vec::new() } else { split_top_level(params_text).into_iter().map(parse_ty).collect() };
+                Ty::Function { params, ret: Box::new(parse_ty(ret)) }
+            } else if let Some(inner) = t.strip_prefix("array<").and_then(|r| r.strip_suffix('>')) {
                 Ty::Array(Box::new(parse_ty(inner)))
             } else if let Some(inner) = t.strip_prefix("map<").and_then(|r| r.strip_suffix('>')) {
                 let parts = split_top_level(inner);
@@ -258,16 +295,20 @@ fn parse_ty(text: &str) -> Ty {
 fn split_top_level(text: &str) -> Vec<&str> {
     let mut parts = Vec::new();
     let (mut depth, mut start) = (0usize, 0usize);
+    let mut previous = ' ';
     for (i, c) in text.char_indices() {
         match c {
-            '<' => depth += 1,
-            '>' => depth = depth.saturating_sub(1),
+            '<' | '(' => depth += 1,
+            // the `>` of an arrow `->` is not a closing bracket
+            '>' if previous == '-' => {}
+            '>' | ')' => depth = depth.saturating_sub(1),
             ',' if depth == 0 => {
                 parts.push(&text[start..i]);
                 start = i + 1;
             }
             _ => {}
         }
+        previous = c;
     }
     parts.push(&text[start..]);
     parts

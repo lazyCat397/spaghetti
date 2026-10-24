@@ -1,5 +1,10 @@
-//! `ui`: a window to draw rectangles in, and the keyboard (`install #ui`). the core is in
+//! `ui`: a window with a scene of rectangles, and the keyboard (`install #ui`). the core is in
 //! `ui-core`; this file is the bridge to the program's values.
+//!
+//! the program holds two small handles, `Window` and `Shape`. their fields and methods are this
+//! library's (see `objects` below): `win.background = ...`, `red.x`, `red.kill()`. the engine
+//! turns each use into a call of the functions here (`red.x = 1.0` is `ui._setX(red, 1.0)`), so
+//! every read gets the current value and every write lands at once.
 //!
 //! a library can not call the program's functions, so there is no `run(callback)`: the
 //! program writes its own loop and asks the window for the time of each frame:
@@ -8,33 +13,30 @@
 //! install #ui
 //!
 //! let win = ui.window("demo", 800, 600)
-//! let x = 100.0
+//! win.background = ui.hex("#101010")
+//! let red = win.rect(100.0, 100.0, 40.0, 40.0, ui.hex("#ff3300"))
 //! while (true) {
-//!     let dt = ui.nextFrame(win)
-//!     if (dt < 0.0) { break }              // closed: Esc, the X button or ui.close(win)
-//!     if (ui.isDown(win, Key.Right)) { x = x + 200.0 * dt }
-//!     if (ui.wasPressed(win, Key.Space)) { print("jump") }
-//!     ui.clear(win, ui.hex("#101010"))
-//!     ui.rect(win, x, 100.0, 40.0, 40.0, ui.hex("#ff3300"))
+//!     let dt = win.nextFrame()
+//!     if (dt < 0.0) { break }              // closed: Esc, the X button or win.close()
+//!     if (win.isDown(Key.Right)) { red.x = red.x + 200.0 * dt }
+//!     if (win.wasPressed(Key.Space)) { red.color = ui.hex("#00ff00") }
 //! }
 //! ```
 //!
 //! the windows live here, one set per thread, and the program holds the id in its `Window`.
+//! `SPG_UI_BACKEND=null` opens no real window (for tests and machines with no display).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::time::Instant;
 
-use ui_core::{color, Backend, Key, Session};
+use ui_core::{color, Backend, Key, Session, Shape};
 
-use crate::{CallCtx, Kind, LibError, LibValue, NativeFn, NativeModule};
+use crate::{CallCtx, Kind, LibError, LibValue, NativeField, NativeFn, NativeModule, NativeObject};
 
 /// the largest side a window may have, in pixels
 const MAX_SIDE: i64 = 8192;
-
-/// the largest color value: `0xFFFFFF`
-const MAX_COLOR: i64 = 0xFF_FFFF;
 
 /// the `Key` enum the program sees. it lists the same names as `ui_core::Key`; a test checks
 /// that the two stay equal
@@ -43,43 +45,124 @@ const KEY_ENUM: &str = "enum Key { A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, 
 pub static MODULE: NativeModule = NativeModule {
     kind: Kind::Install,
     name: "ui",
-    doc: "a window to draw rectangles in, and the keyboard (install #ui)",
-    structs: &["struct Window {\n    id: int\n}\n", KEY_ENUM],
+    doc: "a window with a scene of rectangles, and the keyboard (install #ui)",
+    structs: &["struct Window {\n    id: int\n}\n", "struct Shape {\n    id: int,\n    win: int\n}\n", KEY_ENUM],
+    objects: &[
+        NativeObject {
+            name: "Window",
+            fields: &[
+                NativeField { name: "background", get: "_getBackground", set: Some("_setBackground") },
+                NativeField { name: "width", get: "_getWidth", set: None },
+                NativeField { name: "height", get: "_getHeight", set: None },
+            ],
+            methods: &["rect", "nextFrame", "isDown", "wasPressed", "wasReleased", "close", "onClose", "onFocus", "onBlur", "onResize"],
+        },
+        NativeObject {
+            name: "Shape",
+            fields: &[
+                NativeField { name: "x", get: "_getX", set: Some("_setX") },
+                NativeField { name: "y", get: "_getY", set: Some("_setY") },
+                NativeField { name: "w", get: "_getW", set: Some("_setW") },
+                NativeField { name: "h", get: "_getH", set: Some("_setH") },
+                NativeField { name: "color", get: "_getColor", set: Some("_setColor") },
+                NativeField { name: "visible", get: "_getVisible", set: Some("_setVisible") },
+                NativeField { name: "layer", get: "_getLayer", set: Some("_setLayer") },
+            ],
+            methods: &["kill"],
+        },
+    ],
     functions: &[
         NativeFn { name: "window", sig: "(string, int, int) -> Window", doc: "opens a window of the given size, in pixels. it shows when the loop starts", call: window },
-        NativeFn { name: "nextFrame", sig: "(Window) -> float", doc: "starts the next frame: shows the last one, reads the keys and gives the seconds since the last frame (at most 0.1). gives -1.0 when the window is closing, which ends the loop", call: next_frame },
-        NativeFn { name: "clear", sig: "(Window, int) -> void", doc: "paints the whole window with a color (ui.hex or ui.rgb)", call: clear },
-        NativeFn { name: "rect", sig: "(Window, float, float, float, float, int) -> void", doc: "draws a filled rectangle: x, y, width, height in pixels, then a color. the part outside the window is cut off", call: rect },
+        NativeFn { name: "nextFrame", sig: "(Window) -> float", doc: "draws the scene and shows it, reads the keys and gives the seconds since the last frame (at most 0.1). gives -1.0 when the window is closing, which ends the loop", call: next_frame },
+        NativeFn { name: "rect", sig: "(Window, float, float, float, float, int) -> Shape", doc: "adds a filled rectangle to the scene: x, y, width, height in pixels, then a color. the window draws it on every frame until it is killed", call: rect },
+        NativeFn { name: "kill", sig: "(Shape) -> void", doc: "removes the shape from the scene. killing it again does nothing; using it afterwards is an error", call: kill },
         NativeFn { name: "isDown", sig: "(Window, Key) -> bool", doc: "true on every frame the key is held", call: is_down },
         NativeFn { name: "wasPressed", sig: "(Window, Key) -> bool", doc: "true on the one frame the key went down. a tap shorter than one frame can be missed", call: was_pressed },
         NativeFn { name: "wasReleased", sig: "(Window, Key) -> bool", doc: "true on the one frame the key went up", call: was_released },
         NativeFn { name: "close", sig: "(Window) -> void", doc: "asks the window to close. the frame in progress finishes, then the loop ends", call: close },
+        NativeFn { name: "onClose", sig: "(Window, function() -> void) -> void", doc: "runs the function when the window closes (the X, Esc, or win.close()). replaces the one set before", call: on_close },
+        NativeFn { name: "onFocus", sig: "(Window, function() -> void) -> void", doc: "runs the function when the window gains the focus of the system. replaces the one set before", call: on_focus },
+        NativeFn { name: "onBlur", sig: "(Window, function() -> void) -> void", doc: "runs the function when the window loses the focus of the system. replaces the one set before", call: on_blur },
+        NativeFn { name: "onResize", sig: "(Window, function(int, int) -> void) -> void", doc: "runs the function with the new width and height of the window, in pixels, when the user resizes it. replaces the one set before", call: on_resize },
         NativeFn { name: "hex", sig: "(string) -> int", doc: "a color from \"#rrggbb\"", call: hex },
         NativeFn { name: "rgb", sig: "(int, int, int) -> int", doc: "a color from red, green and blue, each from 0 to 255", call: rgb },
+        // what `win.field` and `shape.field` call. not meant to be written by hand
+        NativeFn { name: "_getBackground", sig: "(Window) -> int", doc: "internal: win.background", call: get_background },
+        NativeFn { name: "_setBackground", sig: "(Window, int) -> void", doc: "internal: win.background = color", call: set_background },
+        NativeFn { name: "_getWidth", sig: "(Window) -> int", doc: "internal: win.width", call: get_width },
+        NativeFn { name: "_getHeight", sig: "(Window) -> int", doc: "internal: win.height", call: get_height },
+        NativeFn { name: "_getX", sig: "(Shape) -> float", doc: "internal: shape.x", call: get_x },
+        NativeFn { name: "_setX", sig: "(Shape, float) -> void", doc: "internal: shape.x = value", call: set_x },
+        NativeFn { name: "_getY", sig: "(Shape) -> float", doc: "internal: shape.y", call: get_y },
+        NativeFn { name: "_setY", sig: "(Shape, float) -> void", doc: "internal: shape.y = value", call: set_y },
+        NativeFn { name: "_getW", sig: "(Shape) -> float", doc: "internal: shape.w", call: get_w },
+        NativeFn { name: "_setW", sig: "(Shape, float) -> void", doc: "internal: shape.w = value", call: set_w },
+        NativeFn { name: "_getH", sig: "(Shape) -> float", doc: "internal: shape.h", call: get_h },
+        NativeFn { name: "_setH", sig: "(Shape, float) -> void", doc: "internal: shape.h = value", call: set_h },
+        NativeFn { name: "_getColor", sig: "(Shape) -> int", doc: "internal: shape.color", call: get_color },
+        NativeFn { name: "_setColor", sig: "(Shape, int) -> void", doc: "internal: shape.color = color", call: set_color },
+        NativeFn { name: "_getVisible", sig: "(Shape) -> bool", doc: "internal: shape.visible", call: get_visible },
+        NativeFn { name: "_setVisible", sig: "(Shape, bool) -> void", doc: "internal: shape.visible = value", call: set_visible },
+        NativeFn { name: "_getLayer", sig: "(Shape) -> int", doc: "internal: shape.layer", call: get_layer },
+        NativeFn { name: "_setLayer", sig: "(Shape, int) -> void", doc: "internal: shape.layer = value", call: set_layer },
     ],
 };
 
 /// an open window: the core session, over whichever backend this build uses
 type OpenWindow = Session<Box<dyn Backend>>;
 
+/// the handlers a window was given (`win.onClose(...)`), by the handler numbers of the VM
+#[derive(Default, Clone, Copy)]
+struct Handlers {
+    close: Option<u64>,
+    focus: Option<u64>,
+    blur: Option<u64>,
+    resize: Option<u64>,
+}
+
 #[derive(Default)]
 struct Registry {
     last_id: i64,
     windows: HashMap<i64, OpenWindow>,
+    handlers: HashMap<i64, Handlers>,
 }
 
 thread_local! {
     static REGISTRY: RefCell<Registry> = RefCell::new(Registry::default());
 }
 
-#[cfg(not(test))]
-fn new_backend() -> Box<dyn Backend> {
-    Box::new(ui_core::minifb_backend::MinifbBackend::default())
+#[cfg(test)]
+thread_local! {
+    /// the focus and size of the last test window opened on this thread
+    static TEST_HANDLES: std::cell::RefCell<Option<TestHandles>> = const { std::cell::RefCell::new(None) };
 }
 
 #[cfg(test)]
+struct TestHandles {
+    focus: std::rc::Rc<std::cell::Cell<bool>>,
+    size: std::rc::Rc<std::cell::Cell<(usize, usize)>>,
+}
+
+/// lets a test change the focus of the window it opened
+#[cfg(test)]
+fn share_focus(backend: &ui_core::null::NullBackend) {
+    TEST_HANDLES.with(|handles| {
+        *handles.borrow_mut() = Some(TestHandles { focus: backend.focus_handle(), size: backend.size_handle() })
+    });
+}
+
+#[cfg(not(test))]
+fn share_focus(_backend: &ui_core::null::NullBackend) {}
+
+/// the real window, unless the tests (or `SPG_UI_BACKEND=null`) ask for none
 fn new_backend() -> Box<dyn Backend> {
-    Box::new(ui_core::null::NullBackend::new())
+    if cfg!(test) || std::env::var("SPG_UI_BACKEND").as_deref() == Ok("null") {
+        let backend = ui_core::null::NullBackend::new();
+        share_focus(&backend);
+        Box::new(backend)
+    } else {
+        Box::new(ui_core::minifb_backend::MinifbBackend::default())
+    }
 }
 
 /// seconds since the first call. the clock of the frames
@@ -87,6 +170,8 @@ fn now() -> f64 {
     static START: OnceLock<Instant> = OnceLock::new();
     START.get_or_init(Instant::now).elapsed().as_secs_f64()
 }
+
+// --- the window -----------------------------------------------------------------
 
 fn window(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
     const F: &str = "ui.window";
@@ -105,33 +190,83 @@ fn window(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
         registry.windows.insert(id, session);
         id
     });
-    Ok(window_value(id))
+    Ok(LibValue::record("Window", vec![("id", LibValue::Int(id))]))
 }
 
 fn next_frame(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
     const F: &str = "ui.nextFrame";
     let id = window_id(F, &args)?;
-    let dt = with_window(F, id, |w| w.begin_frame(now()))?;
+    let (dt, focus_changes, resizes) = with_window(F, id, |w| {
+        let dt = w.begin_frame(now())?;
+        Ok((dt, w.take_focus_changes(), w.take_resizes()))
+    })?;
+    // the handlers the frame earned run after this call returns, in this order: focus, resize, close
+    REGISTRY.with(|registry| {
+        let mut registry = registry.borrow_mut();
+        let Some(handlers) = registry.handlers.get_mut(&id) else { return };
+        for gained in focus_changes {
+            let slot = if gained { &mut handlers.focus } else { &mut handlers.blur };
+            if let Some(handler) = *slot {
+                crate::queue_handler(handler, Vec::new());
+            }
+        }
+        if let Some(handler) = handlers.resize {
+            for (width, height) in resizes {
+                crate::queue_handler(handler, vec![LibValue::Int(width as i64), LibValue::Int(height as i64)]);
+            }
+        }
+        if dt.is_none() {
+            // taken once: the window is closed for good, so its close handler runs once
+            if let Some(handler) = handlers.close.take() {
+                crate::queue_handler(handler, Vec::new());
+            }
+        }
+    });
     Ok(LibValue::Float(dt.unwrap_or(-1.0)))
 }
 
-fn clear(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
-    const F: &str = "ui.clear";
-    let id = window_id(F, &args)?;
-    let color = color_arg(F, &args, 1)?;
-    with_window(F, id, |w| w.clear(color))?;
+/// the handler a program passed to `win.onClose(...)`, `onFocus` or `onBlur`, kept for the window
+fn set_handler(
+    function: &'static str,
+    args: &[LibValue],
+    choose: fn(&mut Handlers) -> &mut Option<u64>,
+) -> Result<LibValue, LibError> {
+    let id = window_id(function, args)?;
+    let handler = match args.get(1) {
+        Some(LibValue::Handler(handler)) => *handler,
+        _ => return Err(LibError::new(function, "argument 2 must be a function with no parameters that returns nothing")),
+    };
+    with_window(function, id, |_| Ok(()))?;
+    REGISTRY.with(|registry| {
+        let mut registry = registry.borrow_mut();
+        *choose(registry.handlers.entry(id).or_default()) = Some(handler);
+    });
     Ok(LibValue::Void)
 }
 
-fn rect(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
-    const F: &str = "ui.rect";
+fn on_close(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    set_handler("ui.onClose", &args, |h| &mut h.close)
+}
+
+fn on_focus(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    set_handler("ui.onFocus", &args, |h| &mut h.focus)
+}
+
+fn on_blur(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    set_handler("ui.onBlur", &args, |h| &mut h.blur)
+}
+
+fn on_resize(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    set_handler("ui.onResize", &args, |h| &mut h.resize)
+}
+
+fn close(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "ui.close";
     let id = window_id(F, &args)?;
-    let x = float(F, &args, 1)?;
-    let y = float(F, &args, 2)?;
-    let w = float(F, &args, 3)?;
-    let h = float(F, &args, 4)?;
-    let color = color_arg(F, &args, 5)?;
-    with_window(F, id, |win| win.rect(x, y, w, h, color))?;
+    with_window(F, id, |w| {
+        w.request_close();
+        Ok(())
+    })?;
     Ok(LibValue::Void)
 }
 
@@ -139,32 +274,143 @@ fn is_down(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
     const F: &str = "ui.isDown";
     let id = window_id(F, &args)?;
     let key = key_arg(F, &args, 1)?;
-    let down = with_window(F, id, |w| Ok(w.is_down(key)))?;
-    Ok(LibValue::Bool(down))
+    Ok(LibValue::Bool(with_window(F, id, |w| Ok(w.is_down(key)))?))
 }
 
 fn was_pressed(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
     const F: &str = "ui.wasPressed";
     let id = window_id(F, &args)?;
     let key = key_arg(F, &args, 1)?;
-    let pressed = with_window(F, id, |w| Ok(w.was_pressed(key)))?;
-    Ok(LibValue::Bool(pressed))
+    Ok(LibValue::Bool(with_window(F, id, |w| Ok(w.was_pressed(key)))?))
 }
 
 fn was_released(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
     const F: &str = "ui.wasReleased";
     let id = window_id(F, &args)?;
     let key = key_arg(F, &args, 1)?;
-    let released = with_window(F, id, |w| Ok(w.was_released(key)))?;
-    Ok(LibValue::Bool(released))
+    Ok(LibValue::Bool(with_window(F, id, |w| Ok(w.was_released(key)))?))
 }
 
-fn close(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
-    const F: &str = "ui.close";
+fn get_background(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Window.background";
     let id = window_id(F, &args)?;
-    with_window(F, id, |w| w.request_close())?;
+    let value = with_window(F, id, |w| Ok(w.scene()?.background()))?;
+    Ok(LibValue::Int(value as i64))
+}
+
+fn set_background(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Window.background";
+    let id = window_id(F, &args)?;
+    let value = color_arg(F, &args, 1)?;
+    with_window(F, id, |w| {
+        w.scene_mut()?.set_background(value);
+        Ok(())
+    })?;
     Ok(LibValue::Void)
 }
+
+fn get_width(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Window.width";
+    let id = window_id(F, &args)?;
+    Ok(LibValue::Int(with_window(F, id, |w| Ok(w.width()))? as i64))
+}
+
+fn get_height(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Window.height";
+    let id = window_id(F, &args)?;
+    Ok(LibValue::Int(with_window(F, id, |w| Ok(w.height()))? as i64))
+}
+
+// --- shapes -----------------------------------------------------------------------
+
+fn rect(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "ui.rect";
+    let win = window_id(F, &args)?;
+    let x = float(F, &args, 1)?;
+    let y = float(F, &args, 2)?;
+    let w = float(F, &args, 3)?;
+    let h = float(F, &args, 4)?;
+    let color = color_arg(F, &args, 5)?;
+    let shape = with_window(F, win, |window| window.add_rect(x, y, w, h, color))?;
+    Ok(LibValue::record("Shape", vec![("id", LibValue::Int(shape as i64)), ("win", LibValue::Int(win))]))
+}
+
+fn kill(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "ui.kill";
+    let (win, id) = shape_handle(F, &args)?;
+    with_window(F, win, |w| {
+        w.kill_shape(id);
+        Ok(())
+    })?;
+    Ok(LibValue::Void)
+}
+
+/// the getter of a `Shape` field: `shape_get!(get_x, "Shape.x", |s| LibValue::Float(s.x()))`
+macro_rules! shape_get {
+    ($name:ident, $label:literal, |$s:ident| $value:expr) => {
+        fn $name(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+            const F: &str = $label;
+            with_shape(F, &args, |$s| Ok($value))
+        }
+    };
+}
+
+/// the setter of a float field of a `Shape`; the core checks the number
+macro_rules! shape_set_float {
+    ($name:ident, $label:literal, $setter:ident) => {
+        fn $name(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+            const F: &str = $label;
+            let value = float(F, &args, 1)?;
+            with_shape(F, &args, |s| s.$setter(value))?;
+            Ok(LibValue::Void)
+        }
+    };
+}
+
+shape_get!(get_x, "Shape.x", |s| LibValue::Float(s.x()));
+shape_get!(get_y, "Shape.y", |s| LibValue::Float(s.y()));
+shape_get!(get_w, "Shape.w", |s| LibValue::Float(s.w()));
+shape_get!(get_h, "Shape.h", |s| LibValue::Float(s.h()));
+shape_get!(get_color, "Shape.color", |s| LibValue::Int(s.color() as i64));
+shape_get!(get_visible, "Shape.visible", |s| LibValue::Bool(s.visible()));
+shape_get!(get_layer, "Shape.layer", |s| LibValue::Int(s.layer()));
+
+shape_set_float!(set_x, "Shape.x", set_x);
+shape_set_float!(set_y, "Shape.y", set_y);
+shape_set_float!(set_w, "Shape.w", set_w);
+shape_set_float!(set_h, "Shape.h", set_h);
+
+fn set_color(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Shape.color";
+    let value = color_arg(F, &args, 1)?;
+    with_shape(F, &args, |s| {
+        s.set_color(value);
+        Ok(())
+    })?;
+    Ok(LibValue::Void)
+}
+
+fn set_visible(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Shape.visible";
+    let value = boolean(F, &args, 1)?;
+    with_shape(F, &args, |s| {
+        s.set_visible(value);
+        Ok(())
+    })?;
+    Ok(LibValue::Void)
+}
+
+fn set_layer(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Shape.layer";
+    let value = int(F, &args, 1)?;
+    with_shape(F, &args, |s| {
+        s.set_layer(value);
+        Ok(())
+    })?;
+    Ok(LibValue::Void)
+}
+
+// --- colors -------------------------------------------------------------------------
 
 fn hex(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
     const F: &str = "ui.hex";
@@ -184,23 +430,30 @@ fn rgb(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
 
 // --- helpers ---------------------------------------------------------------------
 
-/// the `Window` value the program holds
-fn window_value(id: i64) -> LibValue {
-    LibValue::record("Window", vec![("id", LibValue::Int(id))])
+/// the value of the field `name` (an int) inside the struct at argument 0, if it is a `type_name`
+fn handle_field(function: &'static str, args: &[LibValue], type_name: &str, name: &str) -> Result<i64, LibError> {
+    match args.first() {
+        Some(LibValue::Struct { name: found, fields }) if found == type_name => fields
+            .iter()
+            .find_map(|(field, value)| match value {
+                LibValue::Int(n) if field == name => Some(*n),
+                _ => None,
+            })
+            .ok_or_else(|| LibError::new(function, format!("the {type_name} has no {name}"))),
+        _ => Err(LibError::new(function, format!("expected a {type_name}, made by ui.window"))),
+    }
 }
 
 /// the id inside the `Window` at argument 0
 fn window_id(function: &'static str, args: &[LibValue]) -> Result<i64, LibError> {
-    match args.first() {
-        Some(LibValue::Struct { name, fields }) if name == "Window" => fields
-            .iter()
-            .find_map(|(field, value)| match (field.as_str(), value) {
-                ("id", LibValue::Int(id)) => Some(*id),
-                _ => None,
-            })
-            .ok_or_else(|| LibError::new(function, "the Window has no id")),
-        _ => Err(LibError::new(function, "expected a Window, made by ui.window")),
-    }
+    handle_field(function, args, "Window", "id")
+}
+
+/// `(window id, shape id)` from the `Shape` at argument 0
+fn shape_handle(function: &'static str, args: &[LibValue]) -> Result<(i64, u64), LibError> {
+    let win = handle_field(function, args, "Shape", "win")?;
+    let id = handle_field(function, args, "Shape", "id")?;
+    Ok((win, id as u64))
 }
 
 /// a `Key` argument: the enum value, which is the variant's name
@@ -212,7 +465,7 @@ fn key_arg(function: &'static str, args: &[LibValue], i: usize) -> Result<Key, L
     }
 }
 
-/// runs `f` on the open window `id`. an unknown id is an error, a closed window is one too
+/// runs `f` on the open window `id`. an unknown id is an error
 fn with_window<T>(
     function: &'static str,
     id: i64,
@@ -228,13 +481,20 @@ fn with_window<T>(
     })
 }
 
+/// runs `f` on the shape at argument 0 (killed shapes and closed windows are errors)
+fn with_shape<T>(
+    function: &'static str,
+    args: &[LibValue],
+    f: impl FnOnce(&mut Shape) -> Result<T, String>,
+) -> Result<T, LibError> {
+    let (win, id) = shape_handle(function, args)?;
+    with_window(function, win, |w| f(w.shape_mut(id)?))
+}
+
 /// a color argument: a whole number from 0 to 0xFFFFFF
 fn color_arg(function: &'static str, args: &[LibValue], i: usize) -> Result<u32, LibError> {
     let value = int(function, args, i)?;
-    if !(0..=MAX_COLOR).contains(&value) {
-        return Err(LibError::new(function, format!("a color must be between 0 and {MAX_COLOR}: make one with ui.hex or ui.rgb")));
-    }
-    Ok(value as u32)
+    color::check(value).map_err(|e| LibError::new(function, format!("{e}: make one with ui.hex or ui.rgb")))
 }
 
 fn text(function: &'static str, args: &[LibValue], i: usize) -> Result<String, LibError> {
@@ -258,6 +518,13 @@ fn float(function: &'static str, args: &[LibValue], i: usize) -> Result<f64, Lib
     }
 }
 
+fn boolean(function: &'static str, args: &[LibValue], i: usize) -> Result<bool, LibError> {
+    match args.get(i) {
+        Some(LibValue::Bool(v)) => Ok(*v),
+        _ => Err(LibError::new(function, format!("argument {} must be a bool", i + 1))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,16 +541,33 @@ mod tests {
         LibValue::Enum(name.to_string())
     }
 
+    fn f(v: f64) -> LibValue {
+        LibValue::Float(v)
+    }
+
+    fn i(v: i64) -> LibValue {
+        LibValue::Int(v)
+    }
+
     /// opens a window with the test backend and returns its `Window` value
     fn open(title: &str, w: i64, h: i64) -> LibValue {
-        window(&ctx(), vec![s(title), LibValue::Int(w), LibValue::Int(h)]).unwrap()
+        window(&ctx(), vec![s(title), i(w), i(h)]).unwrap()
+    }
+
+    /// a red rectangle in the window
+    fn shape_in(win: &LibValue) -> LibValue {
+        rect(&ctx(), vec![win.clone(), f(2.0), f(3.0), f(4.0), f(5.0), i(0xff3300)]).unwrap()
     }
 
     fn float_of(v: LibValue) -> f64 {
         match v {
-            LibValue::Float(f) => f,
+            LibValue::Float(x) => x,
             other => panic!("expected a float, got {other:?}"),
         }
+    }
+
+    fn message(r: Result<LibValue, LibError>) -> String {
+        r.expect_err("expected an error").reason
     }
 
     #[test]
@@ -301,22 +585,150 @@ mod tests {
     }
 
     #[test]
+    fn every_object_field_and_method_is_a_function_of_the_module() {
+        let has = |name: &str| MODULE.functions.iter().any(|f| f.name == name);
+        for object in MODULE.objects {
+            assert!(
+                MODULE.structs.iter().any(|source| source.contains(&format!("struct {} {{", object.name))),
+                "{} is not a declared struct",
+                object.name
+            );
+            for field in object.fields {
+                assert!(has(field.get), "{}.{} has no getter {}", object.name, field.name, field.get);
+                if let Some(set) = field.set {
+                    assert!(has(set), "{}.{} has no setter {}", object.name, field.name, set);
+                }
+            }
+            for method in object.methods {
+                assert!(has(method), "{}.{} is not a function", object.name, method);
+            }
+        }
+    }
+
+    #[test]
     fn colors_come_back_as_ints() {
-        assert_eq!(hex(&ctx(), vec![s("#ff3300")]).unwrap(), LibValue::Int(0xff3300));
-        assert_eq!(rgb(&ctx(), vec![LibValue::Int(255), LibValue::Int(51), LibValue::Int(0)]).unwrap(), LibValue::Int(0xff3300));
+        assert_eq!(hex(&ctx(), vec![s("#ff3300")]).unwrap(), i(0xff3300));
+        assert_eq!(rgb(&ctx(), vec![i(255), i(51), i(0)]).unwrap(), i(0xff3300));
         assert!(hex(&ctx(), vec![s("nope")]).is_err());
-        assert!(rgb(&ctx(), vec![LibValue::Int(300), LibValue::Int(0), LibValue::Int(0)]).is_err());
+        assert!(rgb(&ctx(), vec![i(300), i(0), i(0)]).is_err());
     }
 
     #[test]
     fn a_window_opens_and_the_loop_runs_then_ends() {
         let win = open("loop", 32, 32);
         assert_eq!(float_of(next_frame(&ctx(), vec![win.clone()]).unwrap()), 0.0);
-        clear(&ctx(), vec![win.clone(), LibValue::Int(0x101010)]).unwrap();
-        rect(&ctx(), vec![win.clone(), LibValue::Float(2.0), LibValue::Float(2.0), LibValue::Float(4.0), LibValue::Float(4.0), LibValue::Int(0xff3300)]).unwrap();
         close(&ctx(), vec![win.clone()]).unwrap();
         assert_eq!(float_of(next_frame(&ctx(), vec![win.clone()]).unwrap()), -1.0);
-        assert!(clear(&ctx(), vec![win.clone(), LibValue::Int(0)]).is_err());
+    }
+
+    #[test]
+    fn the_window_fields_read_and_write() {
+        let win = open("fields", 40, 30);
+        assert_eq!(get_width(&ctx(), vec![win.clone()]).unwrap(), i(40));
+        assert_eq!(get_height(&ctx(), vec![win.clone()]).unwrap(), i(30));
+        assert_eq!(get_background(&ctx(), vec![win.clone()]).unwrap(), i(0));
+        set_background(&ctx(), vec![win.clone(), i(0x101010)]).unwrap();
+        assert_eq!(get_background(&ctx(), vec![win.clone()]).unwrap(), i(0x101010));
+        assert!(set_background(&ctx(), vec![win.clone(), i(-1)]).is_err());
+        assert!(set_background(&ctx(), vec![win.clone(), i(0x1_000_000)]).is_err());
+        assert_eq!(get_background(&ctx(), vec![win.clone()]).unwrap(), i(0x101010), "a bad value changes nothing");
+    }
+
+    #[test]
+    fn a_shape_starts_with_what_it_was_made_with() {
+        let win = open("shape", 20, 20);
+        let shape = shape_in(&win);
+        assert_eq!(get_x(&ctx(), vec![shape.clone()]).unwrap(), f(2.0));
+        assert_eq!(get_y(&ctx(), vec![shape.clone()]).unwrap(), f(3.0));
+        assert_eq!(get_w(&ctx(), vec![shape.clone()]).unwrap(), f(4.0));
+        assert_eq!(get_h(&ctx(), vec![shape.clone()]).unwrap(), f(5.0));
+        assert_eq!(get_color(&ctx(), vec![shape.clone()]).unwrap(), i(0xff3300));
+        assert_eq!(get_visible(&ctx(), vec![shape.clone()]).unwrap(), LibValue::Bool(true));
+        assert_eq!(get_layer(&ctx(), vec![shape.clone()]).unwrap(), i(0));
+    }
+
+    #[test]
+    fn every_shape_field_writes_and_reads_back() {
+        let win = open("write", 20, 20);
+        let shape = shape_in(&win);
+        set_x(&ctx(), vec![shape.clone(), f(7.5)]).unwrap();
+        set_y(&ctx(), vec![shape.clone(), f(-1.0)]).unwrap();
+        set_w(&ctx(), vec![shape.clone(), f(9.0)]).unwrap();
+        set_h(&ctx(), vec![shape.clone(), f(0.0)]).unwrap();
+        set_color(&ctx(), vec![shape.clone(), i(0x00ff00)]).unwrap();
+        set_visible(&ctx(), vec![shape.clone(), LibValue::Bool(false)]).unwrap();
+        set_layer(&ctx(), vec![shape.clone(), i(-3)]).unwrap();
+        assert_eq!(get_x(&ctx(), vec![shape.clone()]).unwrap(), f(7.5));
+        assert_eq!(get_y(&ctx(), vec![shape.clone()]).unwrap(), f(-1.0));
+        assert_eq!(get_w(&ctx(), vec![shape.clone()]).unwrap(), f(9.0));
+        assert_eq!(get_h(&ctx(), vec![shape.clone()]).unwrap(), f(0.0));
+        assert_eq!(get_color(&ctx(), vec![shape.clone()]).unwrap(), i(0x00ff00));
+        assert_eq!(get_visible(&ctx(), vec![shape.clone()]).unwrap(), LibValue::Bool(false));
+        assert_eq!(get_layer(&ctx(), vec![shape.clone()]).unwrap(), i(-3));
+    }
+
+    #[test]
+    fn bad_shape_values_are_refused_and_change_nothing() {
+        let win = open("bad", 20, 20);
+        let shape = shape_in(&win);
+        assert_eq!(message(set_x(&ctx(), vec![shape.clone(), f(f64::NAN)])), "x must be a finite number");
+        assert!(set_w(&ctx(), vec![shape.clone(), f(-1.0)]).is_err());
+        assert!(set_color(&ctx(), vec![shape.clone(), i(-5)]).is_err());
+        assert!(rect(&ctx(), vec![win.clone(), f(0.0), f(0.0), f(-2.0), f(1.0), i(0)]).is_err());
+        assert_eq!(get_x(&ctx(), vec![shape.clone()]).unwrap(), f(2.0));
+        assert_eq!(get_w(&ctx(), vec![shape.clone()]).unwrap(), f(4.0));
+        assert_eq!(get_color(&ctx(), vec![shape.clone()]).unwrap(), i(0xff3300));
+    }
+
+    #[test]
+    fn a_killed_shape_can_not_be_used_and_killing_again_is_fine() {
+        let win = open("kill", 20, 20);
+        let shape = shape_in(&win);
+        kill(&ctx(), vec![shape.clone()]).unwrap();
+        assert_eq!(message(get_x(&ctx(), vec![shape.clone()])), "this shape was killed");
+        assert_eq!(message(set_x(&ctx(), vec![shape.clone(), f(1.0)])), "this shape was killed");
+        kill(&ctx(), vec![shape.clone()]).unwrap();
+    }
+
+    #[test]
+    fn a_new_shape_does_not_inherit_a_killed_one() {
+        let win = open("ids", 20, 20);
+        let old = shape_in(&win);
+        kill(&ctx(), vec![old.clone()]).unwrap();
+        let fresh = shape_in(&win);
+        assert!(get_x(&ctx(), vec![old]).is_err());
+        assert_eq!(get_x(&ctx(), vec![fresh]).unwrap(), f(2.0));
+    }
+
+    #[test]
+    fn the_shapes_die_with_their_window() {
+        let win = open("die", 20, 20);
+        let shape = shape_in(&win);
+        close(&ctx(), vec![win.clone()]).unwrap();
+        // the frame in progress finishes: the shape still works
+        assert_eq!(get_x(&ctx(), vec![shape.clone()]).unwrap(), f(2.0));
+        assert_eq!(float_of(next_frame(&ctx(), vec![win.clone()]).unwrap()), -1.0);
+        assert_eq!(message(get_x(&ctx(), vec![shape.clone()])), "the window is closed");
+        assert_eq!(message(get_background(&ctx(), vec![win.clone()])), "the window is closed");
+        assert!(rect(&ctx(), vec![win.clone(), f(0.0), f(0.0), f(1.0), f(1.0), i(0)]).is_err());
+        kill(&ctx(), vec![shape]).unwrap();
+        close(&ctx(), vec![win.clone()]).unwrap();
+        assert_eq!(get_width(&ctx(), vec![win]).unwrap(), i(20), "the size is still known");
+    }
+
+    #[test]
+    fn two_windows_keep_their_shapes_apart() {
+        let a = open("a", 10, 10);
+        let b = open("b", 10, 10);
+        let in_a = shape_in(&a);
+        let in_b = shape_in(&b);
+        set_x(&ctx(), vec![in_a.clone(), f(8.0)]).unwrap();
+        assert_eq!(get_x(&ctx(), vec![in_b.clone()]).unwrap(), f(2.0));
+        close(&ctx(), vec![a.clone()]).unwrap();
+        next_frame(&ctx(), vec![a]).unwrap();
+        next_frame(&ctx(), vec![b]).unwrap();
+        assert!(get_x(&ctx(), vec![in_a]).is_err(), "a is closed");
+        assert_eq!(get_x(&ctx(), vec![in_b]).unwrap(), f(2.0), "b is not");
     }
 
     #[test]
@@ -332,22 +744,83 @@ mod tests {
 
     #[test]
     fn bad_sizes_are_refused_before_a_window_opens() {
-        assert!(window(&ctx(), vec![s("x"), LibValue::Int(0), LibValue::Int(10)]).is_err());
-        assert!(window(&ctx(), vec![s("x"), LibValue::Int(10), LibValue::Int(MAX_SIDE + 1)]).is_err());
+        assert!(window(&ctx(), vec![s("x"), i(0), i(10)]).is_err());
+        assert!(window(&ctx(), vec![s("x"), i(10), i(MAX_SIDE + 1)]).is_err());
     }
 
     #[test]
-    fn a_color_out_of_range_is_refused() {
-        let win = open("color", 8, 8);
+    fn a_value_that_is_not_the_right_handle_is_refused() {
+        assert!(next_frame(&ctx(), vec![i(1)]).is_err());
+        let fake_window = LibValue::record("Window", vec![("id", i(999_999))]);
+        assert_eq!(message(next_frame(&ctx(), vec![fake_window.clone()])), "this window is not open");
+        let win = open("types", 8, 8);
+        assert!(get_x(&ctx(), vec![win.clone()]).is_err(), "a Window is not a Shape");
+        let shape = shape_in(&win);
+        assert!(next_frame(&ctx(), vec![shape]).is_err(), "a Shape is not a Window");
+        let forged = LibValue::record("Shape", vec![("id", i(1)), ("win", i(999_999))]);
+        assert!(get_x(&ctx(), vec![forged]).is_err(), "no such window");
+    }
+    fn set_focus(focused: bool) {
+        TEST_HANDLES.with(|handles| handles.borrow().as_ref().expect("a test window is open").focus.set(focused));
+    }
+
+    /// the handler numbers queued, without their arguments
+    fn ids() -> Vec<u64> {
+        crate::take_handlers().into_iter().map(|(id, _)| id).collect()
+    }
+
+    fn set_size(width: usize, height: usize) {
+        TEST_HANDLES.with(|handles| handles.borrow().as_ref().expect("a test window is open").size.set((width, height)));
+    }
+
+    #[test]
+    fn the_close_handler_is_queued_once_when_the_window_closes() {
+        let win = open("close", 8, 8);
+        on_close(&ctx(), vec![win.clone(), LibValue::Handler(5)]).unwrap();
+        on_close(&ctx(), vec![win.clone(), LibValue::Handler(6)]).unwrap();
+        assert!(crate::take_handlers().is_empty(), "nothing runs before the window closes");
+        close(&ctx(), vec![win.clone()]).unwrap();
         next_frame(&ctx(), vec![win.clone()]).unwrap();
-        assert!(clear(&ctx(), vec![win.clone(), LibValue::Int(-1)]).is_err());
-        assert!(clear(&ctx(), vec![win.clone(), LibValue::Int(0x1_000_000)]).is_err());
+        assert_eq!(ids(), vec![6], "the last one set is the one that runs");
+        next_frame(&ctx(), vec![win.clone()]).unwrap();
+        assert!(crate::take_handlers().is_empty(), "the close handler runs once");
     }
 
     #[test]
-    fn a_value_that_is_not_a_window_is_refused() {
-        assert!(next_frame(&ctx(), vec![LibValue::Int(1)]).is_err());
-        let fake = LibValue::record("Window", vec![("id", LibValue::Int(999_999))]);
-        assert!(next_frame(&ctx(), vec![fake]).is_err(), "no such window");
+    fn blur_and_focus_handlers_run_on_the_frame_the_focus_changes() {
+        let win = open("focus", 8, 8);
+        on_focus(&ctx(), vec![win.clone(), LibValue::Handler(10)]).unwrap();
+        on_blur(&ctx(), vec![win.clone(), LibValue::Handler(11)]).unwrap();
+        next_frame(&ctx(), vec![win.clone()]).unwrap();
+        assert!(crate::take_handlers().is_empty(), "opening is not a change of focus");
+        set_focus(false);
+        next_frame(&ctx(), vec![win.clone()]).unwrap();
+        assert_eq!(ids(), vec![11]);
+        set_focus(true);
+        next_frame(&ctx(), vec![win.clone()]).unwrap();
+        assert_eq!(ids(), vec![10]);
+        next_frame(&ctx(), vec![win.clone()]).unwrap();
+        assert!(crate::take_handlers().is_empty(), "no change, no handler");
+    }
+
+    #[test]
+    fn a_handler_that_is_not_a_function_is_refused() {
+        let win = open("bad", 8, 8);
+        assert!(on_close(&ctx(), vec![win.clone(), LibValue::Int(5)]).is_err());
+        assert!(on_focus(&ctx(), vec![win.clone()]).is_err(), "a handler is missing");
+        assert!(on_blur(&ctx(), vec![LibValue::Int(1), LibValue::Handler(1)]).is_err(), "not a window");
+    }
+
+    #[test]
+    fn the_resize_handler_gets_the_new_size_once_per_change() {
+        let win = open("resize", 8, 8);
+        on_resize(&ctx(), vec![win.clone(), LibValue::Handler(20)]).unwrap();
+        next_frame(&ctx(), vec![win.clone()]).unwrap();
+        assert!(crate::take_handlers().is_empty(), "opening is not a resize");
+        set_size(640, 480);
+        next_frame(&ctx(), vec![win.clone()]).unwrap();
+        assert_eq!(crate::take_handlers(), vec![(20, vec![LibValue::Int(640), LibValue::Int(480)])]);
+        next_frame(&ctx(), vec![win.clone()]).unwrap();
+        assert!(crate::take_handlers().is_empty(), "the same size again is no change");
     }
 }

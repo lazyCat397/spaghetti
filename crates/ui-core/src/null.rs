@@ -18,6 +18,10 @@ pub struct NullBackend {
     just_released: HashSet<Key>,
     user_closed: bool,
     open: bool,
+    /// shared, so a test can take the focus away while the session holds the backend
+    focused: Rc<Cell<bool>>,
+    /// shared like `focused`: a test resizes the window while the session holds the backend
+    size: Rc<Cell<(usize, usize)>>,
     /// how many frames were shown
     pub frames_shown: usize,
     /// a copy of the last frame shown
@@ -28,8 +32,21 @@ pub struct NullBackend {
 }
 
 impl NullBackend {
+    /// a backend that starts with the window focused
     pub fn new() -> Self {
-        Self::default()
+        let backend = Self::default();
+        backend.focused.set(true);
+        backend
+    }
+
+    /// the size of the window: `set` changes it for the session too
+    pub fn size_handle(&self) -> Rc<Cell<(usize, usize)>> {
+        Rc::clone(&self.size)
+    }
+
+    /// the focus of the window: `set` changes it for the session too
+    pub fn focus_handle(&self) -> Rc<Cell<bool>> {
+        Rc::clone(&self.focused)
     }
 
     /// simulates a key going down
@@ -60,8 +77,9 @@ impl NullBackend {
 }
 
 impl Backend for NullBackend {
-    fn open(&mut self, _title: &str, _width: usize, _height: usize) -> Result<(), String> {
+    fn open(&mut self, _title: &str, width: usize, height: usize) -> Result<(), String> {
         self.open = true;
+        self.size.set((width, height));
         Ok(())
     }
 
@@ -87,6 +105,14 @@ impl Backend for NullBackend {
 
     fn was_released(&self, key: Key) -> bool {
         self.just_released.contains(&key)
+    }
+
+    fn is_focused(&self) -> bool {
+        self.focused.get()
+    }
+
+    fn size(&self) -> (usize, usize) {
+        self.size.get()
     }
 
     fn close(&mut self) {

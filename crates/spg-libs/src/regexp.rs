@@ -9,6 +9,7 @@ pub static MODULE: NativeModule = NativeModule {
     name: "regex",
     doc: "regular expressions (install #regex)",
     structs: &[],
+    objects: &[],
     functions: &[
         NativeFn { name: "matches", sig: "(string, string) -> bool", doc: "true if the pattern appears anywhere in the text", call: matches },
         NativeFn { name: "findAll", sig: "(string, string) -> array<string>", doc: "every piece of the text the pattern matches, in order", call: find_all },

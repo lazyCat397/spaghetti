@@ -13,6 +13,7 @@ pub static MODULE: NativeModule = NativeModule {
     name: "crypto",
     doc: "hashes and encodings: sha256, md5, base64, hex (install #crypto)",
     structs: &[],
+    objects: &[],
     functions: &[
         NativeFn { name: "sha256", sig: "(string) -> string", doc: "SHA-256 of the text, as hex", call: sha256 },
         NativeFn { name: "md5", sig: "(string) -> string", doc: "MD5 of the text, as hex. fine for checksums, never for passwords", call: md5 },

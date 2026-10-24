@@ -15,6 +15,7 @@ pub static MODULE: NativeModule = NativeModule {
     name: "http",
     doc: "web requests (install #http)",
     structs: &["struct HttpResponse {\n    status: int,\n    headers: map<string, string>,\n    body: string\n}\n"],
+    objects: &[],
     functions: &[
         NativeFn { name: "get", sig: "(string) -> HttpResponse", doc: GET_DOC, call: get },
         NativeFn { name: "get", sig: "(string, int) -> HttpResponse", doc: GET_DOC, call: get },

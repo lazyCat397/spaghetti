@@ -1,22 +1,20 @@
-// `install #ui`: a window, a rectangle moved with the arrow keys, closed with Esc.
-// needs a display, so it is not in tests/run.sh (the CI has none).
+// `install #ui`: a window with a rectangle moved by the arrow keys. the rectangle is an object
+// the window keeps: changing its fields is all it takes to move it or recolor it.
+// needs a display, so run.sh skips it (the name matches *ui_demo*).
 install #ui
 
 let win = ui.window("ui demo", 800, 600)
-let x = 100.0
-let y = 100.0
-let color = ui.hex("#ff3300")
+win.background = ui.hex("#101010")
+let box = win.rect(100.0, 100.0, 40.0, 40.0, ui.hex("#ff3300"))
 
 while (true) {
-    let dt = ui.nextFrame(win)          // -1.0 when the window closes (Esc, the X, or ui.close)
+    let dt = win.nextFrame()            // -1.0 when the window closes (Esc, the X, or win.close())
     if (dt < 0.0) { break }
 
-    if (ui.isDown(win, Key.Left))  { x = x - 200.0 * dt }
-    if (ui.isDown(win, Key.Right)) { x = x + 200.0 * dt }
-    if (ui.isDown(win, Key.Up))    { y = y - 200.0 * dt }
-    if (ui.isDown(win, Key.Down))  { y = y + 200.0 * dt }
-
-    ui.clear(win, ui.hex("#101010"))
-    ui.rect(win, x, y, 40.0, 40.0, color)
+    if (win.isDown(Key.Left))  { box.x = box.x - 200.0 * dt }
+    if (win.isDown(Key.Right)) { box.x = box.x + 200.0 * dt }
+    if (win.isDown(Key.Up))    { box.y = box.y - 200.0 * dt }
+    if (win.isDown(Key.Down))  { box.y = box.y + 200.0 * dt }
+    if (win.wasPressed(Key.Space)) { box.color = ui.rgb(0, 255, 120) }
 }
 print("bye")

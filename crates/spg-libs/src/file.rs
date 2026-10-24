@@ -14,6 +14,7 @@ pub static MODULE: NativeModule = NativeModule {
     name: "file",
     doc: "files and folders",
     structs: &[],
+    objects: &[],
     functions: &[
         NativeFn { name: "read", sig: "(string) -> string", doc: "the whole text of a file", call: read },
         NativeFn { name: "write", sig: "(string, string) -> void", doc: "replace the file's content with the text", call: write },

@@ -20,3 +20,15 @@ pub fn rgb(r: i64, g: i64, b: i64) -> Result<u32, String> {
     }
     Ok(((r as u32) << 16) | ((g as u32) << 8) | (b as u32))
 }
+
+/// the largest color value: `0xFFFFFF`
+pub const MAX: i64 = 0xFF_FFFF;
+
+/// a whole number from 0 to 0xFFFFFF -> color
+pub fn check(value: i64) -> Result<u32, String> {
+    if (0..=MAX).contains(&value) {
+        Ok(value as u32)
+    } else {
+        Err(format!("a color must be between 0 and {MAX}, got {value}"))
+    }
+}

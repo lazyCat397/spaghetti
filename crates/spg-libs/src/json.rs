@@ -17,6 +17,7 @@ pub static MODULE: NativeModule = NativeModule {
     name: "json",
     doc: "read and write JSON",
     structs: &[],
+    objects: &[],
     functions: &[
         NativeFn { name: "stringify", sig: "(any) -> string", doc: "the value as compact JSON text", call: stringify_call },
         NativeFn { name: "pretty", sig: "(any) -> string", doc: "the value as indented JSON text", call: pretty_call },
@@ -421,6 +422,7 @@ fn from_value(v: &LibValue, depth: usize) -> Result<Json, String> {
         return Err("the value is nested too deeply (does it contain itself?)".to_string());
     }
     Ok(match v {
+        LibValue::Handler(_) => return Err("a function has no JSON form".to_string()),
         LibValue::Opaque("function") => return Err("a function has no JSON form".to_string()),
         LibValue::Opaque("task") => return Err("a task has no JSON form (call .wait() first)".to_string()),
         LibValue::Opaque(_) => return Err("the value is nested too deeply (does it contain itself?)".to_string()),

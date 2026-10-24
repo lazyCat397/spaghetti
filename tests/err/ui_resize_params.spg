@@ -1,0 +1,3 @@
+install #ui
+let win = ui.window("t", 10, 10)
+win.onResize(function() -> void { print("x") })

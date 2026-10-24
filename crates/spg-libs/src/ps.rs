@@ -13,6 +13,7 @@ pub static MODULE: NativeModule = NativeModule {
     name: "ps",
     doc: "PowerShell (install #ps)",
     structs: &["struct PsResult {\n    success: bool,\n    code: int,\n    output: string,\n    error: string\n}\n"],
+    objects: &[],
     functions: &[
         NativeFn { name: "run", sig: "(string) -> PsResult", doc: "run a PowerShell command. gives back a PsResult", call: run },
         NativeFn { name: "run", sig: "(string, int) -> PsResult", doc: "run a PowerShell command. gives back a PsResult", call: run },

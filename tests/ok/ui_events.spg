@@ -1,0 +1,15 @@
+install #ui
+let win = ui.window("ev", 10, 10)
+let n = 0
+win.onClose(function() -> void {
+    n = n + 1
+    print("closed")
+})
+win.close()
+print(win.nextFrame())
+print(n)
+let other = ui.window("other", 10, 10)
+function bye() -> void { print("bye") }
+other.onClose(bye)
+other.close()
+print(other.nextFrame())

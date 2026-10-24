@@ -16,6 +16,7 @@ pub static MODULE: NativeModule = NativeModule {
     name: "net",
     doc: "TCP sockets: connect, listen, accept, send and read lines (install #net)",
     structs: &[],
+    objects: &[],
     functions: &[
         NativeFn { name: "connect", sig: "(string, int) -> int", doc: "connect to a host and port. gives back the connection's number", call: connect },
         NativeFn { name: "listen", sig: "(string, int) -> int", doc: "listen on a host and port: \"127.0.0.1\" for this machine only, \"0.0.0.0\" for the network. gives back the listener's number", call: listen },

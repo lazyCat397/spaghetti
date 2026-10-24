@@ -8,6 +8,8 @@ say()  { printf '\r\033[K%s\n' "$*"; }
 # Usage (from the repository root): bash tests/run.sh
 cd "$(dirname "$0")"
 SPG=${SPG:-../target/release/spg}
+# the ui library needs a display: the suite runs it with the null backend (no window opens)
+export SPG_UI_BACKEND=null
 # [progress] needs the total (Y), counted WITHOUT running anything: the direct calls
 # (ok/err/exact1/lines/diag/exit124/check), the same/ loop (one per file) and the standalone checks.
 count_tests() {
@@ -422,6 +424,14 @@ exit124() {  # exit124 <file> <expected output before the cut> — the engine IT
     if [ "$code" = 124 ] && echo "$got" | grep -qF "timeout: the program ran for more than 300 ms" && echo "$got" | head -1 | grep -qF -- "$2"; then pass=$((pass+1)); tick; else
         fail=$((fail+1)); tick; say "FAIL err/$1 (exit=$code)"; echo "  got: $(echo "$got" | tr '\n' '|')"; fi
 }
+ok ui_events.spg 'closed\n-1.0\n1\nbye\n-1.0'
+ok ui_objects.spg '8.5\nfalse\n20\n1052688\n0.0\nkilled'
+err ui_readonly.spg "cannot assign to 'Window.width'"
+err ui_no_method.spg "has no method 'fly'"
+err ui_use_after_kill.spg "this shape was killed"
+err ui_handler_params.spg "expects function() -> void"
+err ui_resize_params.spg "expects function(int, int) -> void"
+err ui_compound_call.spg "can not be changed with a compound operator here"
 ok dir_strict_overflow_try.spg  'caught'
 ok dir_timeout_ok.spg           'rapido'
 ok dir_strict_siblings.spg        '4'

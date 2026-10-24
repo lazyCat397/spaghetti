@@ -13,6 +13,7 @@ pub static MODULE: NativeModule = NativeModule {
     name: "time",
     doc: "clock and time, and sleep",
     structs: &[],
+    objects: &[],
     functions: &[
         NativeFn { name: "now", sig: "() -> string", doc: "the current date and time as text", call: now },
         NativeFn { name: "unix", sig: "() -> int", doc: "milliseconds since 1970 (the Unix epoch), as an int", call: unix },

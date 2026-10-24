@@ -14,6 +14,7 @@ pub static MODULE: NativeModule = NativeModule {
     name: "test",
     doc: "checks: test.expect(actual, expected) (install #test)",
     structs: &[],
+    objects: &[],
     functions: &[
         NativeFn { name: "expect", sig: "(int, int) -> void", doc: EXPECT_DOC, call: expect },
         NativeFn { name: "expect", sig: "(float, float) -> void", doc: EXPECT_DOC, call: expect },

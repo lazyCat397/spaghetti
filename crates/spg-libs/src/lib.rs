@@ -47,6 +47,9 @@ pub enum LibValue {
     Struct { name: String, fields: Vec<(String, LibValue)> },
     /// an enum value, as the text the program would print for it
     Enum(String),
+    /// a function the program passed in (`win.onClose(...)`). the library keeps the number and
+    /// never calls the function itself: it asks the VM with `queue_handler`, and the VM runs it
+    Handler(u64),
     /// a value a library can not look inside: "function", "task", or "deep" (nested too deeply,
     /// does it contain itself?)
     Opaque(&'static str),
@@ -110,6 +113,30 @@ pub struct NativeFn {
     pub call: LibFn,
 }
 
+/// a field of a native object: `win.background`, `red.x`. the program never holds the value:
+/// each read is a call of `get`, each write a call of `set`, so the library always has the
+/// current value and the program always sees it
+pub struct NativeField {
+    pub name: &'static str,
+    /// the function of the module that reads it: `(Object) -> T`. its return type is the field's type
+    pub get: &'static str,
+    /// the function that writes it: `(Object, T) -> void`. `None` means the field is read-only
+    pub set: Option<&'static str>,
+}
+
+/// a struct the library declares whose fields and methods are the library's own: the program
+/// holds a small handle (the struct's data), and the engine turns every use into a call of the
+/// module's functions. nothing in the VM knows about it: `red.x = 1.0` is `ui._setX(red, 1.0)`.
+/// only programs that install the library see it, so a program's own `struct Window` is safe.
+pub struct NativeObject {
+    /// the struct's name in the program, one of the module's `structs` (`"Window"`)
+    pub name: &'static str,
+    pub fields: &'static [NativeField],
+    /// functions of the module that work as methods: `win.rect(...)` is `ui.rect(win, ...)`.
+    /// the first parameter of each one is the object
+    pub methods: &'static [&'static str],
+}
+
 pub struct NativeModule {
     pub kind: Kind,
     /// the namespace, and the name in `install #name`
@@ -119,6 +146,8 @@ pub struct NativeModule {
     /// spg source of the structs the calls return. the engine puts them in any program that
     /// installs the library, and the editor reads the same text for completions
     pub structs: &'static [&'static str],
+    /// the structs above whose fields and methods are served by the library (see `NativeObject`)
+    pub objects: &'static [NativeObject],
     pub functions: &'static [NativeFn],
 }
 
@@ -174,7 +203,22 @@ pub fn function(index: u16) -> Option<(&'static NativeModule, &'static NativeFn)
     None
 }
 
-/// the global index of the first overload of `module.function`
+thread_local! {
+    static HANDLERS: std::cell::RefCell<Vec<(u64, Vec<LibValue>)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// asks the VM to run the handler `id` (a `LibValue::Handler` the library was given) with
+/// `args`, once the library call in progress returns. handlers run in the order they were queued
+pub fn queue_handler(id: u64, args: Vec<LibValue>) {
+    HANDLERS.with(|queue| queue.borrow_mut().push((id, args)));
+}
+
+/// the handlers queued since the last call, in order, each with its arguments. the VM takes
+/// them after each library call
+pub fn take_handlers() -> Vec<(u64, Vec<LibValue>)> {
+    HANDLERS.with(|queue| std::mem::take(&mut *queue.borrow_mut()))
+}
+
 pub fn index_of(module: &str, function: &str) -> Option<u16> {
     all_functions().into_iter().find(|(_, m, f)| m.name == module && f.name == function).map(|(i, _, _)| i)
 }

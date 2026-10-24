@@ -104,6 +104,13 @@ pub trait Backend {
     /// whether the key went up since the previous `poll`
     fn was_released(&self, key: Key) -> bool;
 
+    /// whether the window is the active one of the system, as of the last `poll`
+    fn is_focused(&self) -> bool;
+
+    /// the size of the window on screen, in pixels, as of the last `poll`. the framebuffer keeps
+    /// the size it was opened with; the backend shows it scaled to this size
+    fn size(&self) -> (usize, usize);
+
     /// closes the window and frees it. may be called more than once
     fn close(&mut self);
 }
@@ -127,6 +134,12 @@ impl<T: Backend + ?Sized> Backend for Box<T> {
     }
     fn was_released(&self, key: Key) -> bool {
         (**self).was_released(key)
+    }
+    fn is_focused(&self) -> bool {
+        (**self).is_focused()
+    }
+    fn size(&self) -> (usize, usize) {
+        (**self).size()
     }
     fn close(&mut self) {
         (**self).close()

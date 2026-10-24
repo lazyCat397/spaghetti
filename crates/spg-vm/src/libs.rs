@@ -2,6 +2,7 @@
 //! `LibValue`s, the answer comes back and becomes a VM value again. a library never sees
 //! the VM, and the VM never knows what a library does. that's the whole deal.
 
+use crate::value::Closure;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -20,12 +21,24 @@ pub fn call(
     program: &Program,
     index: u16,
     args: Vec<Value>,
+    handlers: &mut Vec<Rc<Closure>>,
     caller_file: Option<&str>,
     caller_line: u32,
 ) -> Result<Value, RuntimeError> {
     let (_, function) = spg_libs::function(index)
         .ok_or_else(|| RuntimeError::Process { function: "lib", reason: format!("internal: no library function #{index}") })?;
-    let args: Vec<LibValue> = args.into_iter().map(|v| to_lib(v, 0)).collect();
+    // a function passed straight to the library becomes a handler: the VM keeps the closure and
+    // the library keeps its number (see `spg_libs::queue_handler`)
+    let args: Vec<LibValue> = args
+        .into_iter()
+        .map(|v| match v {
+            Value::Func(closure) => {
+                handlers.push(closure);
+                LibValue::Handler((handlers.len() - 1) as u64)
+            }
+            other => to_lib(other, 0),
+        })
+        .collect();
     let answer = (function.call)(&CallCtx { caller_file, caller_line }, args).map_err(|e| match e.path {
         Some(path) => RuntimeError::Io { function: e.function, path, reason: e.reason },
         None => RuntimeError::Process { function: e.function, reason: e.reason },
@@ -102,8 +115,13 @@ fn from_lib(program: &Program, value: LibValue, function: &'static str) -> Resul
             }
             Value::Struct(Rc::new(RefCell::new((def, values))))
         }
-        LibValue::Enum(_) | LibValue::Opaque(_) => {
+        LibValue::Enum(_) | LibValue::Opaque(_) | LibValue::Handler(_) => {
             return Err(RuntimeError::Process { function, reason: "a library can not hand back this kind of value".to_string() })
         }
     })
+}
+
+/// a value a library hands back to a handler call (an argument of `queue_handler`)
+pub fn from_handler_arg(program: &Program, value: LibValue) -> Result<Value, RuntimeError> {
+    from_lib(program, value, "handler")
 }

@@ -9,6 +9,7 @@ pub static MODULE: NativeModule = NativeModule {
     name: "char",
     doc: "single characters: codes and kind tests",
     structs: &[],
+    objects: &[],
     functions: &[
         NativeFn { name: "code", sig: "(string) -> int", doc: "the code point of the first character (error on empty text)", call: code },
         NativeFn { name: "fromCode", sig: "(int) -> string", doc: "the character for a code point (error if there is none)", call: from },

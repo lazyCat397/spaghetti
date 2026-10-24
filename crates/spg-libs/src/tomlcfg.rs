@@ -10,6 +10,7 @@ pub static MODULE: NativeModule = NativeModule {
     name: "toml",
     doc: "read values from TOML text by their dotted path (install #toml)",
     structs: &[],
+    objects: &[],
     functions: &[
         NativeFn { name: "has", sig: "(string, string) -> bool", doc: "true if the path is in the TOML text", call: has },
         NativeFn { name: "getString", sig: "(string, string, string) -> string", doc: "the text at the path, or the fallback if the path is not there", call: get_string },

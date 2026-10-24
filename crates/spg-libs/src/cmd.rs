@@ -14,6 +14,7 @@ pub static MODULE: NativeModule = NativeModule {
     name: "cmd",
     doc: "run another program and get its code and output (install #cmd)",
     structs: &["struct CmdResult {\n    code: int,\n    output: string,\n    error: string\n}\n"],
+    objects: &[],
     functions: &[
         NativeFn { name: "run", sig: "(string, array<string>) -> CmdResult", doc: "run a program with its arguments and wait for it. code -1 means it was stopped by a signal", call: run },
         NativeFn { name: "run", sig: "(string, array<string>, int) -> CmdResult", doc: "the same, but gives up after the given number of milliseconds (an error)", call: run_with_timeout },

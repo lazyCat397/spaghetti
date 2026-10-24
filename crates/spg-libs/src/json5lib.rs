@@ -13,6 +13,7 @@ pub static MODULE: NativeModule = NativeModule {
     name: "json5",
     doc: "read values from JSON5 text by their dotted path (install #json5)",
     structs: &[],
+    objects: &[],
     functions: &[
         NativeFn { name: "has", sig: "(string, string) -> bool", doc: "true if the path is in the JSON5 text", call: has },
         NativeFn { name: "getString", sig: "(string, string, string) -> string", doc: "the text at the path, or the fallback if the path is not there", call: get_string },
