@@ -445,20 +445,20 @@ impl<W: Write> Server<W> {
     /// the variants of `enum <name> { .. }` declared in this document, found by
     /// lexing it (`None` when there's no such enum or the text doesn't lex)
     fn enum_variants(&self, uri: &str, name: &str) -> Option<Vec<String>> {
-        use spg_lexer::TokenKind as T;
         let doc = self.docs.get(uri)?;
         let tokens = spg_lexer::Lexer::new(&doc.text).tokenize().ok()?;
-        for (i, w) in tokens.windows(3).enumerate() {
-            if w[0].kind == T::Enum && w[1].kind == T::Ident(name.to_string()) && w[2].kind == T::LBrace {
-                let mut out = Vec::new();
-                for t in &tokens[i + 3..] {
-                    match &t.kind {
-                        T::Ident(v) => out.push(v.clone()),
-                        T::Comma | T::Newline => {}
-                        _ => break,
+        if let Some(variants) = variants_in(&tokens, name) {
+            return Some(variants);
+        }
+        // an enum of an installed native library (`Key` of `install #ui`) is declared in the
+        // library's struct text, not in this document
+        for module in spg_libs::modules().iter().filter(|m| self.installs_native(uri, m.name)) {
+            for source in module.structs {
+                if let Ok(lib_tokens) = spg_lexer::Lexer::new(source).tokenize() {
+                    if let Some(variants) = variants_in(&lib_tokens, name) {
+                        return Some(variants);
                     }
                 }
-                return Some(out);
             }
         }
         None
@@ -659,6 +659,10 @@ impl<W: Write> Server<W> {
                     .into_iter()
                     .filter_map(|(name, detail)| {
                         let member = name.strip_prefix(&prefix)?.to_string();
+                        // `_name` functions are the internals of native objects (`win.width`): not for the program
+                        if member.starts_with('_') {
+                            return None;
+                        }
                         let doc = spg_typecheck::docs::builtin_doc(&name);
                         Some(item(&member, 3, Some(detail), doc))
                     })
@@ -1120,6 +1124,25 @@ enum DotContext {
     Other,
 }
 
+/// the variants of `enum <name> { .. }` in a token stream (`None` when it isn't declared there)
+fn variants_in(tokens: &[spg_lexer::Token], name: &str) -> Option<Vec<String>> {
+    use spg_lexer::TokenKind as T;
+    for (i, w) in tokens.windows(3).enumerate() {
+        if w[0].kind == T::Enum && w[1].kind == T::Ident(name.to_string()) && w[2].kind == T::LBrace {
+            let mut out = Vec::new();
+            for t in &tokens[i + 3..] {
+                match &t.kind {
+                    T::Ident(v) => out.push(v.clone()),
+                    T::Comma | T::Newline => {}
+                    _ => break,
+                }
+            }
+            return Some(out);
+        }
+    }
+    None
+}
+
 /// true when some line of the buffer is exactly the `// [ShowErrors-Off]`
 /// marker (surrounding spaces ignored, case ignored). whole-line only, so the
 /// text can't trigger it by accident inside a string.
@@ -1420,6 +1443,36 @@ mod tests {
         ]);
         let resp = out.iter().find(|m| m.get("id").and_then(Json::as_f64) == Some(9.0)).unwrap();
         resp.get("result").unwrap().as_array().unwrap().to_vec()
+    }
+
+    #[test]
+    fn a_native_library_enum_lists_its_variants_after_its_name() {
+        // `Key` is declared in the text of the `ui` library, not in this document
+        let labels = labels_of(&complete_at("compl_native_enum", "install #ui\nKey.\n", 1, 4));
+        for want in ["Space", "Left", "A", "Num7", "F12"] {
+            assert!(labels.iter().any(|l| l == want), "missing {} in {:?}", want, labels);
+        }
+        // only when the document installs it: without the install line there is no `Key`
+        assert!(complete_at("compl_native_enum_off", "Key.\n", 0, 4).is_empty());
+    }
+
+    #[test]
+    fn the_members_of_a_native_library_hide_the_internals() {
+        // `ui.` offers the functions, but not the `_get`/`_set` ones that serve the object fields
+        let labels = labels_of(&complete_at("compl_ui_members", "install #ui\nui.\n", 1, 3));
+        assert!(labels.iter().any(|l| l == "window"), "missing window in {:?}", labels);
+        assert!(labels.iter().any(|l| l == "rect"), "missing rect in {:?}", labels);
+        assert!(!labels.iter().any(|l| l.starts_with('_')), "internals offered: {:?}", labels);
+    }
+
+    #[test]
+    fn a_native_object_lists_its_fields_and_methods_not_its_handle() {
+        let text = "install #ui\nlet win = ui.window(\"a\", 1, 1)\nwin.\n";
+        let labels = labels_of(&complete_at("compl_native_obj", text, 2, 4));
+        for want in ["background", "width", "height", "rect", "nextFrame", "isDown", "onClose"] {
+            assert!(labels.iter().any(|l| l == want), "missing {} in {:?}", want, labels);
+        }
+        assert!(!labels.iter().any(|l| l == "id"), "the handle leaks: {:?}", labels);
     }
 
     fn labels_of(items: &[Json]) -> Vec<String> {

@@ -300,11 +300,19 @@
           "name": "entity.name.namespace.spg"
         },
         {
-          "match": "(?<![.A-Za-z0-9_@])((?:ps|http|terminal|regex|crypto|csv|test|toml|sqlite|net|cmd|json5))(\\.)([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
+          "match": "(?<![.A-Za-z0-9_@])((?:ps|http|terminal|regex|crypto|csv|test|toml|sqlite|net|cmd|json5|ui))(\\.)([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
           "captures": {
             "1": { "name": "entity.name.namespace.spg" },
             "2": { "name": "punctuation.accessor.spg" },
             "3": { "name": "support.function.builtin.spg" }
+          }
+        },
+        {
+          "match": "(?<![.A-Za-z0-9_])(Key)(\\.)([A-Za-z][A-Za-z0-9_]*)\\b(?!\\s*\\()",
+          "captures": {
+            "1": { "name": "entity.name.type.enum.spg" },
+            "2": { "name": "punctuation.accessor.spg" },
+            "3": { "name": "constant.other.enum.spg" }
           }
         }
       ]

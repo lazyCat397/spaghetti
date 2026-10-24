@@ -75,6 +75,15 @@ impl Decls {
                 d = Decls::from_tokens(&prelude);
             }
         }
+        // a native object's members are its descriptor's: its struct text only declares the handle
+        // (`id`), which the program must not see. the fields and methods come from the functions
+        for module in spg_libs::modules() {
+            if tokens.iter().any(|t| matches!(&t.kind, T::Namespace(n) if n == module.name)) {
+                for object in module.objects {
+                    d.structs.insert(object.name.to_string(), native_object_info(module, object));
+                }
+            }
+        }
         let depth = depths(tokens);
         for i in 0..tokens.len() {
             match &tokens[i].kind {
@@ -1163,4 +1172,65 @@ mod tests {
         let (t, at, d) = setup(decl, 1, 0);
         assert!(literal_fields(&t, at, &d).is_none(), "the declaration itself is not a literal");
     }
+}
+
+/// the fields and methods a native object offers, as the program writes them. a field's type is
+/// the return type of its getter; a method's signature drops the object, which is its first argument
+fn native_object_info(module: &spg_libs::NativeModule, object: &spg_libs::NativeObject) -> StructInfo {
+    let sig_of = |name: &str| module.functions.iter().find(|f| f.name == name).map(|f| f.sig);
+    let mut info = StructInfo::default();
+    for field in object.fields {
+        if let Some(sig) = sig_of(field.get) {
+            let (_, ret) = split_signature(sig);
+            info.fields.push((field.name.to_string(), ret));
+        }
+    }
+    for method in object.methods {
+        if let Some(sig) = sig_of(method) {
+            let (params, ret) = split_signature(sig);
+            info.methods.push((method.to_string(), format!("({}) -> {}", params, ret)));
+        }
+    }
+    info
+}
+
+/// `(p1, p2) -> r` as (the parameters without the first one, the return type)
+fn split_signature(sig: &str) -> (String, String) {
+    let open = sig.find('(').unwrap_or(0);
+    let mut depth = 0usize;
+    let mut close = sig.len();
+    for (i, c) in sig.char_indices().skip(open) {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    close = i;
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let params = sig.get(open + 1..close).unwrap_or("");
+    let ret = sig.get(close + 1..).unwrap_or("").trim_start().trim_start_matches("->").trim().to_string();
+    // the first parameter is the object: it ends at the first comma outside any parenthesis
+    let mut depth = 0usize;
+    let mut first_comma = None;
+    for (i, c) in params.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 => {
+                first_comma = Some(i);
+                break;
+            }
+            _ => {}
+        }
+    }
+    let rest = match first_comma {
+        Some(i) => params[i + 1..].trim().to_string(),
+        None => String::new(),
+    };
+    (rest, ret)
 }

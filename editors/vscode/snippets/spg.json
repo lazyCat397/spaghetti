@@ -255,5 +255,104 @@
       "\"${${1:expr}}\""
     ],
     "description": "String with an embedded expression"
+  },
+  "UI window loop": {
+    "prefix": [
+      "uiloop",
+      "ui loop"
+    ],
+    "body": [
+      "install #ui",
+      "",
+      "let win = ui.window(\"${1:demo}\", ${2:800}, ${3:600})",
+      "win.background = ui.hex(\"#${4:101010}\")",
+      "",
+      "while (true) {",
+      "\tlet dt = win.nextFrame()",
+      "\tif (dt < 0.0) { break }",
+      "\t$0",
+      "}"
+    ],
+    "description": "A window and its frame loop (the loop ends when the window closes)"
+  },
+  "UI rectangle": {
+    "prefix": [
+      "uirect",
+      "ui rect"
+    ],
+    "body": [
+      "let ${1:box} = win.rect(${2:100.0}, ${3:100.0}, ${4:40.0}, ${5:40.0}, ui.hex(\"#${6:ff3300}\"))"
+    ],
+    "description": "A rectangle the window keeps: change its fields to move or recolor it"
+  },
+  "UI keys": {
+    "prefix": [
+      "uikey",
+      "ui key"
+    ],
+    "body": [
+      "if (win.isDown(Key.${1:Right})) { ${2:box}.x = ${2:box}.x + ${3:200.0} * dt }"
+    ],
+    "description": "Move while a key is held (Key is an enum: Key.Space, Key.A, Key.Left...)"
+  },
+  "UI pressed": {
+    "prefix": [
+      "uipressed",
+      "ui pressed"
+    ],
+    "body": [
+      "if (win.wasPressed(Key.${1:Space})) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Run once, on the frame the key goes down"
+  },
+  "UI onClose": {
+    "prefix": [
+      "uiclose",
+      "ui onclose"
+    ],
+    "body": [
+      "win.onClose(function() -> void {",
+      "\t$0",
+      "})"
+    ],
+    "description": "Run when the window closes (the X, Esc or win.close())"
+  },
+  "UI onFocus": {
+    "prefix": [
+      "uifocus",
+      "ui onfocus"
+    ],
+    "body": [
+      "win.onFocus(function() -> void {",
+      "\t$0",
+      "})"
+    ],
+    "description": "Run when the window gains the focus of the system"
+  },
+  "UI onBlur": {
+    "prefix": [
+      "uiblur",
+      "ui onblur"
+    ],
+    "body": [
+      "win.onBlur(function() -> void {",
+      "\t$0",
+      "})"
+    ],
+    "description": "Run when the window loses the focus of the system"
+  },
+  "UI onResize": {
+    "prefix": [
+      "uiresize",
+      "ui onresize"
+    ],
+    "body": [
+      "win.onResize(function(${1:w}: int, ${2:h}: int) -> void {",
+      "\t$0",
+      "})"
+    ],
+    "description": "Run with the new width and height when the user resizes the window"
   }
 }
