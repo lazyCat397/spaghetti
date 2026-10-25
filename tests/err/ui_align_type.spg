@@ -1,0 +1,4 @@
+install #ui
+let win = ui.window("t", 100, 100)
+let t = win.text(1.0, 1.0, "a", ui.hex("#ffffff"), 1)
+t.align = "Center"

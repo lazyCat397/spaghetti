@@ -130,6 +130,9 @@ pub trait Backend {
     /// whether the mouse button is held down, as of the last `poll`
     fn is_button_down(&self, button: Button) -> bool;
 
+    /// the characters typed since the previous call, in order (control keys are not characters)
+    fn take_typed(&mut self) -> String;
+
     /// closes the window and frees it. may be called more than once
     fn close(&mut self);
 }
@@ -165,6 +168,9 @@ impl<T: Backend + ?Sized> Backend for Box<T> {
     }
     fn is_button_down(&self, button: Button) -> bool {
         (**self).is_button_down(button)
+    }
+    fn take_typed(&mut self) -> String {
+        (**self).take_typed()
     }
     fn close(&mut self) {
         (**self).close()

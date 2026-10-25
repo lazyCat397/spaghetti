@@ -14,5 +14,5 @@ pub mod text;
 pub mod minifb_backend;
 
 pub use backend::{Backend, Button, Key};
-pub use scene::{Drawn, Label, Scene, Shape, ShapeId};
+pub use scene::{Align, Drawn, Label, Scene, Shape, ShapeId};
 pub use session::{Session, State, MAX_DT};

@@ -1,0 +1,8 @@
+install #ui
+let win = ui.window("t", 100, 100)
+let t = win.text(1.0, 1.0, "ab cd ef", ui.hex("#ffffff"), 1)
+t.wrap = 24.0
+t.align = Align.Center
+print(t.width)
+print(t.height)
+print(t.align == Align.Center)

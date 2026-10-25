@@ -2,7 +2,10 @@
 
 use std::collections::HashSet;
 
-use minifb::{Key as MKey, KeyRepeat, MouseButton, MouseMode, Window, WindowOptions};
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use minifb::{InputCallback, Key as MKey, KeyRepeat, MouseButton, MouseMode, Window, WindowOptions};
 
 use crate::backend::{Backend, Button, Key};
 
@@ -19,6 +22,19 @@ pub struct MinifbBackend {
     mouse: Option<(f64, f64)>,
     /// left, right, middle
     buttons: [bool; 3],
+    /// the characters typed, collected by the callback of the window until the session takes them
+    typed: Rc<RefCell<String>>,
+}
+
+/// receives the characters the window reports (minifb calls it while it handles events)
+struct TypedCollector(Rc<RefCell<String>>);
+
+impl InputCallback for TypedCollector {
+    fn add_char(&mut self, uni_char: u32) {
+        if let Some(c) = char::from_u32(uni_char) {
+            self.0.borrow_mut().push(c);
+        }
+    }
 }
 
 fn to_minifb(key: Key) -> MKey {
@@ -103,6 +119,8 @@ impl Backend for MinifbBackend {
         let options = WindowOptions { resize: true, ..WindowOptions::default() };
         let window = Window::new(title, width, height, options).map_err(|e| e.to_string())?;
         self.size = (width, height);
+        let mut window = window;
+        window.set_input_callback(Box::new(TypedCollector(Rc::clone(&self.typed))));
         self.window = Some(window);
         Ok(())
     }
@@ -166,6 +184,10 @@ impl Backend for MinifbBackend {
 
     fn mouse_position(&self) -> Option<(f64, f64)> {
         self.mouse
+    }
+
+    fn take_typed(&mut self) -> String {
+        std::mem::take(&mut *self.typed.borrow_mut())
     }
 
     fn is_button_down(&self, button: Button) -> bool {

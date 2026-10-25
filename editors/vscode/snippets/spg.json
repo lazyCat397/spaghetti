@@ -376,5 +376,16 @@
       "let ${1:label} = win.text(${2:10.0}, ${3:10.0}, \"${4:Olá}\", ui.hex(\"#${5:ffffff}\"), ${6:2})"
     ],
     "description": "A line of text the window keeps (scale 1 to 8; \\n starts a new line; accents are in the font)"
+  },
+  "UI text wrap": {
+    "prefix": [
+      "uiwrap",
+      "ui wrap"
+    ],
+    "body": [
+      "${1:label}.wrap = ${2:240.0}",
+      "${1:label}.align = Align.${3:Center}"
+    ],
+    "description": "Wrap a text to a width in pixels, and align its lines (Align: Left, Center, Right)"
   }
 }

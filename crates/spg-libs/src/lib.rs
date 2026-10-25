@@ -50,6 +50,9 @@ pub enum LibValue {
     /// a function the program passed in (`win.onClose(...)`). the library keeps the number and
     /// never calls the function itself: it asks the VM with `queue_handler`, and the VM runs it
     Handler(u64),
+    /// a value of an enum the program declares, handed back by a library: the enum's name and the
+    /// variant's name (`("Align", "Center")`). the VM finds the enum by name
+    Variant(String, String),
     /// a value a library can not look inside: "function", "task", or "deep" (nested too deeply,
     /// does it contain itself?)
     Opaque(&'static str),

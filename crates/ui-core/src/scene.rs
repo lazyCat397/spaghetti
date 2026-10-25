@@ -120,6 +120,9 @@ pub struct Label {
     text: String,
     color: u32,
     scale: u32,
+    /// the width of the text before it wraps, in pixels. `0` means the text is not wrapped
+    wrap: f64,
+    align: Align,
     visible: bool,
     layer: i64,
 }
@@ -133,9 +136,37 @@ impl Label {
             text: text.to_string(),
             color,
             scale: scale_value(scale)?,
+            wrap: 0.0,
+            align: Align::Left,
             visible: true,
             layer: 0,
         })
+    }
+
+    /// the width and height of the text on screen, in pixels: the widest line and the number of
+    /// lines, after wrapping
+    pub fn size(&self) -> (f64, f64) {
+        crate::text::size(&self.text, self.scale, self.wrap)
+    }
+
+    pub fn wrap(&self) -> f64 {
+        self.wrap
+    }
+
+    pub fn align(&self) -> Align {
+        self.align
+    }
+
+    pub fn set_wrap(&mut self, value: f64) -> Result<(), String> {
+        if !value.is_finite() || value < 0.0 {
+            return Err(format!("the wrap width must be 0 (no wrap) or more pixels, got {value}"));
+        }
+        self.wrap = value;
+        Ok(())
+    }
+
+    pub fn set_align(&mut self, value: Align) {
+        self.align = value;
     }
 
     pub fn x(&self) -> f64 {
@@ -192,6 +223,14 @@ fn scale_value(value: i64) -> Result<u32, String> {
     } else {
         Err(format!("the text scale must be between 1 and {MAX_SCALE}, got {value}"))
     }
+}
+
+/// where the lines of a label sit, inside the width of the label
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Align {
+    Left,
+    Center,
+    Right,
 }
 
 /// something the scene draws: a rectangle or a label

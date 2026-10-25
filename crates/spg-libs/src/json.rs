@@ -423,6 +423,7 @@ fn from_value(v: &LibValue, depth: usize) -> Result<Json, String> {
     }
     Ok(match v {
         LibValue::Handler(_) => return Err("a function has no JSON form".to_string()),
+        LibValue::Variant(enum_name, variant) => return Err(format!("{enum_name}.{variant} has no JSON form")),
         LibValue::Opaque("function") => return Err("a function has no JSON form".to_string()),
         LibValue::Opaque("task") => return Err("a task has no JSON form (call .wait() first)".to_string()),
         LibValue::Opaque(_) => return Err("the value is nested too deeply (does it contain itself?)".to_string()),

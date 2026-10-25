@@ -428,6 +428,8 @@ ok ui_events.spg 'closed\n-1.0\n1\nbye\n-1.0'
 ok ui_mouse.spg '-1.0\nfalse\nfalse\nfalse'
 ok ui_shape_clicks.spg 'false\ntrue\nfalse\nfalse\nfalse'
 ok ui_text.spg 'Olá\n2\nOi\ndone'
+ok ui_text_size.spg '48.0\n16.0\n[]'
+ok ui_text_wrap.spg '16.0\n24.0\ntrue'
 ok ui_objects.spg '8.5\nfalse\n20\n1052688\n0.0\nkilled'
 err ui_readonly.spg "cannot assign to 'Window.width'"
 err ui_no_method.spg "has no method 'fly'"
@@ -440,6 +442,8 @@ err ui_mouse_string.spg "expects Mouse"
 err ui_hovered_readonly.spg "cannot assign to 'Shape.hovered'"
 err ui_text_type.spg "expects string"
 err ui_text_scale.spg "the text scale must be between 1 and 8"
+err ui_align_type.spg "expects Align"
+err ui_wrap_negative.spg "the wrap width must be 0 (no wrap) or more pixels"
 err ui_compound_call.spg "can not be changed with a compound operator here"
 ok dir_strict_overflow_try.spg  'caught'
 ok dir_timeout_ok.spg           'rapido'

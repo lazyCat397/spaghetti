@@ -42,13 +42,15 @@ const MAX_SIDE: i64 = 8192;
 /// that the two stay equal
 const MOUSE_ENUM: &str = "enum Mouse { Left, Right, Middle }";
 
+const ALIGN_ENUM: &str = "enum Align { Left, Center, Right }";
+
 const KEY_ENUM: &str = "enum Key { A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, Num0, Num1, Num2, Num3, Num4, Num5, Num6, Num7, Num8, Num9, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, Left, Right, Up, Down, Space, Enter, Escape, Tab, Backspace, Delete, Home, End, LeftShift, RightShift, LeftCtrl, RightCtrl, LeftAlt, RightAlt }";
 
 pub static MODULE: NativeModule = NativeModule {
     kind: Kind::Install,
     name: "ui",
     doc: "a window with a scene of rectangles, and the keyboard (install #ui)",
-    structs: &["struct Window {\n    id: int\n}\n", "struct Shape {\n    id: int,\n    win: int\n}\n", "struct Label {\n    id: int,\n    win: int\n}\n", KEY_ENUM, MOUSE_ENUM],
+    structs: &["struct Window {\n    id: int\n}\n", "struct Shape {\n    id: int,\n    win: int\n}\n", "struct Label {\n    id: int,\n    win: int\n}\n", KEY_ENUM, MOUSE_ENUM, ALIGN_ENUM],
     objects: &[
         NativeObject {
             name: "Window",
@@ -59,6 +61,7 @@ pub static MODULE: NativeModule = NativeModule {
                 NativeField { name: "mouseX", get: "_getMouseX", set: None },
                 NativeField { name: "mouseY", get: "_getMouseY", set: None },
                 NativeField { name: "mouseInside", get: "_getMouseInside", set: None },
+                NativeField { name: "typed", get: "_getTyped", set: None },
             ],
             methods: &[("rect", "rect"), ("nextFrame", "nextFrame"), ("isDown", "isDown"), ("wasPressed", "wasPressed"), ("wasReleased", "wasReleased"), ("close", "close"), ("onClose", "onClose"), ("onFocus", "onFocus"), ("onBlur", "onBlur"), ("onResize", "onResize"), ("mouseDown", "mouseDown"), ("mousePressed", "mousePressed"), ("mouseReleased", "mouseReleased"), ("text", "text")],
         },
@@ -72,6 +75,10 @@ pub static MODULE: NativeModule = NativeModule {
                 NativeField { name: "scale", get: "_getLabelScale", set: Some("_setLabelScale") },
                 NativeField { name: "visible", get: "_getLabelVisible", set: Some("_setLabelVisible") },
                 NativeField { name: "layer", get: "_getLabelLayer", set: Some("_setLabelLayer") },
+                NativeField { name: "align", get: "_getLabelAlign", set: Some("_setLabelAlign") },
+                NativeField { name: "wrap", get: "_getLabelWrap", set: Some("_setLabelWrap") },
+                NativeField { name: "width", get: "_getLabelWidth", set: None },
+                NativeField { name: "height", get: "_getLabelHeight", set: None },
             ],
             methods: &[("kill", "labelKill")],
         },
@@ -99,6 +106,13 @@ pub static MODULE: NativeModule = NativeModule {
     functions: &[
         NativeFn { name: "text", sig: "(Window, float, float, string, int, int) -> Label", doc: "adds a line of text to the scene: x, y, the text, a color, and a scale from 1 to 8 (a character is 8 pixels at scale 1). a \\n starts a new line. the window draws it on every frame until it is killed", call: add_text },
         NativeFn { name: "labelKill", sig: "(Label) -> void", doc: "removes the label from the scene. killing it again does nothing", call: label_kill },
+        NativeFn { name: "_getTyped", sig: "(Window) -> string", doc: "internal: win.typed", call: get_typed },
+        NativeFn { name: "_getLabelWidth", sig: "(Label) -> float", doc: "internal: label.width", call: get_label_width },
+        NativeFn { name: "_getLabelAlign", sig: "(Label) -> Align", doc: "internal: label.align", call: get_label_align },
+        NativeFn { name: "_setLabelAlign", sig: "(Label, Align) -> void", doc: "internal: label.align = value", call: set_label_align },
+        NativeFn { name: "_getLabelWrap", sig: "(Label) -> float", doc: "internal: label.wrap", call: get_label_wrap },
+        NativeFn { name: "_setLabelWrap", sig: "(Label, float) -> void", doc: "internal: label.wrap = value", call: set_label_wrap },
+        NativeFn { name: "_getLabelHeight", sig: "(Label) -> float", doc: "internal: label.height", call: get_label_height },
         NativeFn { name: "_getLabelX", sig: "(Label) -> float", doc: "internal: label.x", call: get_label_x },
         NativeFn { name: "_setLabelX", sig: "(Label, float) -> void", doc: "internal: label.x = value", call: set_label_x },
         NativeFn { name: "_getLabelY", sig: "(Label) -> float", doc: "internal: label.y", call: get_label_y },
@@ -407,6 +421,64 @@ fn label_kill(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
         Ok(())
     })?;
     Ok(LibValue::Void)
+}
+
+fn get_typed(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Window.typed";
+    let id = window_id(F, &args)?;
+    Ok(LibValue::Str(with_window(F, id, |w| Ok(w.typed().to_string()))?))
+}
+
+fn get_label_align(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.align";
+    with_label(F, &args, |l| {
+        let variant = match l.align() {
+            ui_core::Align::Left => "Left",
+            ui_core::Align::Center => "Center",
+            ui_core::Align::Right => "Right",
+        };
+        Ok(LibValue::Variant("Align".to_string(), variant.to_string()))
+    })
+}
+
+fn set_label_align(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.align";
+    let value = match args.get(1) {
+        Some(LibValue::Enum(name)) => match name.as_str() {
+            "Left" => ui_core::Align::Left,
+            "Center" => ui_core::Align::Center,
+            "Right" => ui_core::Align::Right,
+            other => return Err(LibError::new(F, format!("unknown alignment {other}"))),
+        },
+        _ => return Err(LibError::new(F, "argument 2 must be an Align, like Align.Center")),
+    };
+    with_label(F, &args, |l| {
+        l.set_align(value);
+        Ok(())
+    })?;
+    Ok(LibValue::Void)
+}
+
+fn get_label_wrap(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.wrap";
+    with_label(F, &args, |l| Ok(LibValue::Float(l.wrap())))
+}
+
+fn set_label_wrap(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.wrap";
+    let value = float(F, &args, 1)?;
+    with_label(F, &args, |l| l.set_wrap(value))?;
+    Ok(LibValue::Void)
+}
+
+fn get_label_width(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.width";
+    with_label(F, &args, |l| Ok(LibValue::Float(l.size().0)))
+}
+
+fn get_label_height(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.height";
+    with_label(F, &args, |l| Ok(LibValue::Float(l.size().1)))
 }
 
 fn get_label_x(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {

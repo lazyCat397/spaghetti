@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::backend::{Backend, Button, Key};
-use crate::scene::{Drawn, Label, Scene, Shape, ShapeId};
+use crate::scene::{Align, Drawn, Label, Scene, Shape, ShapeId};
 use crate::text;
 
 /// the largest `dt` the program gets, in seconds. stops jumps after a pause or a freeze
@@ -52,6 +52,8 @@ pub struct Session<B: Backend> {
     buttons_released: HashSet<Button>,
     /// whether a frame has read the mouse yet (the first frame reports no press or release)
     mouse_read: bool,
+    /// the characters typed during the last frame
+    typed: String,
     /// the topmost shape under the pointer that takes clicks, as of the last frame
     hovered: Option<ShapeId>,
     /// the shape that took each button when it went down: it keeps the button until it goes up
@@ -96,6 +98,7 @@ impl<B: Backend> Session<B> {
             buttons_pressed: HashSet::new(),
             buttons_released: HashSet::new(),
             mouse_read: false,
+            typed: String::new(),
             hovered: None,
             captured: HashMap::new(),
             shape_down: HashSet::new(),
@@ -132,6 +135,7 @@ impl<B: Backend> Session<B> {
         let still_open = self.backend.poll();
         self.read_keys();
         self.read_mouse();
+        self.typed = self.backend.take_typed();
         let focused = self.backend.is_focused();
         if let Some(before) = self.focused {
             if before != focused {
@@ -239,6 +243,11 @@ impl<B: Backend> Session<B> {
     /// the mouse y of the last frame, in framebuffer pixels
     pub fn mouse_y(&self) -> f64 {
         self.mouse_y
+    }
+
+    /// the characters typed during the last frame, in order (control keys are not characters)
+    pub fn typed(&self) -> &str {
+        &self.typed
     }
 
     /// whether the pointer is over the window, as of the last frame
@@ -448,18 +457,30 @@ fn fill_box(pixels: &mut [u32], width: usize, height: usize, x: f64, y: f64, w: 
     }
 }
 
-/// draws a label: each glyph's ink, as blocks of `scale` pixels. the background shows through
+/// draws a label: the lines after wrapping, each placed by the alignment inside the width of the
+/// label (its wrap width, or its widest line when it does not wrap). each glyph is drawn as blocks of
+/// `scale` pixels, and the background shows through
 fn draw_label(pixels: &mut [u32], width: usize, height: usize, label: &Label) {
-    let scale = label.scale() as f64;
-    for (line_index, line) in text::lines(label.text()).into_iter().enumerate() {
+    let scale = label.scale();
+    let lines = text::layout(label.text(), scale, label.wrap());
+    let cell = (text::CELL * scale) as f64;
+    let widest = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0) as f64 * cell;
+    let block = if label.wrap() > 0.0 { label.wrap() } else { widest };
+    for (line_index, line) in lines.iter().enumerate() {
+        let line_width = line.chars().count() as f64 * cell;
+        let offset = match label.align() {
+            Align::Left => 0.0,
+            Align::Center => (block - line_width) / 2.0,
+            Align::Right => block - line_width,
+        };
         for (char_index, c) in line.chars().enumerate() {
             let rows = text::glyph(c);
             for (row, bits) in rows.iter().enumerate() {
                 for col in 0..text::CELL as usize {
                     if bits >> col & 1 == 1 {
-                        let x = label.x() + ((char_index * 8 + col) as f64) * scale;
-                        let y = label.y() + ((line_index * 8 + row) as f64) * scale;
-                        fill_box(pixels, width, height, x, y, scale, scale, label.color());
+                        let x = label.x() + offset + ((char_index * 8 + col) as f64) * scale as f64;
+                        let y = label.y() + ((line_index * 8 + row) as f64) * scale as f64;
+                        fill_box(pixels, width, height, x, y, scale as f64, scale as f64, label.color());
                     }
                 }
             }

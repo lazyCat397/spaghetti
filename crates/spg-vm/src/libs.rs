@@ -115,6 +115,9 @@ fn from_lib(program: &Program, value: LibValue, function: &'static str) -> Resul
             }
             Value::Struct(Rc::new(RefCell::new((def, values))))
         }
+        LibValue::Variant(enum_name, variant) => crate::value::enum_value_by_name(&enum_name, &variant).ok_or_else(|| {
+            RuntimeError::Process { function, reason: format!("internal: the program has no {enum_name}.{variant}") }
+        })?,
         LibValue::Enum(_) | LibValue::Opaque(_) | LibValue::Handler(_) => {
             return Err(RuntimeError::Process { function, reason: "a library can not hand back this kind of value".to_string() })
         }

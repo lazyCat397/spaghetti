@@ -821,8 +821,8 @@ fn a_label_draws_over_the_shapes_below_and_keeps_its_background_clear() {
 
 #[test]
 fn a_newline_starts_the_next_line_below() {
-    assert_eq!(text::size("ab", 2), (32.0, 16.0));
-    assert_eq!(text::size("a\nbcd", 1), (24.0, 16.0), "the widest line decides the width");
+    assert_eq!(text::size("ab", 2, 0.0), (32.0, 16.0));
+    assert_eq!(text::size("a\nbcd", 1, 0.0), (24.0, 16.0), "the widest line decides the width");
     let mut s = session(20, 20);
     s.scene_mut().unwrap().set_background(BG);
     s.add_label(0.0, 0.0, "I\nI", RED, 1).unwrap();
@@ -866,4 +866,93 @@ fn a_label_takes_no_click() {
     s.begin_frame(0.016).unwrap();
     assert!(!s.shape_hovered(1), "text is not a target");
     assert_eq!(s.hovered(), None);
+}
+
+// --- typed text --------------------------------------------------------------------
+
+#[test]
+fn the_characters_typed_in_a_frame_are_read_by_that_frame_only() {
+    let mut s = session(8, 8);
+    let typed = s.backend().typed_handle();
+    s.begin_frame(0.0).unwrap();
+    assert_eq!(s.typed(), "");
+    typed.borrow_mut().push_str("olá");
+    s.begin_frame(0.016).unwrap();
+    assert_eq!(s.typed(), "olá", "accents are characters too");
+    s.begin_frame(0.032).unwrap();
+    assert_eq!(s.typed(), "", "nothing was typed in this frame");
+}
+
+#[test]
+fn a_label_knows_its_size() {
+    let mut s = session(8, 8);
+    let label = s.add_label(0.0, 0.0, "Olá", RED, 2).unwrap();
+    assert_eq!(s.label(label).unwrap().size(), (48.0, 16.0), "3 characters of 16 pixels, one line");
+    s.label_mut(label).unwrap().set_text("ab\nabcd");
+    assert_eq!(s.label(label).unwrap().size(), (64.0, 32.0), "the widest line, and two lines");
+}
+
+// --- wrapping and alignment -----------------------------------------------------------------
+
+use ui_core::Align;
+
+#[test]
+fn words_wrap_to_the_lines_they_fit_in() {
+    // a line of 24 pixels at scale 1 holds 3 characters
+    assert_eq!(text::layout("ab cd ef", 1, 24.0), vec!["ab", "cd", "ef"]);
+    assert_eq!(text::layout("a bb", 1, 16.0), vec!["a", "bb"], "two words that do not fit side by side");
+    assert_eq!(text::layout("ab cd", 1, 40.0), vec!["ab cd"], "they fit: one line");
+}
+
+#[test]
+fn a_word_longer_than_a_line_is_cut_and_a_newline_is_kept() {
+    assert_eq!(text::layout("abcde", 1, 24.0), vec!["abc", "de"]);
+    assert_eq!(text::layout("x\nab cd", 1, 24.0), vec!["x", "ab", "cd"]);
+}
+
+#[test]
+fn a_wrap_narrower_than_a_character_still_gives_one_per_line() {
+    assert_eq!(text::layout("ab", 1, 2.0), vec!["a", "b"]);
+}
+
+#[test]
+fn no_wrap_keeps_the_lines_as_written() {
+    assert_eq!(text::layout("ab cd ef", 1, 0.0), vec!["ab cd ef"]);
+}
+
+#[test]
+fn the_size_follows_the_wrap() {
+    assert_eq!(text::size("ab cd ef", 1, 24.0), (16.0, 24.0), "three lines of two characters: 16 pixels wide, 24 tall");
+    assert_eq!(text::size("ab cd ef", 1, 0.0), (64.0, 8.0), "one line of eight characters");
+}
+
+#[test]
+fn the_alignment_places_each_line_inside_the_wrap_width() {
+    // a 24-pixel block; the capital I is 8 pixels wide, its ink in columns 1 to 4
+    let mut s = session(30, 10);
+    s.scene_mut().unwrap().set_background(BG);
+    let id = s.add_label(0.0, 0.0, "I", RED, 1).unwrap();
+    s.label_mut(id).unwrap().set_wrap(24.0).unwrap();
+    s.label_mut(id).unwrap().set_align(Align::Left);
+    s.begin_frame(0.0).unwrap();
+    assert_eq!(s.pixel(2, 0), Some(RED), "left: the ink starts at column 1");
+
+    s.label_mut(id).unwrap().set_align(Align::Center);
+    s.begin_frame(0.016).unwrap();
+    assert_eq!(s.pixel(2, 0), Some(BG), "centered: 8 pixels move the line right");
+    assert_eq!(s.pixel(10, 0), Some(RED), "column 9 is the ink start of the centered I");
+
+    s.label_mut(id).unwrap().set_align(Align::Right);
+    s.begin_frame(0.032).unwrap();
+    assert_eq!(s.pixel(10, 0), Some(BG), "right: 16 pixels move it");
+    assert_eq!(s.pixel(18, 0), Some(RED), "column 17 is the ink start of the right-aligned I");
+}
+
+#[test]
+fn a_wrap_width_must_be_zero_or_more_and_finite() {
+    let mut s = session(8, 8);
+    let id = s.add_label(0.0, 0.0, "a", RED, 1).unwrap();
+    assert!(s.label_mut(id).unwrap().set_wrap(-1.0).is_err());
+    assert!(s.label_mut(id).unwrap().set_wrap(f64::NAN).is_err());
+    assert!(s.label_mut(id).unwrap().set_wrap(0.0).is_ok());
 }

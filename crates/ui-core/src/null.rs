@@ -26,6 +26,8 @@ pub struct NullBackend {
     just_released: HashSet<Key>,
     user_closed: bool,
     open: bool,
+    /// the typed characters, shared so a test can type while the session holds the backend
+    typed: Rc<RefCell<String>>,
     /// the mouse, shared so a test can move it while the session holds the backend
     mouse: Rc<RefCell<NullMouse>>,
     /// shared, so a test can take the focus away while the session holds the backend
@@ -47,6 +49,11 @@ impl NullBackend {
         let backend = Self::default();
         backend.focused.set(true);
         backend
+    }
+
+    /// what a test types: the next frame reads it
+    pub fn typed_handle(&self) -> Rc<RefCell<String>> {
+        Rc::clone(&self.typed)
     }
 
     /// the mouse: a test moves it or presses a button while the session holds the backend
@@ -136,6 +143,10 @@ impl Backend for NullBackend {
 
     fn is_button_down(&self, button: Button) -> bool {
         self.mouse.borrow().down.contains(&button)
+    }
+
+    fn take_typed(&mut self) -> String {
+        std::mem::take(&mut *self.typed.borrow_mut())
     }
 
     fn close(&mut self) {

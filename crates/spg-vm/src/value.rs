@@ -134,6 +134,16 @@ pub fn install_enum_defs(defs: &[Rc<EnumDef>]) {
     ENUM_DEFS.with(|d| *d.borrow_mut() = defs.to_vec());
 }
 
+/// the value of `variant` in the enum named `enum_name`, if the running program declares both
+pub fn enum_value_by_name(enum_name: &str, variant: &str) -> Option<Value> {
+    ENUM_DEFS.with(|defs| {
+        let defs = defs.borrow();
+        let index = defs.iter().position(|d| d.name == enum_name)?;
+        let variant_index = defs[index].variants.iter().position(|v| v == variant)?;
+        Some(Value::Enum(index as u32, variant_index as u32))
+    })
+}
+
 #[derive(Debug, Clone)]
 pub enum Value {
     Int(i64),

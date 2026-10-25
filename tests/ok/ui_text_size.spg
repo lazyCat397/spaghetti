@@ -1,0 +1,6 @@
+install #ui
+let win = ui.window("t", 50, 50)
+let a = win.text(1.0, 1.0, "abc", ui.hex("#ffffff"), 2)
+print(a.width)
+print(a.height)
+print("[" + win.typed + "]")
