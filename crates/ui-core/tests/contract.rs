@@ -771,3 +771,99 @@ fn a_shape_keeps_the_button_it_took_even_when_the_pointer_leaves() {
     assert!(s.shape_button_released(a, Button::Left));
     assert!(!s.shape_button_released(b, Button::Left));
 }
+
+// --- text -------------------------------------------------------------------------------
+
+use ui_core::text;
+
+#[test]
+fn a_glyph_has_its_ink_where_the_font_says_and_the_leftmost_bit_is_the_first_column() {
+    // the capital I: its top row is 0b00011110 in the font, and bit 0 is the leftmost column, so the
+    // ink is in columns 1 to 4 and the stem in columns 2 and 3
+    let mut s = session(10, 10);
+    s.scene_mut().unwrap().set_background(BG);
+    s.add_label(0.0, 0.0, "I", RED, 1).unwrap();
+    s.begin_frame(0.0).unwrap();
+    assert_eq!(s.pixel(0, 0), Some(BG), "column 0 of the top row is empty");
+    assert_eq!(s.pixel(1, 0), Some(RED));
+    assert_eq!(s.pixel(4, 0), Some(RED));
+    assert_eq!(s.pixel(5, 0), Some(BG));
+    assert_eq!(s.pixel(2, 3), Some(RED), "the stem");
+    assert_eq!(s.pixel(4, 3), Some(BG), "beside the stem");
+}
+
+#[test]
+fn a_scale_draws_each_pixel_of_the_glyph_as_a_block() {
+    let mut s = session(20, 20);
+    s.scene_mut().unwrap().set_background(BG);
+    s.add_label(0.0, 0.0, "I", RED, 2).unwrap();
+    s.begin_frame(0.0).unwrap();
+    // column 1 at scale 2 is pixels 2 and 3
+    assert_eq!(s.pixel(2, 0), Some(RED));
+    assert_eq!(s.pixel(3, 1), Some(RED));
+    assert_eq!(s.pixel(4, 0), Some(RED));
+    assert_eq!(s.pixel(0, 0), Some(BG));
+}
+
+#[test]
+fn a_label_draws_over_the_shapes_below_and_keeps_its_background_clear() {
+    let mut s = session(10, 10);
+    s.scene_mut().unwrap().set_background(BG);
+    s.add_rect(0.0, 0.0, 10.0, 10.0, GREEN).unwrap();
+    let label = s.add_label(0.0, 0.0, "I", RED, 1).unwrap();
+    s.begin_frame(0.0).unwrap();
+    assert_eq!(s.pixel(1, 0), Some(RED), "the label is on top");
+    assert_eq!(s.pixel(0, 0), Some(GREEN), "where the label has no ink, the rectangle shows");
+    s.label_mut(label).unwrap().set_layer(-1);
+    s.begin_frame(0.016).unwrap();
+    assert_eq!(s.pixel(1, 0), Some(GREEN), "a label on a lower layer is under the rectangle");
+}
+
+#[test]
+fn a_newline_starts_the_next_line_below() {
+    assert_eq!(text::size("ab", 2), (32.0, 16.0));
+    assert_eq!(text::size("a\nbcd", 1), (24.0, 16.0), "the widest line decides the width");
+    let mut s = session(20, 20);
+    s.scene_mut().unwrap().set_background(BG);
+    s.add_label(0.0, 0.0, "I\nI", RED, 1).unwrap();
+    s.begin_frame(0.0).unwrap();
+    assert_eq!(s.pixel(1, 0), Some(RED));
+    assert_eq!(s.pixel(1, 8), Some(RED), "the second line is 8 pixels lower at scale 1");
+}
+
+#[test]
+fn accents_have_their_own_glyph_and_unknown_characters_are_a_question_mark() {
+    assert_ne!(text::glyph('é'), text::glyph('e'), "é is not e");
+    assert_ne!(text::glyph('é'), text::glyph('?'), "é is in the font");
+    assert_eq!(text::glyph('\u{20AC}'), text::glyph('?'), "the euro sign is not in the font: a ?");
+}
+
+#[test]
+fn the_scale_must_be_between_1_and_8() {
+    let mut s = session(8, 8);
+    assert!(s.add_label(0.0, 0.0, "a", RED, 0).is_err());
+    assert!(s.add_label(0.0, 0.0, "a", RED, 9).is_err());
+    assert!(s.add_label(0.0, 0.0, "a", RED, 8).is_ok());
+    assert!(s.add_label(f64::NAN, 0.0, "a", RED, 1).is_err());
+}
+
+#[test]
+fn a_label_can_be_changed_and_killed_like_a_shape() {
+    let mut s = session(8, 8);
+    let label = s.add_label(0.0, 0.0, "a", RED, 1).unwrap();
+    s.label_mut(label).unwrap().set_text("bb");
+    assert_eq!(s.label(label).unwrap().text(), "bb");
+    s.kill_shape(label);
+    assert!(s.label(label).is_err(), "killed");
+    assert!(s.scene().unwrap().is_empty());
+}
+
+#[test]
+fn a_label_takes_no_click() {
+    let mut s = pointer_at(1.0, 1.0);
+    s.add_label(0.0, 0.0, "I", RED, 1).unwrap();
+    s.backend().mouse_handle().borrow_mut().down.insert(Button::Left);
+    s.begin_frame(0.016).unwrap();
+    assert!(!s.shape_hovered(1), "text is not a target");
+    assert_eq!(s.hovered(), None);
+}

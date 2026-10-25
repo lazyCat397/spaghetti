@@ -4,7 +4,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::backend::{Backend, Button, Key};
-use crate::scene::{Scene, Shape, ShapeId};
+use crate::scene::{Drawn, Label, Scene, Shape, ShapeId};
+use crate::text;
 
 /// the largest `dt` the program gets, in seconds. stops jumps after a pause or a freeze
 pub const MAX_DT: f64 = 0.1;
@@ -200,6 +201,20 @@ impl<B: Backend> Session<B> {
         self.scene_mut()?.get_mut(id)
     }
 
+    /// a new line of text. `scale` goes from 1 to 8: a character is 8 pixels at scale 1
+    pub fn add_label(&mut self, x: f64, y: f64, text: &str, color: u32, scale: i64) -> Result<ShapeId, String> {
+        let label = Label::new(x, y, text, color, scale)?;
+        Ok(self.scene_mut()?.add_label(label))
+    }
+
+    pub fn label(&self, id: ShapeId) -> Result<&Label, String> {
+        self.scene()?.get_label(id)
+    }
+
+    pub fn label_mut(&mut self, id: ShapeId) -> Result<&mut Label, String> {
+        self.scene_mut()?.get_label_mut(id)
+    }
+
     /// removes a shape. a shape that is already gone, or that went with its window, is fine:
     /// killing twice does nothing
     pub fn kill_shape(&mut self, id: ShapeId) {
@@ -244,6 +259,11 @@ impl<B: Backend> Session<B> {
     /// whether the button went up since the previous frame
     pub fn button_released(&self, button: Button) -> bool {
         self.buttons_released.contains(&button)
+    }
+
+    /// the shape a click would reach, as of the last frame
+    pub fn hovered(&self) -> Option<ShapeId> {
+        self.hovered
     }
 
     /// whether the pointer is over this shape, and the shape is the one a click would reach
@@ -307,22 +327,17 @@ impl<B: Backend> Session<B> {
         &mut self.backend
     }
 
-    /// the background, then every visible shape back to front. the parts outside the window are
-    /// cut off
+    /// the background, then every visible shape and label back to front. the parts outside the
+    /// window are cut off
     fn render(&mut self) {
         let Session { scene, pixels, width, height, .. } = self;
         pixels.fill(scene.background());
-        for shape in scene.draw_order() {
-            let x0 = (shape.x().round() as i64).clamp(0, *width as i64) as usize;
-            let y0 = (shape.y().round() as i64).clamp(0, *height as i64) as usize;
-            let x1 = ((shape.x() + shape.w()).round() as i64).clamp(0, *width as i64) as usize;
-            let y1 = ((shape.y() + shape.h()).round() as i64).clamp(0, *height as i64) as usize;
-            if x1 <= x0 {
-                continue;
-            }
-            for row in y0..y1 {
-                let start = row * *width;
-                pixels[start + x0..start + x1].fill(shape.color());
+        for drawn in scene.draw_list() {
+            match drawn {
+                Drawn::Shape(shape) => {
+                    fill_box(pixels, *width, *height, shape.x(), shape.y(), shape.w(), shape.h(), shape.color());
+                }
+                Drawn::Label(label) => draw_label(pixels, *width, *height, label),
             }
         }
     }
@@ -413,6 +428,41 @@ impl<B: Backend> Drop for Session<B> {
     fn drop(&mut self) {
         if self.state != State::Closed {
             self.close_now();
+        }
+    }
+}
+
+/// paints a rectangle of the framebuffer, cut at its edges. `x` and `y` are rounded to pixels
+#[allow(clippy::too_many_arguments)]
+fn fill_box(pixels: &mut [u32], width: usize, height: usize, x: f64, y: f64, w: f64, h: f64, color: u32) {
+    let x0 = (x.round() as i64).clamp(0, width as i64) as usize;
+    let y0 = (y.round() as i64).clamp(0, height as i64) as usize;
+    let x1 = ((x + w).round() as i64).clamp(0, width as i64) as usize;
+    let y1 = ((y + h).round() as i64).clamp(0, height as i64) as usize;
+    if x1 <= x0 {
+        return;
+    }
+    for row in y0..y1 {
+        let start = row * width;
+        pixels[start + x0..start + x1].fill(color);
+    }
+}
+
+/// draws a label: each glyph's ink, as blocks of `scale` pixels. the background shows through
+fn draw_label(pixels: &mut [u32], width: usize, height: usize, label: &Label) {
+    let scale = label.scale() as f64;
+    for (line_index, line) in text::lines(label.text()).into_iter().enumerate() {
+        for (char_index, c) in line.chars().enumerate() {
+            let rows = text::glyph(c);
+            for (row, bits) in rows.iter().enumerate() {
+                for col in 0..text::CELL as usize {
+                    if bits >> col & 1 == 1 {
+                        let x = label.x() + ((char_index * 8 + col) as f64) * scale;
+                        let y = label.y() + ((line_index * 8 + row) as f64) * scale;
+                        fill_box(pixels, width, height, x, y, scale, scale, label.color());
+                    }
+                }
+            }
         }
     }
 }

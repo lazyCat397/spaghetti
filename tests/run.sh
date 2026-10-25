@@ -427,6 +427,7 @@ exit124() {  # exit124 <file> <expected output before the cut> — the engine IT
 ok ui_events.spg 'closed\n-1.0\n1\nbye\n-1.0'
 ok ui_mouse.spg '-1.0\nfalse\nfalse\nfalse'
 ok ui_shape_clicks.spg 'false\ntrue\nfalse\nfalse\nfalse'
+ok ui_text.spg 'Olá\n2\nOi\ndone'
 ok ui_objects.spg '8.5\nfalse\n20\n1052688\n0.0\nkilled'
 err ui_readonly.spg "cannot assign to 'Window.width'"
 err ui_no_method.spg "has no method 'fly'"
@@ -437,6 +438,8 @@ err ui_native_name.spg "is also the name of a type of install #ui"
 err ui_mouse_readonly.spg "cannot assign to 'Window.mouseX'"
 err ui_mouse_string.spg "expects Mouse"
 err ui_hovered_readonly.spg "cannot assign to 'Shape.hovered'"
+err ui_text_type.spg "expects string"
+err ui_text_scale.spg "the text scale must be between 1 and 8"
 err ui_compound_call.spg "can not be changed with a compound operator here"
 ok dir_strict_overflow_try.spg  'caught'
 ok dir_timeout_ok.spg           'rapido'

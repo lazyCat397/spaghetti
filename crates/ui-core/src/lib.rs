@@ -8,10 +8,11 @@ pub mod color;
 pub mod null;
 pub mod scene;
 pub mod session;
+pub mod text;
 
 #[cfg(feature = "minifb")]
 pub mod minifb_backend;
 
 pub use backend::{Backend, Button, Key};
-pub use scene::{Scene, Shape, ShapeId};
+pub use scene::{Drawn, Label, Scene, Shape, ShapeId};
 pub use session::{Session, State, MAX_DT};

@@ -1,0 +1,10 @@
+install #ui
+let win = ui.window("t", 50, 50)
+let note = win.text(1.0, 2.0, "Olá", ui.hex("#ffffff"), 2)
+print(note.text)
+print(note.scale)
+note.text = "Oi"
+print(note.text)
+note.kill()
+note.kill()
+print("done")

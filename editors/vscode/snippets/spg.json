@@ -366,5 +366,15 @@
       "}"
     ],
     "description": "Run once, on the frame the mouse button goes down (Mouse: Left, Right, Middle)"
+  },
+  "UI text": {
+    "prefix": [
+      "uitext",
+      "ui text"
+    ],
+    "body": [
+      "let ${1:label} = win.text(${2:10.0}, ${3:10.0}, \"${4:Olá}\", ui.hex(\"#${5:ffffff}\"), ${6:2})"
+    ],
+    "description": "A line of text the window keeps (scale 1 to 8; \\n starts a new line; accents are in the font)"
   }
 }

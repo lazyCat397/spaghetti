@@ -48,7 +48,7 @@ pub static MODULE: NativeModule = NativeModule {
     kind: Kind::Install,
     name: "ui",
     doc: "a window with a scene of rectangles, and the keyboard (install #ui)",
-    structs: &["struct Window {\n    id: int\n}\n", "struct Shape {\n    id: int,\n    win: int\n}\n", KEY_ENUM, MOUSE_ENUM],
+    structs: &["struct Window {\n    id: int\n}\n", "struct Shape {\n    id: int,\n    win: int\n}\n", "struct Label {\n    id: int,\n    win: int\n}\n", KEY_ENUM, MOUSE_ENUM],
     objects: &[
         NativeObject {
             name: "Window",
@@ -60,7 +60,20 @@ pub static MODULE: NativeModule = NativeModule {
                 NativeField { name: "mouseY", get: "_getMouseY", set: None },
                 NativeField { name: "mouseInside", get: "_getMouseInside", set: None },
             ],
-            methods: &[("rect", "rect"), ("nextFrame", "nextFrame"), ("isDown", "isDown"), ("wasPressed", "wasPressed"), ("wasReleased", "wasReleased"), ("close", "close"), ("onClose", "onClose"), ("onFocus", "onFocus"), ("onBlur", "onBlur"), ("onResize", "onResize"), ("mouseDown", "mouseDown"), ("mousePressed", "mousePressed"), ("mouseReleased", "mouseReleased")],
+            methods: &[("rect", "rect"), ("nextFrame", "nextFrame"), ("isDown", "isDown"), ("wasPressed", "wasPressed"), ("wasReleased", "wasReleased"), ("close", "close"), ("onClose", "onClose"), ("onFocus", "onFocus"), ("onBlur", "onBlur"), ("onResize", "onResize"), ("mouseDown", "mouseDown"), ("mousePressed", "mousePressed"), ("mouseReleased", "mouseReleased"), ("text", "text")],
+        },
+        NativeObject {
+            name: "Label",
+            fields: &[
+                NativeField { name: "x", get: "_getLabelX", set: Some("_setLabelX") },
+                NativeField { name: "y", get: "_getLabelY", set: Some("_setLabelY") },
+                NativeField { name: "text", get: "_getLabelText", set: Some("_setLabelText") },
+                NativeField { name: "color", get: "_getLabelColor", set: Some("_setLabelColor") },
+                NativeField { name: "scale", get: "_getLabelScale", set: Some("_setLabelScale") },
+                NativeField { name: "visible", get: "_getLabelVisible", set: Some("_setLabelVisible") },
+                NativeField { name: "layer", get: "_getLabelLayer", set: Some("_setLabelLayer") },
+            ],
+            methods: &[("kill", "labelKill")],
         },
         NativeObject {
             name: "Shape",
@@ -84,6 +97,22 @@ pub static MODULE: NativeModule = NativeModule {
         },
     ],
     functions: &[
+        NativeFn { name: "text", sig: "(Window, float, float, string, int, int) -> Label", doc: "adds a line of text to the scene: x, y, the text, a color, and a scale from 1 to 8 (a character is 8 pixels at scale 1). a \\n starts a new line. the window draws it on every frame until it is killed", call: add_text },
+        NativeFn { name: "labelKill", sig: "(Label) -> void", doc: "removes the label from the scene. killing it again does nothing", call: label_kill },
+        NativeFn { name: "_getLabelX", sig: "(Label) -> float", doc: "internal: label.x", call: get_label_x },
+        NativeFn { name: "_setLabelX", sig: "(Label, float) -> void", doc: "internal: label.x = value", call: set_label_x },
+        NativeFn { name: "_getLabelY", sig: "(Label) -> float", doc: "internal: label.y", call: get_label_y },
+        NativeFn { name: "_setLabelY", sig: "(Label, float) -> void", doc: "internal: label.y = value", call: set_label_y },
+        NativeFn { name: "_getLabelText", sig: "(Label) -> string", doc: "internal: label.text", call: get_label_text },
+        NativeFn { name: "_setLabelText", sig: "(Label, string) -> void", doc: "internal: label.text = value", call: set_label_text },
+        NativeFn { name: "_getLabelColor", sig: "(Label) -> int", doc: "internal: label.color", call: get_label_color },
+        NativeFn { name: "_setLabelColor", sig: "(Label, int) -> void", doc: "internal: label.color = value", call: set_label_color },
+        NativeFn { name: "_getLabelScale", sig: "(Label) -> int", doc: "internal: label.scale", call: get_label_scale },
+        NativeFn { name: "_setLabelScale", sig: "(Label, int) -> void", doc: "internal: label.scale = value", call: set_label_scale },
+        NativeFn { name: "_getLabelVisible", sig: "(Label) -> bool", doc: "internal: label.visible", call: get_label_visible },
+        NativeFn { name: "_setLabelVisible", sig: "(Label, bool) -> void", doc: "internal: label.visible = value", call: set_label_visible },
+        NativeFn { name: "_getLabelLayer", sig: "(Label) -> int", doc: "internal: label.layer", call: get_label_layer },
+        NativeFn { name: "_setLabelLayer", sig: "(Label, int) -> void", doc: "internal: label.layer = value", call: set_label_layer },
         NativeFn { name: "window", sig: "(string, int, int) -> Window", doc: "opens a window of the given size, in pixels. it shows when the loop starts", call: window },
         NativeFn { name: "nextFrame", sig: "(Window) -> float", doc: "draws the scene and shows it, reads the keys and gives the seconds since the last frame (at most 0.1). gives -1.0 when the window is closing, which ends the loop", call: next_frame },
         NativeFn { name: "rect", sig: "(Window, float, float, float, float, int) -> Shape", doc: "adds a filled rectangle to the scene: x, y, width, height in pixels, then a color. the window draws it on every frame until it is killed", call: rect },
@@ -339,6 +368,149 @@ fn mouse_released(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError
     let id = window_id(F, &args)?;
     let button = button_arg(F, &args, 1)?;
     Ok(LibValue::Bool(with_window(F, id, |w| Ok(w.button_released(button)))?))
+}
+
+/// the `Label` at argument 0 (its window and its id), checked: the label must be alive
+fn label_handle(function: &'static str, args: &[LibValue]) -> Result<(i64, u64), LibError> {
+    let win = handle_field(function, args, "Label", "win")?;
+    let id = handle_field(function, args, "Label", "id")?;
+    Ok((win, id as u64))
+}
+
+/// runs `f` on the label at argument 0
+fn with_label<T>(
+    function: &'static str,
+    args: &[LibValue],
+    f: impl FnOnce(&mut ui_core::Label) -> Result<T, String>,
+) -> Result<T, LibError> {
+    let (win, id) = label_handle(function, args)?;
+    with_window(function, win, |w| f(w.label_mut(id)?))
+}
+
+fn add_text(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "ui.text";
+    let win = window_id(F, &args)?;
+    let x = float(F, &args, 1)?;
+    let y = float(F, &args, 2)?;
+    let content = text_arg(F, &args, 3)?;
+    let color = color_arg(F, &args, 4)?;
+    let scale = int(F, &args, 5)?;
+    let id = with_window(F, win, |w| w.add_label(x, y, &content, color, scale))?;
+    Ok(LibValue::record("Label", vec![("id", LibValue::Int(id as i64)), ("win", LibValue::Int(win))]))
+}
+
+fn label_kill(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "ui.labelKill";
+    let (win, id) = label_handle(F, &args)?;
+    with_window(F, win, |w| {
+        w.kill_shape(id);
+        Ok(())
+    })?;
+    Ok(LibValue::Void)
+}
+
+fn get_label_x(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.x";
+    with_label(F, &args, |l| Ok(LibValue::Float(l.x())))
+}
+
+fn set_label_x(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.x";
+    let value = float(F, &args, 1)?;
+    with_label(F, &args, |l| l.set_x(value))?;
+    Ok(LibValue::Void)
+}
+
+fn get_label_y(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.y";
+    with_label(F, &args, |l| Ok(LibValue::Float(l.y())))
+}
+
+fn set_label_y(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.y";
+    let value = float(F, &args, 1)?;
+    with_label(F, &args, |l| l.set_y(value))?;
+    Ok(LibValue::Void)
+}
+
+fn get_label_text(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.text";
+    with_label(F, &args, |l| Ok(LibValue::Str(l.text().to_string())))
+}
+
+fn set_label_text(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.text";
+    let value = text_arg(F, &args, 1)?;
+    with_label(F, &args, |l| {
+        l.set_text(&value);
+        Ok(())
+    })?;
+    Ok(LibValue::Void)
+}
+
+fn get_label_color(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.color";
+    with_label(F, &args, |l| Ok(LibValue::Int(l.color() as i64)))
+}
+
+fn set_label_color(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.color";
+    let value = color_arg(F, &args, 1)?;
+    with_label(F, &args, |l| {
+        l.set_color(value);
+        Ok(())
+    })?;
+    Ok(LibValue::Void)
+}
+
+fn get_label_scale(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.scale";
+    with_label(F, &args, |l| Ok(LibValue::Int(l.scale() as i64)))
+}
+
+fn set_label_scale(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.scale";
+    let value = int(F, &args, 1)?;
+    with_label(F, &args, |l| l.set_scale(value))?;
+    Ok(LibValue::Void)
+}
+
+fn get_label_visible(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.visible";
+    with_label(F, &args, |l| Ok(LibValue::Bool(l.visible())))
+}
+
+fn set_label_visible(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.visible";
+    let value = boolean(F, &args, 1)?;
+    with_label(F, &args, |l| {
+        l.set_visible(value);
+        Ok(())
+    })?;
+    Ok(LibValue::Void)
+}
+
+fn get_label_layer(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.layer";
+    with_label(F, &args, |l| Ok(LibValue::Int(l.layer())))
+}
+
+fn set_label_layer(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.layer";
+    let value = int(F, &args, 1)?;
+    with_label(F, &args, |l| {
+        l.set_layer(value);
+        Ok(())
+    })?;
+    Ok(LibValue::Void)
+}
+
+/// a text argument: a string
+fn text_arg(function: &'static str, args: &[LibValue], i: usize) -> Result<String, LibError> {
+    match args.get(i) {
+        Some(LibValue::Str(t)) => Ok(t.clone()),
+        _ => Err(LibError::new(function, format!("argument {} must be a string", i + 1))),
+    }
 }
 
 /// the shape at argument 0 asked about a mouse button: the shape must be alive, and its window open

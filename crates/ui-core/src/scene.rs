@@ -109,16 +109,108 @@ impl Shape {
     }
 }
 
+/// the largest scale of a label: a glyph cell is 8 pixels, so 8 makes 64 pixels a character
+pub const MAX_SCALE: u32 = 8;
+
+/// a line of text. it is drawn like a shape, in the same order, and takes no clicks
+#[derive(Debug, Clone, PartialEq)]
+pub struct Label {
+    x: f64,
+    y: f64,
+    text: String,
+    color: u32,
+    scale: u32,
+    visible: bool,
+    layer: i64,
+}
+
+impl Label {
+    /// a visible label on layer 0. `scale` goes from 1 to `MAX_SCALE`
+    pub fn new(x: f64, y: f64, text: &str, color: u32, scale: i64) -> Result<Label, String> {
+        Ok(Label {
+            x: finite("x", x)?,
+            y: finite("y", y)?,
+            text: text.to_string(),
+            color,
+            scale: scale_value(scale)?,
+            visible: true,
+            layer: 0,
+        })
+    }
+
+    pub fn x(&self) -> f64 {
+        self.x
+    }
+    pub fn y(&self) -> f64 {
+        self.y
+    }
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+    pub fn color(&self) -> u32 {
+        self.color
+    }
+    pub fn scale(&self) -> u32 {
+        self.scale
+    }
+    pub fn visible(&self) -> bool {
+        self.visible
+    }
+    pub fn layer(&self) -> i64 {
+        self.layer
+    }
+
+    pub fn set_x(&mut self, value: f64) -> Result<(), String> {
+        self.x = finite("x", value)?;
+        Ok(())
+    }
+    pub fn set_y(&mut self, value: f64) -> Result<(), String> {
+        self.y = finite("y", value)?;
+        Ok(())
+    }
+    pub fn set_text(&mut self, value: &str) {
+        self.text = value.to_string();
+    }
+    pub fn set_color(&mut self, value: u32) {
+        self.color = value;
+    }
+    pub fn set_scale(&mut self, value: i64) -> Result<(), String> {
+        self.scale = scale_value(value)?;
+        Ok(())
+    }
+    pub fn set_visible(&mut self, value: bool) {
+        self.visible = value;
+    }
+    pub fn set_layer(&mut self, value: i64) {
+        self.layer = value;
+    }
+}
+
+fn scale_value(value: i64) -> Result<u32, String> {
+    if (1..=MAX_SCALE as i64).contains(&value) {
+        Ok(value as u32)
+    } else {
+        Err(format!("the text scale must be between 1 and {MAX_SCALE}, got {value}"))
+    }
+}
+
+/// something the scene draws: a rectangle or a label
+pub enum Drawn<'a> {
+    Shape(&'a Shape),
+    Label(&'a Label),
+}
+
 #[derive(Debug)]
 pub struct Scene {
     background: u32,
     shapes: HashMap<ShapeId, Shape>,
+    labels: HashMap<ShapeId, Label>,
     next_id: ShapeId,
 }
 
 impl Default for Scene {
     fn default() -> Self {
-        Scene { background: 0, shapes: HashMap::new(), next_id: 1 }
+        Scene { background: 0, shapes: HashMap::new(), labels: HashMap::new(), next_id: 1 }
     }
 }
 
@@ -138,6 +230,13 @@ impl Scene {
         id
     }
 
+    pub fn add_label(&mut self, label: Label) -> ShapeId {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.labels.insert(id, label);
+        id
+    }
+
     pub fn get(&self, id: ShapeId) -> Result<&Shape, String> {
         self.shapes.get(&id).ok_or_else(killed)
     }
@@ -146,22 +245,32 @@ impl Scene {
         self.shapes.get_mut(&id).ok_or_else(killed)
     }
 
-    /// removes the shape. a shape that is already gone is not an error: killing twice does nothing
-    pub fn kill(&mut self, id: ShapeId) {
-        self.shapes.remove(&id);
+    pub fn get_label(&self, id: ShapeId) -> Result<&Label, String> {
+        self.labels.get(&id).ok_or_else(killed)
     }
 
-    /// every shape dies (the window closed)
+    pub fn get_label_mut(&mut self, id: ShapeId) -> Result<&mut Label, String> {
+        self.labels.get_mut(&id).ok_or_else(killed)
+    }
+
+    /// removes the shape or the label. one that is already gone is not an error: killing twice does nothing
+    pub fn kill(&mut self, id: ShapeId) {
+        self.shapes.remove(&id);
+        self.labels.remove(&id);
+    }
+
+    /// every shape and label dies (the window closed)
     pub fn clear(&mut self) {
         self.shapes.clear();
+        self.labels.clear();
     }
 
     pub fn len(&self) -> usize {
-        self.shapes.len()
+        self.shapes.len() + self.labels.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.shapes.is_empty()
+        self.shapes.is_empty() && self.labels.is_empty()
     }
 
     /// the visible shapes, back to front: by layer, and by creation inside a layer
@@ -169,12 +278,30 @@ impl Scene {
         self.draw_order_ids().into_iter().map(|(_, shape)| shape).collect()
     }
 
-    /// the same, with the ids (the mouse needs them to tell which shape a click went to)
+    /// the same, with the ids (the mouse needs them to tell which shape a click went to). labels
+    /// take no clicks, so they are not here
     pub fn draw_order_ids(&self) -> Vec<(ShapeId, &Shape)> {
         let mut visible: Vec<(i64, ShapeId, &Shape)> =
             self.shapes.iter().filter(|(_, s)| s.visible).map(|(id, s)| (s.layer, *id, s)).collect();
         visible.sort_unstable_by_key(|(layer, id, _)| (*layer, *id));
         visible.into_iter().map(|(_, id, shape)| (id, shape)).collect()
+    }
+
+    /// everything the frame draws, back to front, shapes and labels in one order
+    pub fn draw_list(&self) -> Vec<Drawn<'_>> {
+        let mut all: Vec<(i64, ShapeId, Drawn<'_>)> = Vec::new();
+        for (id, s) in &self.shapes {
+            if s.visible {
+                all.push((s.layer, *id, Drawn::Shape(s)));
+            }
+        }
+        for (id, l) in &self.labels {
+            if l.visible {
+                all.push((l.layer, *id, Drawn::Label(l)));
+            }
+        }
+        all.sort_unstable_by_key(|(layer, id, _)| (*layer, *id));
+        all.into_iter().map(|(_, _, drawn)| drawn).collect()
     }
 }
 
