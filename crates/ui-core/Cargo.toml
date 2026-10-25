@@ -14,3 +14,4 @@ minifb = ["dep:minifb"]
 minifb = { version = "0.28", optional = true }
 # the 8x8 bitmap font of the text: basic Latin and Latin-1 (accents). no features beyond the glyphs
 font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }
+fontdue = "0.8"

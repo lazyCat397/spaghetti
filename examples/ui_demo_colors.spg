@@ -1,0 +1,12 @@
+// colors inside one text: %{#rrggbb} starts a color, %{/} goes back to the label color
+install #ui
+let win = ui.window("colors", 360, 160)
+win.background = ui.hex("#1b1f27")
+
+win.text(16.0, 20.0, "Vida: %{#ff3300}100%{/} de 100", ui.hex("#ffffff"), 2)
+win.text(16.0, 70.0, "Ouro %{#ffcc00}{x}%{/} e %{#33ccff}agua%{/}", ui.hex("#aaaaaa"), 2)
+
+while (true) {
+    let dt = win.nextFrame()
+    if (dt < 0.0) { break }
+}

@@ -821,8 +821,8 @@ fn a_label_draws_over_the_shapes_below_and_keeps_its_background_clear() {
 
 #[test]
 fn a_newline_starts_the_next_line_below() {
-    assert_eq!(text::size("ab", 2, 0.0), (32.0, 16.0));
-    assert_eq!(text::size("a\nbcd", 1, 0.0), (24.0, 16.0), "the widest line decides the width");
+    assert_eq!(text::size("ab", &text::Font::Bitmap, 2, 0.0).unwrap(), (32.0, 16.0));
+    assert_eq!(text::size("a\nbcd", &text::Font::Bitmap, 1, 0.0).unwrap(), (24.0, 16.0), "the widest line decides the width");
     let mut s = session(20, 20);
     s.scene_mut().unwrap().set_background(BG);
     s.add_label(0.0, 0.0, "I\nI", RED, 1).unwrap();
@@ -887,9 +887,9 @@ fn the_characters_typed_in_a_frame_are_read_by_that_frame_only() {
 fn a_label_knows_its_size() {
     let mut s = session(8, 8);
     let label = s.add_label(0.0, 0.0, "Olá", RED, 2).unwrap();
-    assert_eq!(s.label(label).unwrap().size(), (48.0, 16.0), "3 characters of 16 pixels, one line");
+    assert_eq!(s.label(label).unwrap().size().unwrap(), (48.0, 16.0), "3 characters of 16 pixels, one line");
     s.label_mut(label).unwrap().set_text("ab\nabcd");
-    assert_eq!(s.label(label).unwrap().size(), (64.0, 32.0), "the widest line, and two lines");
+    assert_eq!(s.label(label).unwrap().size().unwrap(), (64.0, 32.0), "the widest line, and two lines");
 }
 
 // --- wrapping and alignment -----------------------------------------------------------------
@@ -899,31 +899,31 @@ use ui_core::Align;
 #[test]
 fn words_wrap_to_the_lines_they_fit_in() {
     // a line of 24 pixels at scale 1 holds 3 characters
-    assert_eq!(text::layout("ab cd ef", 1, 24.0), vec!["ab", "cd", "ef"]);
-    assert_eq!(text::layout("a bb", 1, 16.0), vec!["a", "bb"], "two words that do not fit side by side");
-    assert_eq!(text::layout("ab cd", 1, 40.0), vec!["ab cd"], "they fit: one line");
+    assert_eq!(layout_text("ab cd ef", 1, 24.0), vec!["ab", "cd", "ef"]);
+    assert_eq!(layout_text("a bb", 1, 16.0), vec!["a", "bb"], "two words that do not fit side by side");
+    assert_eq!(layout_text("ab cd", 1, 40.0), vec!["ab cd"], "they fit: one line");
 }
 
 #[test]
 fn a_word_longer_than_a_line_is_cut_and_a_newline_is_kept() {
-    assert_eq!(text::layout("abcde", 1, 24.0), vec!["abc", "de"]);
-    assert_eq!(text::layout("x\nab cd", 1, 24.0), vec!["x", "ab", "cd"]);
+    assert_eq!(layout_text("abcde", 1, 24.0), vec!["abc", "de"]);
+    assert_eq!(layout_text("x\nab cd", 1, 24.0), vec!["x", "ab", "cd"]);
 }
 
 #[test]
 fn a_wrap_narrower_than_a_character_still_gives_one_per_line() {
-    assert_eq!(text::layout("ab", 1, 2.0), vec!["a", "b"]);
+    assert_eq!(layout_text("ab", 1, 2.0), vec!["a", "b"]);
 }
 
 #[test]
 fn no_wrap_keeps_the_lines_as_written() {
-    assert_eq!(text::layout("ab cd ef", 1, 0.0), vec!["ab cd ef"]);
+    assert_eq!(layout_text("ab cd ef", 1, 0.0), vec!["ab cd ef"]);
 }
 
 #[test]
 fn the_size_follows_the_wrap() {
-    assert_eq!(text::size("ab cd ef", 1, 24.0), (16.0, 24.0), "three lines of two characters: 16 pixels wide, 24 tall");
-    assert_eq!(text::size("ab cd ef", 1, 0.0), (64.0, 8.0), "one line of eight characters");
+    assert_eq!(text::size("ab cd ef", &text::Font::Bitmap, 1, 24.0).unwrap(), (16.0, 24.0), "three lines of two characters: 16 pixels wide, 24 tall");
+    assert_eq!(text::size("ab cd ef", &text::Font::Bitmap, 1, 0.0).unwrap(), (64.0, 8.0), "one line of eight characters");
 }
 
 #[test]
@@ -955,4 +955,13 @@ fn a_wrap_width_must_be_zero_or_more_and_finite() {
     assert!(s.label_mut(id).unwrap().set_wrap(-1.0).is_err());
     assert!(s.label_mut(id).unwrap().set_wrap(f64::NAN).is_err());
     assert!(s.label_mut(id).unwrap().set_wrap(0.0).is_ok());
+}
+
+/// the lines of a text after wrapping, as plain strings (the colors are not checked here)
+fn layout_text(text: &str, scale: u32, wrap: f64) -> Vec<String> {
+    let chars = text::parse(text).unwrap();
+    text::layout(&chars, &text::Font::Bitmap, scale, wrap)
+        .iter()
+        .map(|line| line.iter().map(|s| s.c).collect())
+        .collect()
 }

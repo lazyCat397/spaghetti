@@ -118,6 +118,7 @@ pub struct Label {
     x: f64,
     y: f64,
     text: String,
+    font: crate::text::Font,
     color: u32,
     scale: u32,
     /// the width of the text before it wraps, in pixels. `0` means the text is not wrapped
@@ -130,10 +131,12 @@ pub struct Label {
 impl Label {
     /// a visible label on layer 0. `scale` goes from 1 to `MAX_SCALE`
     pub fn new(x: f64, y: f64, text: &str, color: u32, scale: i64) -> Result<Label, String> {
+        crate::text::parse(text)?;
         Ok(Label {
             x: finite("x", x)?,
             y: finite("y", y)?,
             text: text.to_string(),
+            font: crate::text::Font::Bitmap,
             color,
             scale: scale_value(scale)?,
             wrap: 0.0,
@@ -145,8 +148,17 @@ impl Label {
 
     /// the width and height of the text on screen, in pixels: the widest line and the number of
     /// lines, after wrapping
-    pub fn size(&self) -> (f64, f64) {
-        crate::text::size(&self.text, self.scale, self.wrap)
+    pub fn size(&self) -> Result<(f64, f64), String> {
+        crate::text::size(&self.text, &self.font, self.scale, self.wrap)
+    }
+
+    /// the font the text is drawn with
+    pub fn font(&self) -> &crate::text::Font {
+        &self.font
+    }
+
+    pub fn set_font(&mut self, value: crate::text::Font) {
+        self.font = value;
     }
 
     pub fn wrap(&self) -> f64 {
@@ -199,8 +211,10 @@ impl Label {
         self.y = finite("y", value)?;
         Ok(())
     }
-    pub fn set_text(&mut self, value: &str) {
+    pub fn set_text(&mut self, value: &str) -> Result<(), String> {
+        crate::text::parse(value)?;
         self.text = value.to_string();
+        Ok(())
     }
     pub fn set_color(&mut self, value: u32) {
         self.color = value;
@@ -217,7 +231,7 @@ impl Label {
     }
 }
 
-fn scale_value(value: i64) -> Result<u32, String> {
+pub fn scale_value(value: i64) -> Result<u32, String> {
     if (1..=MAX_SCALE as i64).contains(&value) {
         Ok(value as u32)
     } else {

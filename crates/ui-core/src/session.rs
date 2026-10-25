@@ -458,32 +458,71 @@ fn fill_box(pixels: &mut [u32], width: usize, height: usize, x: f64, y: f64, w: 
 }
 
 /// draws a label: the lines after wrapping, each placed by the alignment inside the width of the
-/// label (its wrap width, or its widest line when it does not wrap). each glyph is drawn as blocks of
-/// `scale` pixels, and the background shows through
+/// label (its wrap width, or its widest line when it does not wrap). bitmap glyphs are drawn as
+/// blocks of `scale` pixels; outline glyphs are blended into the background by their coverage
 fn draw_label(pixels: &mut [u32], width: usize, height: usize, label: &Label) {
     let scale = label.scale();
-    let lines = text::layout(label.text(), scale, label.wrap());
-    let cell = (text::CELL * scale) as f64;
-    let widest = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0) as f64 * cell;
-    let block = if label.wrap() > 0.0 { label.wrap() } else { widest };
+    let font = label.font().clone();
+    // the text was checked when it was set, so it parses
+    let chars = text::parse(label.text()).unwrap_or_default();
+    let lines = text::layout(&chars, &font, scale, label.wrap());
+    let line_height = text::line_height(&font, scale);
+    let baseline = text::baseline(&font, scale);
+    let widths: Vec<f64> = lines.iter().map(|l| text::line_width(l, &font, scale)).collect();
+    let block = if label.wrap() > 0.0 { label.wrap() } else { widths.iter().copied().fold(0.0, f64::max) };
     for (line_index, line) in lines.iter().enumerate() {
-        let line_width = line.chars().count() as f64 * cell;
         let offset = match label.align() {
             Align::Left => 0.0,
-            Align::Center => (block - line_width) / 2.0,
-            Align::Right => block - line_width,
+            Align::Center => (block - widths[line_index]) / 2.0,
+            Align::Right => block - widths[line_index],
         };
-        for (char_index, c) in line.chars().enumerate() {
-            let rows = text::glyph(c);
-            for (row, bits) in rows.iter().enumerate() {
-                for col in 0..text::CELL as usize {
-                    if bits >> col & 1 == 1 {
-                        let x = label.x() + offset + ((char_index * 8 + col) as f64) * scale as f64;
-                        let y = label.y() + ((line_index * 8 + row) as f64) * scale as f64;
-                        fill_box(pixels, width, height, x, y, scale as f64, scale as f64, label.color());
+        let top = label.y() + line_index as f64 * line_height;
+        let mut pen = 0.0;
+        for styled in line {
+            let color = styled.color.unwrap_or(label.color());
+            let x0 = label.x() + offset + pen;
+            match text::coverage(&font, styled.c, scale) {
+                Some(glyph) => {
+                    let gx = x0 + glyph.left;
+                    let gy = top + baseline + glyph.top;
+                    for row in 0..glyph.height {
+                        for col in 0..glyph.width {
+                            let alpha = glyph.pixels[row * glyph.width + col];
+                            if alpha > 0 {
+                                blend(pixels, width, height, (gx + col as f64).round() as i64, (gy + row as f64).round() as i64, color, alpha);
+                            }
+                        }
+                    }
+                }
+                None => {
+                    for (row, bits) in text::glyph(styled.c).iter().enumerate() {
+                        for col in 0..text::CELL as usize {
+                            if bits >> col & 1 == 1 {
+                                let x = x0 + (col as f64) * scale as f64;
+                                let y = top + (row as f64) * scale as f64;
+                                fill_box(pixels, width, height, x, y, scale as f64, scale as f64, color);
+                            }
+                        }
                     }
                 }
             }
+            pen += text::advance(&font, styled.c, scale);
         }
     }
+}
+
+/// mixes `color` into the pixel at (x, y) by `alpha` (0 to 255), where the pixel is on screen
+fn blend(pixels: &mut [u32], width: usize, height: usize, x: i64, y: i64, color: u32, alpha: u8) {
+    if x < 0 || y < 0 || x >= width as i64 || y >= height as i64 {
+        return;
+    }
+    let index = y as usize * width + x as usize;
+    let background = pixels[index];
+    let a = alpha as u32;
+    let mix = |shift: u32| {
+        let bg = (background >> shift) & 0xff;
+        let fg = (color >> shift) & 0xff;
+        (bg * (255 - a) + fg * a + 127) / 255
+    };
+    pixels[index] = (mix(16) << 16) | (mix(8) << 8) | mix(0);
 }

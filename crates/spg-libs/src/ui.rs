@@ -71,6 +71,7 @@ pub static MODULE: NativeModule = NativeModule {
                 NativeField { name: "x", get: "_getLabelX", set: Some("_setLabelX") },
                 NativeField { name: "y", get: "_getLabelY", set: Some("_setLabelY") },
                 NativeField { name: "text", get: "_getLabelText", set: Some("_setLabelText") },
+                NativeField { name: "font", get: "_getLabelFont", set: Some("_setLabelFont") },
                 NativeField { name: "color", get: "_getLabelColor", set: Some("_setLabelColor") },
                 NativeField { name: "scale", get: "_getLabelScale", set: Some("_setLabelScale") },
                 NativeField { name: "visible", get: "_getLabelVisible", set: Some("_setLabelVisible") },
@@ -107,6 +108,8 @@ pub static MODULE: NativeModule = NativeModule {
         NativeFn { name: "text", sig: "(Window, float, float, string, int, int) -> Label", doc: "adds a line of text to the scene: x, y, the text, a color, and a scale from 1 to 8 (a character is 8 pixels at scale 1). a \\n starts a new line. the window draws it on every frame until it is killed", call: add_text },
         NativeFn { name: "labelKill", sig: "(Label) -> void", doc: "removes the label from the scene. killing it again does nothing", call: label_kill },
         NativeFn { name: "_getTyped", sig: "(Window) -> string", doc: "internal: win.typed", call: get_typed },
+        NativeFn { name: "_getLabelFont", sig: "(Label) -> string", doc: "internal: label.font", call: get_label_font },
+        NativeFn { name: "_setLabelFont", sig: "(Label, string) -> void", doc: "internal: label.font = value", call: set_label_font },
         NativeFn { name: "_getLabelWidth", sig: "(Label) -> float", doc: "internal: label.width", call: get_label_width },
         NativeFn { name: "_getLabelAlign", sig: "(Label) -> Align", doc: "internal: label.align", call: get_label_align },
         NativeFn { name: "_setLabelAlign", sig: "(Label, Align) -> void", doc: "internal: label.align = value", call: set_label_align },
@@ -140,6 +143,8 @@ pub static MODULE: NativeModule = NativeModule {
         NativeFn { name: "onBlur", sig: "(Window, function() -> void) -> void", doc: "runs the function when the window loses the focus of the system. replaces the one set before", call: on_blur },
         NativeFn { name: "onResize", sig: "(Window, function(int, int) -> void) -> void", doc: "runs the function with the new width and height of the window, in pixels, when the user resizes it. replaces the one set before", call: on_resize },
         NativeFn { name: "hex", sig: "(string) -> int", doc: "a color from \"#rrggbb\"", call: hex },
+        NativeFn { name: "textWidth", sig: "(string, int, float) -> float", doc: "the width in pixels of a text at a scale from 1 to 8, wrapped to the given width (0 means no wrap). the widest line counts. the same numbers a label would report", call: text_width },
+        NativeFn { name: "textHeight", sig: "(string, int, float) -> float", doc: "the height in pixels of a text at a scale from 1 to 8, wrapped to the given width (0 means no wrap). counts every line after wrapping", call: text_height },
         NativeFn { name: "rgb", sig: "(int, int, int) -> int", doc: "a color from red, green and blue, each from 0 to 255", call: rgb },
         // what `win.field` and `shape.field` call. not meant to be written by hand
         NativeFn { name: "mouseDown", sig: "(Window, Mouse) -> bool", doc: "true on every frame the mouse button is held", call: mouse_down },
@@ -471,14 +476,47 @@ fn set_label_wrap(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError
     Ok(LibValue::Void)
 }
 
+/// the path of the font file a label draws with, or `""` for the bitmap font
+fn get_label_font(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.font";
+    with_label(F, &args, |l| Ok(LibValue::Str(l.font().path().to_string())))
+}
+
+/// `label.font = "./file.ttf"` loads an outline font, relative to the script that sets it.
+/// `label.font = ""` goes back to the bitmap font
+fn set_label_font(ctx: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.font";
+    let path = text_arg(F, &args, 1)?;
+    let font = if path.is_empty() {
+        ui_core::text::Font::Bitmap
+    } else {
+        let path_buf = std::path::Path::new(&path);
+        let resolved = if path_buf.is_absolute() {
+            path_buf.to_path_buf()
+        } else {
+            ctx.caller_file
+                .map(|file| std::path::Path::new(file).parent().unwrap_or(std::path::Path::new(".")).join(path_buf))
+                .unwrap_or_else(|| path_buf.to_path_buf())
+        };
+        let bytes = std::fs::read(&resolved)
+            .map_err(|e| LibError::new(F, format!("cannot read the font \"{path}\": {e}")))?;
+        ui_core::text::Font::load(&path, &bytes).map_err(|e| LibError::new(F, e))?
+    };
+    with_label(F, &args, |l| {
+        l.set_font(font);
+        Ok(())
+    })?;
+    Ok(LibValue::Void)
+}
+
 fn get_label_width(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
     const F: &str = "Label.width";
-    with_label(F, &args, |l| Ok(LibValue::Float(l.size().0)))
+    with_label(F, &args, |l| Ok(LibValue::Float(l.size()?.0)))
 }
 
 fn get_label_height(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
     const F: &str = "Label.height";
-    with_label(F, &args, |l| Ok(LibValue::Float(l.size().1)))
+    with_label(F, &args, |l| Ok(LibValue::Float(l.size()?.1)))
 }
 
 fn get_label_x(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
@@ -513,10 +551,7 @@ fn get_label_text(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError
 fn set_label_text(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
     const F: &str = "Label.text";
     let value = text_arg(F, &args, 1)?;
-    with_label(F, &args, |l| {
-        l.set_text(&value);
-        Ok(())
-    })?;
+    with_label(F, &args, |l| l.set_text(&value))?;
     Ok(LibValue::Void)
 }
 
@@ -790,6 +825,28 @@ fn set_layer(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
 
 // --- colors -------------------------------------------------------------------------
 
+/// the size of a text as `ui.textWidth` and `ui.textHeight` take it: the text, its scale and its
+/// wrap width, checked the same way a label checks them
+fn measure_text(function: &'static str, args: &[LibValue]) -> Result<(f64, f64), LibError> {
+    let content = text(function, args, 0)?;
+    let scale = ui_core::scene::scale_value(int(function, args, 1)?).map_err(|e| LibError::new(function, e))?;
+    let wrap = float(function, args, 2)?;
+    if wrap < 0.0 {
+        return Err(LibError::new(function, format!("the wrap width must be 0 (no wrap) or more pixels, got {wrap}")));
+    }
+    ui_core::text::size(&content, &ui_core::text::Font::Bitmap, scale, wrap).map_err(|e| LibError::new(function, e))
+}
+
+fn text_width(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    let (width, _) = measure_text("ui.textWidth", &args)?;
+    Ok(LibValue::Float(width))
+}
+
+fn text_height(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    let (_, height) = measure_text("ui.textHeight", &args)?;
+    Ok(LibValue::Float(height))
+}
+
 fn hex(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
     const F: &str = "ui.hex";
     let text = text(F, &args, 0)?;
@@ -989,6 +1046,21 @@ mod tests {
         assert_eq!(rgb(&ctx(), vec![i(255), i(51), i(0)]).unwrap(), i(0xff3300));
         assert!(hex(&ctx(), vec![s("nope")]).is_err());
         assert!(rgb(&ctx(), vec![i(300), i(0), i(0)]).is_err());
+    }
+
+    #[test]
+    fn text_is_measured_the_way_a_label_measures_it() {
+        let f = LibValue::Float;
+        // at scale 2 a character is 16 pixels: "abc" is 48 wide and 16 tall
+        assert_eq!(float_of(text_width(&ctx(), vec![s("abc"), i(2), f(0.0)]).unwrap()), 48.0);
+        assert_eq!(float_of(text_height(&ctx(), vec![s("abc"), i(2), f(0.0)]).unwrap()), 16.0);
+        // a wrap of 32 fits two characters per line: "ab cd" becomes two lines, 32 wide and 32 tall
+        assert_eq!(float_of(text_width(&ctx(), vec![s("ab cd"), i(2), f(32.0)]).unwrap()), 32.0);
+        assert_eq!(float_of(text_height(&ctx(), vec![s("ab cd"), i(2), f(32.0)]).unwrap()), 32.0);
+        // a label reports the same numbers for the same text
+        assert!(text_width(&ctx(), vec![s("a"), i(9), f(0.0)]).is_err());
+        assert!(text_height(&ctx(), vec![s("a"), i(0), f(0.0)]).is_err());
+        assert!(text_width(&ctx(), vec![s("a"), i(1), f(-1.0)]).is_err());
     }
 
     #[test]

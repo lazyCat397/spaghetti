@@ -1,0 +1,17 @@
+// outline fonts: label.font loads a .ttf or .otf file, relative to this script
+install #ui
+let win = ui.window("font", 360, 200)
+win.background = ui.hex("#1b1f27")
+
+let plain = win.text(16.0, 16.0, "Proportional: iiii mmmm WWWW", ui.hex("#ffffff"), 1)
+plain.font = "./fonts/LiberationSans-Regular.ttf"
+
+let block = win.text(16.0, 70.0, "Wrapped and centered: %{#ffcc00}outline%{/} text, one font file", ui.hex("#ffffff"), 2)
+block.font = "./fonts/LiberationSans-Regular.ttf"
+block.wrap = 320.0
+block.align = Align.Center
+
+while (true) {
+    let dt = win.nextFrame()
+    if (dt < 0.0) { break }
+}
