@@ -132,9 +132,11 @@ pub struct NativeObject {
     /// the struct's name in the program, one of the module's `structs` (`"Window"`)
     pub name: &'static str,
     pub fields: &'static [NativeField],
-    /// functions of the module that work as methods: `win.rect(...)` is `ui.rect(win, ...)`.
-    /// the first parameter of each one is the object
-    pub methods: &'static [&'static str],
+    /// the methods, as (name in the program, function of the module). `win.rect(...)` is
+    /// `ui.rect(win, ...)`: the first parameter of the function is the object. the name and the
+    /// function differ when two objects have a method of the same name (`box.mouseDown` is
+    /// `ui.shapeMouseDown`)
+    pub methods: &'static [(&'static str, &'static str)],
 }
 
 pub struct NativeModule {

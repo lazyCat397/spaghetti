@@ -1475,6 +1475,17 @@ mod tests {
         assert!(!labels.iter().any(|l| l == "id"), "the handle leaks: {:?}", labels);
     }
 
+    #[test]
+    fn a_shape_made_by_a_method_call_lists_its_fields_and_methods() {
+        // `win.rect(...)` gives a Shape: its members come from the Shape's descriptor
+        let text = "install #ui\nlet win = ui.window(\"a\", 1, 1)\nlet red = win.rect(1.0, 1.0, 2.0, 2.0, 5)\nred.\n";
+        let labels = labels_of(&complete_at("compl_native_shape", text, 3, 4));
+        for want in ["x", "y", "w", "h", "color", "visible", "layer", "kill"] {
+            assert!(labels.iter().any(|l| l == want), "missing {} in {:?}", want, labels);
+        }
+        assert!(!labels.iter().any(|l| l == "id" || l == "win"), "the handle leaks: {:?}", labels);
+    }
+
     fn labels_of(items: &[Json]) -> Vec<String> {
         items.iter().filter_map(|i| i.get("label").and_then(Json::as_str).map(String::from)).collect()
     }

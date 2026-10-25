@@ -44,7 +44,7 @@ tick
 
 ok() {   # ok <file> <expected output, with \n>
     raw=$(spgrun "ok/$1" 2>&1); code=$?; got=$(printf '%s' "$raw" | norm)
-    want=$(printf "$2")
+    want=$(printf -- "$2")
     if [ "$code" = 0 ] && [ "$got" = "$want" ]; then pass=$((pass+1)); tick; else
         fail=$((fail+1)); tick; say "FAIL ok/$1 (exit=$code)"; echo "  want: $(echo "$want" | tr '\n' '|')"; echo "  got:  $(echo "$got" | tr '\n' '|')"; fi
 }
@@ -81,7 +81,7 @@ ok str_chars.spg         '5\n5\n3\nï\naç\nNAÏVE\n5\ná|é|í\nééé\n3\ntrue
 # These prove ORDER and COMPLETENESS, which is what buffering could break.
 exact1() {  # exact1 <file> <expected output> — exit code 1 and EXACT output (stdout+stderr), in order
     raw=$(spgrun "err/$1" 2>&1); code=$?; got=$(printf '%s' "$raw" | norm)
-    want=$(printf "$2")
+    want=$(printf -- "$2")
     if [ "$code" = 1 ] && [ "$got" = "$want" ]; then pass=$((pass+1)); tick; else
         fail=$((fail+1)); tick; say "FAIL err/$1 (exit=$code)"; echo "  want: $(echo "$want" | tr '\n' '|')"; echo "  got:  $(echo "$got" | tr '\n' '|')"; fi
 }
@@ -425,12 +425,18 @@ exit124() {  # exit124 <file> <expected output before the cut> — the engine IT
         fail=$((fail+1)); tick; say "FAIL err/$1 (exit=$code)"; echo "  got: $(echo "$got" | tr '\n' '|')"; fi
 }
 ok ui_events.spg 'closed\n-1.0\n1\nbye\n-1.0'
+ok ui_mouse.spg '-1.0\nfalse\nfalse\nfalse'
+ok ui_shape_clicks.spg 'false\ntrue\nfalse\nfalse\nfalse'
 ok ui_objects.spg '8.5\nfalse\n20\n1052688\n0.0\nkilled'
 err ui_readonly.spg "cannot assign to 'Window.width'"
 err ui_no_method.spg "has no method 'fly'"
 err ui_use_after_kill.spg "this shape was killed"
 err ui_handler_params.spg "expects function() -> void"
 err ui_resize_params.spg "expects function(int, int) -> void"
+err ui_native_name.spg "is also the name of a type of install #ui"
+err ui_mouse_readonly.spg "cannot assign to 'Window.mouseX'"
+err ui_mouse_string.spg "expects Mouse"
+err ui_hovered_readonly.spg "cannot assign to 'Shape.hovered'"
 err ui_compound_call.spg "can not be changed with a compound operator here"
 ok dir_strict_overflow_try.spg  'caught'
 ok dir_timeout_ok.spg           'rapido'

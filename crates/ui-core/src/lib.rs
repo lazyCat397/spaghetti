@@ -12,6 +12,6 @@ pub mod session;
 #[cfg(feature = "minifb")]
 pub mod minifb_backend;
 
-pub use backend::{Backend, Key};
+pub use backend::{Backend, Button, Key};
 pub use scene::{Scene, Shape, ShapeId};
 pub use session::{Session, State, MAX_DT};

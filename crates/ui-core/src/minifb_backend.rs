@@ -2,9 +2,9 @@
 
 use std::collections::HashSet;
 
-use minifb::{Key as MKey, KeyRepeat, Window, WindowOptions};
+use minifb::{Key as MKey, KeyRepeat, MouseButton, MouseMode, Window, WindowOptions};
 
-use crate::backend::{Backend, Key};
+use crate::backend::{Backend, Button, Key};
 
 #[derive(Default)]
 pub struct MinifbBackend {
@@ -16,6 +16,9 @@ pub struct MinifbBackend {
     released: HashSet<Key>,
     focused: bool,
     size: (usize, usize),
+    mouse: Option<(f64, f64)>,
+    /// left, right, middle
+    buttons: [bool; 3],
 }
 
 fn to_minifb(key: Key) -> MKey {
@@ -127,6 +130,15 @@ impl Backend for MinifbBackend {
         self.released = window.get_keys_released().into_iter().filter_map(from_minifb).collect();
         self.focused = window.is_active();
         self.size = window.get_size();
+        // `Discard`: a position only while the pointer is over the window
+        self.mouse = window
+            .get_mouse_pos(MouseMode::Discard)
+            .map(|(x, y)| (x as f64, y as f64));
+        self.buttons = [
+            window.get_mouse_down(MouseButton::Left),
+            window.get_mouse_down(MouseButton::Right),
+            window.get_mouse_down(MouseButton::Middle),
+        ];
         window.is_open()
     }
 
@@ -150,6 +162,18 @@ impl Backend for MinifbBackend {
 
     fn size(&self) -> (usize, usize) {
         self.size
+    }
+
+    fn mouse_position(&self) -> Option<(f64, f64)> {
+        self.mouse
+    }
+
+    fn is_button_down(&self, button: Button) -> bool {
+        self.buttons[match button {
+            Button::Left => 0,
+            Button::Right => 1,
+            Button::Middle => 2,
+        }]
     }
 
     fn close(&mut self) {

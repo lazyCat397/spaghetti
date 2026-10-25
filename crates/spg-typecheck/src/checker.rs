@@ -716,7 +716,7 @@ impl Checker {
         let typed_object = self.check_expr(object)?;
         // a method of a native object is a call of the module's function, with the object first
         if let Some((module, native)) = self.native_object_of(typed_object.ty()) {
-            if !native.methods.contains(&method) {
+            let Some(&(_, function)) = native.methods.iter().find(|(name, _)| *name == method) else {
                 self.errors.push(TypeError::NoSuchMethod {
                     struct_name: native.name.to_string(),
                     method: method.to_string(),
@@ -724,12 +724,12 @@ impl Checker {
                     pos: pos.clone(),
                 });
                 return None;
-            }
+            };
             let mut typed_args = vec![typed_object];
             for arg in args {
                 typed_args.push(self.check_expr(arg)?);
             }
-            return self.lib_call(module, method, typed_args, pos);
+            return self.lib_call(module, function, typed_args, pos);
         }
         // an associated function is not a method: `p.name()` is refused, whatever `p` is
         if let Ty::Named(type_name) = typed_object.ty() {

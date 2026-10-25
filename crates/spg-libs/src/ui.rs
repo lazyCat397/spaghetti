@@ -40,13 +40,15 @@ const MAX_SIDE: i64 = 8192;
 
 /// the `Key` enum the program sees. it lists the same names as `ui_core::Key`; a test checks
 /// that the two stay equal
+const MOUSE_ENUM: &str = "enum Mouse { Left, Right, Middle }";
+
 const KEY_ENUM: &str = "enum Key { A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, Num0, Num1, Num2, Num3, Num4, Num5, Num6, Num7, Num8, Num9, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, Left, Right, Up, Down, Space, Enter, Escape, Tab, Backspace, Delete, Home, End, LeftShift, RightShift, LeftCtrl, RightCtrl, LeftAlt, RightAlt }";
 
 pub static MODULE: NativeModule = NativeModule {
     kind: Kind::Install,
     name: "ui",
     doc: "a window with a scene of rectangles, and the keyboard (install #ui)",
-    structs: &["struct Window {\n    id: int\n}\n", "struct Shape {\n    id: int,\n    win: int\n}\n", KEY_ENUM],
+    structs: &["struct Window {\n    id: int\n}\n", "struct Shape {\n    id: int,\n    win: int\n}\n", KEY_ENUM, MOUSE_ENUM],
     objects: &[
         NativeObject {
             name: "Window",
@@ -54,8 +56,11 @@ pub static MODULE: NativeModule = NativeModule {
                 NativeField { name: "background", get: "_getBackground", set: Some("_setBackground") },
                 NativeField { name: "width", get: "_getWidth", set: None },
                 NativeField { name: "height", get: "_getHeight", set: None },
+                NativeField { name: "mouseX", get: "_getMouseX", set: None },
+                NativeField { name: "mouseY", get: "_getMouseY", set: None },
+                NativeField { name: "mouseInside", get: "_getMouseInside", set: None },
             ],
-            methods: &["rect", "nextFrame", "isDown", "wasPressed", "wasReleased", "close", "onClose", "onFocus", "onBlur", "onResize"],
+            methods: &[("rect", "rect"), ("nextFrame", "nextFrame"), ("isDown", "isDown"), ("wasPressed", "wasPressed"), ("wasReleased", "wasReleased"), ("close", "close"), ("onClose", "onClose"), ("onFocus", "onFocus"), ("onBlur", "onBlur"), ("onResize", "onResize"), ("mouseDown", "mouseDown"), ("mousePressed", "mousePressed"), ("mouseReleased", "mouseReleased")],
         },
         NativeObject {
             name: "Shape",
@@ -67,8 +72,15 @@ pub static MODULE: NativeModule = NativeModule {
                 NativeField { name: "color", get: "_getColor", set: Some("_setColor") },
                 NativeField { name: "visible", get: "_getVisible", set: Some("_setVisible") },
                 NativeField { name: "layer", get: "_getLayer", set: Some("_setLayer") },
+                NativeField { name: "clickThrough", get: "_getClickThrough", set: Some("_setClickThrough") },
+                NativeField { name: "hovered", get: "_getHovered", set: None },
             ],
-            methods: &["kill"],
+            methods: &[
+                ("kill", "kill"),
+                ("mouseDown", "shapeMouseDown"),
+                ("mousePressed", "shapeMousePressed"),
+                ("mouseReleased", "shapeMouseReleased"),
+            ],
         },
     ],
     functions: &[
@@ -87,6 +99,18 @@ pub static MODULE: NativeModule = NativeModule {
         NativeFn { name: "hex", sig: "(string) -> int", doc: "a color from \"#rrggbb\"", call: hex },
         NativeFn { name: "rgb", sig: "(int, int, int) -> int", doc: "a color from red, green and blue, each from 0 to 255", call: rgb },
         // what `win.field` and `shape.field` call. not meant to be written by hand
+        NativeFn { name: "mouseDown", sig: "(Window, Mouse) -> bool", doc: "true on every frame the mouse button is held", call: mouse_down },
+        NativeFn { name: "mousePressed", sig: "(Window, Mouse) -> bool", doc: "true on the one frame the mouse button went down", call: mouse_pressed },
+        NativeFn { name: "mouseReleased", sig: "(Window, Mouse) -> bool", doc: "true on the one frame the mouse button went up", call: mouse_released },
+        NativeFn { name: "shapeMouseDown", sig: "(Shape, Mouse) -> bool", doc: "true on every frame the shape holds the mouse button down", call: shape_mouse_down },
+        NativeFn { name: "shapeMousePressed", sig: "(Shape, Mouse) -> bool", doc: "true on the one frame the shape takes a press of the mouse button", call: shape_mouse_pressed },
+        NativeFn { name: "shapeMouseReleased", sig: "(Shape, Mouse) -> bool", doc: "true on the one frame the shape gives back the mouse button", call: shape_mouse_released },
+        NativeFn { name: "_getClickThrough", sig: "(Shape) -> bool", doc: "internal: shape.clickThrough", call: get_click_through },
+        NativeFn { name: "_setClickThrough", sig: "(Shape, bool) -> void", doc: "internal: shape.clickThrough = value", call: set_click_through },
+        NativeFn { name: "_getHovered", sig: "(Shape) -> bool", doc: "internal: shape.hovered", call: get_hovered },
+        NativeFn { name: "_getMouseX", sig: "(Window) -> float", doc: "internal: win.mouseX", call: get_mouse_x },
+        NativeFn { name: "_getMouseY", sig: "(Window) -> float", doc: "internal: win.mouseY", call: get_mouse_y },
+        NativeFn { name: "_getMouseInside", sig: "(Window) -> bool", doc: "internal: win.mouseInside", call: get_mouse_inside },
         NativeFn { name: "_getBackground", sig: "(Window) -> int", doc: "internal: win.background", call: get_background },
         NativeFn { name: "_setBackground", sig: "(Window, int) -> void", doc: "internal: win.background = color", call: set_background },
         NativeFn { name: "_getWidth", sig: "(Window) -> int", doc: "internal: win.width", call: get_width },
@@ -141,13 +165,18 @@ thread_local! {
 struct TestHandles {
     focus: std::rc::Rc<std::cell::Cell<bool>>,
     size: std::rc::Rc<std::cell::Cell<(usize, usize)>>,
+    mouse: std::rc::Rc<std::cell::RefCell<ui_core::null::NullMouse>>,
 }
 
 /// lets a test change the focus of the window it opened
 #[cfg(test)]
 fn share_focus(backend: &ui_core::null::NullBackend) {
     TEST_HANDLES.with(|handles| {
-        *handles.borrow_mut() = Some(TestHandles { focus: backend.focus_handle(), size: backend.size_handle() })
+        *handles.borrow_mut() = Some(TestHandles {
+            focus: backend.focus_handle(),
+            size: backend.size_handle(),
+            mouse: backend.mouse_handle(),
+        })
     });
 }
 
@@ -289,6 +318,111 @@ fn was_released(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> 
     let id = window_id(F, &args)?;
     let key = key_arg(F, &args, 1)?;
     Ok(LibValue::Bool(with_window(F, id, |w| Ok(w.was_released(key)))?))
+}
+
+fn mouse_down(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Window.mouseDown";
+    let id = window_id(F, &args)?;
+    let button = button_arg(F, &args, 1)?;
+    Ok(LibValue::Bool(with_window(F, id, |w| Ok(w.button_down(button)))?))
+}
+
+fn mouse_pressed(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Window.mousePressed";
+    let id = window_id(F, &args)?;
+    let button = button_arg(F, &args, 1)?;
+    Ok(LibValue::Bool(with_window(F, id, |w| Ok(w.button_pressed(button)))?))
+}
+
+fn mouse_released(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Window.mouseReleased";
+    let id = window_id(F, &args)?;
+    let button = button_arg(F, &args, 1)?;
+    Ok(LibValue::Bool(with_window(F, id, |w| Ok(w.button_released(button)))?))
+}
+
+/// the shape at argument 0 asked about a mouse button: the shape must be alive, and its window open
+fn shape_button(
+    function: &'static str,
+    args: &[LibValue],
+    query: fn(&OpenWindow, ui_core::ShapeId, ui_core::Button) -> bool,
+) -> Result<LibValue, LibError> {
+    let (win, id) = shape_handle(function, args)?;
+    let button = button_arg(function, args, 1)?;
+    let value = with_window(function, win, |w| {
+        w.shape(id)?; // a killed shape is an error, not a quiet false
+        Ok(query(w, id, button))
+    })?;
+    Ok(LibValue::Bool(value))
+}
+
+fn shape_mouse_down(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    shape_button("ui.shapeMouseDown", &args, |w, id, b| w.shape_button_down(id, b))
+}
+
+fn shape_mouse_pressed(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    shape_button("ui.shapeMousePressed", &args, |w, id, b| w.shape_button_pressed(id, b))
+}
+
+fn shape_mouse_released(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    shape_button("ui.shapeMouseReleased", &args, |w, id, b| w.shape_button_released(id, b))
+}
+
+fn get_click_through(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Shape.clickThrough";
+    with_shape(F, &args, |s| Ok(LibValue::Bool(s.click_through())))
+}
+
+fn set_click_through(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Shape.clickThrough";
+    let value = boolean(F, &args, 1)?;
+    with_shape(F, &args, |s| {
+        s.set_click_through(value);
+        Ok(())
+    })?;
+    Ok(LibValue::Void)
+}
+
+fn get_hovered(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Shape.hovered";
+    let (win, id) = shape_handle(F, &args)?;
+    let hovered = with_window(F, win, |w| {
+        w.shape(id)?;
+        Ok(w.shape_hovered(id))
+    })?;
+    Ok(LibValue::Bool(hovered))
+}
+
+fn get_mouse_x(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Window.mouseX";
+    let id = window_id(F, &args)?;
+    Ok(LibValue::Float(with_window(F, id, |w| Ok(w.mouse_x()))?))
+}
+
+fn get_mouse_y(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Window.mouseY";
+    let id = window_id(F, &args)?;
+    Ok(LibValue::Float(with_window(F, id, |w| Ok(w.mouse_y()))?))
+}
+
+fn get_mouse_inside(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Window.mouseInside";
+    let id = window_id(F, &args)?;
+    Ok(LibValue::Bool(with_window(F, id, |w| Ok(w.mouse_inside()))?))
+}
+
+/// a `Mouse` argument: the enum value, which is the variant's name
+fn button_arg(function: &'static str, args: &[LibValue], i: usize) -> Result<ui_core::Button, LibError> {
+    use ui_core::Button;
+    match args.get(i) {
+        Some(LibValue::Enum(name)) => match name.as_str() {
+            "Left" => Ok(Button::Left),
+            "Right" => Ok(Button::Right),
+            "Middle" => Ok(Button::Middle),
+            other => Err(LibError::new(function, format!("unknown mouse button {other}"))),
+        },
+        _ => Err(LibError::new(function, format!("argument {} must be a Mouse, like Mouse.Left", i + 1))),
+    }
 }
 
 fn get_background(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
@@ -599,8 +733,8 @@ mod tests {
                     assert!(has(set), "{}.{} has no setter {}", object.name, field.name, set);
                 }
             }
-            for method in object.methods {
-                assert!(has(method), "{}.{} is not a function", object.name, method);
+            for (method, function) in object.methods {
+                assert!(has(function), "{}.{} is not a function", object.name, method);
             }
         }
     }
@@ -769,6 +903,44 @@ mod tests {
         crate::take_handlers().into_iter().map(|(id, _)| id).collect()
     }
 
+    fn press(button: &str) {
+        TEST_HANDLES.with(|handles| {
+            let handles = handles.borrow();
+            let mouse = &handles.as_ref().expect("a test window is open").mouse;
+            let button = match button {
+                "Left" => ui_core::Button::Left,
+                "Right" => ui_core::Button::Right,
+                _ => ui_core::Button::Middle,
+            };
+            mouse.borrow_mut().down.insert(button);
+        });
+    }
+
+    fn move_to(x: f64, y: f64) {
+        TEST_HANDLES.with(|handles| {
+            let handles = handles.borrow();
+            handles.as_ref().expect("a test window is open").mouse.borrow_mut().position = Some((x, y));
+        });
+    }
+
+    #[test]
+    fn the_mouse_reads_position_and_buttons_by_name() {
+        let win = open("mouse", 8, 8);
+        next_frame(&ctx(), vec![win.clone()]).unwrap(); // first frame: nothing pressed yet
+        move_to(3.0, 5.0);
+        press("Right");
+        next_frame(&ctx(), vec![win.clone()]).unwrap();
+        assert_eq!(float_of(get_mouse_x(&ctx(), vec![win.clone()]).unwrap()), 3.0);
+        assert_eq!(float_of(get_mouse_y(&ctx(), vec![win.clone()]).unwrap()), 5.0);
+        assert_eq!(get_mouse_inside(&ctx(), vec![win.clone()]).unwrap(), LibValue::Bool(true));
+        let right = LibValue::Enum("Right".to_string());
+        assert_eq!(mouse_down(&ctx(), vec![win.clone(), right.clone()]).unwrap(), LibValue::Bool(true));
+        assert_eq!(mouse_pressed(&ctx(), vec![win.clone(), right.clone()]).unwrap(), LibValue::Bool(true));
+        assert_eq!(mouse_pressed(&ctx(), vec![win.clone(), LibValue::Enum("Left".to_string())]).unwrap(), LibValue::Bool(false));
+        assert!(mouse_down(&ctx(), vec![win.clone(), LibValue::Enum("Nope".to_string())]).is_err(), "not a mouse button");
+        assert!(mouse_down(&ctx(), vec![win.clone(), LibValue::Int(1)]).is_err(), "not a Mouse");
+    }
+
     fn set_size(width: usize, height: usize) {
         TEST_HANDLES.with(|handles| handles.borrow().as_ref().expect("a test window is open").size.set((width, height)));
     }
@@ -822,5 +994,15 @@ mod tests {
         assert_eq!(crate::take_handlers(), vec![(20, vec![LibValue::Int(640), LibValue::Int(480)])]);
         next_frame(&ctx(), vec![win.clone()]).unwrap();
         assert!(crate::take_handlers().is_empty(), "the same size again is no change");
+    }
+
+    #[test]
+    fn the_mouse_fields_are_read_only_in_the_bridge() {
+        // the core has no setter for them: the verifier refuses `win.mouseX = ...` through the descriptor
+        let object = MODULE.objects.iter().find(|o| o.name == "Window").unwrap();
+        for name in ["mouseX", "mouseY", "mouseInside"] {
+            let field = object.fields.iter().find(|f| f.name == name).unwrap();
+            assert!(field.set.is_none(), "{name} must be read-only");
+        }
     }
 }

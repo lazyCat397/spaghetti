@@ -411,7 +411,7 @@ fn builtin_return(ns: &str, name: &str) -> Option<String> {
     }
 }
 
-fn decl_type(tokens: &[Token], i: usize, head: &str, decls: &Decls) -> Option<Option<String>> {
+fn decl_type(tokens: &[Token], depth: &[i32], i: usize, head: &str, decls: &Decls) -> Option<Option<String>> {
     if kind(tokens, i + 1) != Some(&T::Ident(head.to_string())) {
         return None;
     }
@@ -434,7 +434,9 @@ fn decl_type(tokens: &[Token], i: usize, head: &str, decls: &Decls) -> Option<Op
                 // literals: a string, an array `[1, 2]` or a map `["a": 1]` / `[:]`
                 (Some(T::Str(_)), _) => Some("string".to_string()),
                 (Some(T::LBracket), _) => Some(if bracket_is_map(tokens, i + 3) { "map" } else { "array" }.to_string()),
-                _ => None,
+                // any other expression (`win.rect(...)`, `ui.window(...).x`): its type by the rules
+                // of expressions, read where it is declared
+                _ => expr_type(tokens, depth, i, initializer_end(tokens, i + 3), decls),
             };
             Some(found)
         }
@@ -469,6 +471,40 @@ fn hidden_ranges(tokens: &[Token], depth: &[i32]) -> Vec<(usize, usize)> {
     out
 }
 
+/// the index of the last token of the expression starting at `start`. the lexer emits no
+/// newlines, so the expression ends where a new statement begins: outside any brackets, a name
+/// or a literal right after another name, literal or closing bracket, or a statement keyword
+fn initializer_end(tokens: &[Token], start: usize) -> usize {
+    let atom = |t: &T| matches!(t, T::Ident(_) | T::Int(_) | T::Float(_) | T::Str(_) | T::Bool(_) | T::RParen | T::RBracket | T::RBrace);
+    let starts_statement = |t: &T| {
+        matches!(
+            t,
+            T::Let | T::Const | T::Function | T::Return | T::If | T::While | T::For | T::Try | T::Throw | T::Break | T::Continue
+                | T::Struct | T::Enum | T::Install | T::Import | T::Export | T::Eof
+        )
+    };
+    let mut nest = 0i32;
+    let mut end = start;
+    while end + 1 < tokens.len() {
+        let next = &tokens[end + 1].kind;
+        match next {
+            T::LParen | T::LBracket | T::LBrace => nest += 1,
+            T::RParen | T::RBracket | T::RBrace => {
+                if nest == 0 {
+                    break; // the bracket of an enclosing block or call
+                }
+                nest -= 1;
+            }
+            _ => {}
+        }
+        if nest == 0 && (starts_statement(next) || (atom(&tokens[end].kind) && matches!(next, T::Ident(_) | T::Int(_) | T::Float(_) | T::Str(_) | T::Bool(_)))) {
+            break;
+        }
+        end += 1;
+    }
+    end
+}
+
 /// the declared type name of the variable `head` as seen at token index `at`
 fn resolve_head(tokens: &[Token], depth: &[i32], at: usize, head: &str, decls: &Decls) -> Option<String> {
     if head == "me" {
@@ -491,7 +527,7 @@ fn resolve_head(tokens: &[Token], depth: &[i32], at: usize, head: &str, decls: &
             }
             match &tokens[k].kind {
                 T::Let | T::Const => {
-                    if let Some(r) = decl_type(tokens, k, head, decls) {
+                    if let Some(r) = decl_type(tokens, depth, k, head, decls) {
                         return r;
                     }
                 }
@@ -533,7 +569,7 @@ fn resolve_head(tokens: &[Token], depth: &[i32], at: usize, head: &str, decls: &
         .filter(|&k| depth[k] == 0 && matches!(tokens[k].kind, T::Let | T::Const))
         .collect();
     for &k in globals.iter().rev().filter(|&&k| k < at).chain(globals.iter().filter(|&&k| k >= at)) {
-        if let Some(r) = decl_type(tokens, k, head, decls) {
+        if let Some(r) = decl_type(tokens, depth, k, head, decls) {
             return r;
         }
     }
@@ -1185,8 +1221,8 @@ fn native_object_info(module: &spg_libs::NativeModule, object: &spg_libs::Native
             info.fields.push((field.name.to_string(), ret));
         }
     }
-    for method in object.methods {
-        if let Some(sig) = sig_of(method) {
+    for (method, function) in object.methods {
+        if let Some(sig) = sig_of(function) {
             let (params, ret) = split_signature(sig);
             info.methods.push((method.to_string(), format!("({}) -> {}", params, ret)));
         }

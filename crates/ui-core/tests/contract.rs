@@ -596,3 +596,178 @@ fn closing_does_not_report_a_resize() {
     assert_eq!(s.begin_frame(0.016).unwrap(), None);
     assert_eq!(s.take_resizes(), vec![(100, 100)], "the change of the closing frame is reported");
 }
+
+// --- mouse -------------------------------------------------------------------------
+
+use ui_core::Button;
+
+#[test]
+fn the_pointer_starts_outside_the_window() {
+    let mut s = session(8, 8);
+    s.begin_frame(0.0).unwrap();
+    assert!(!s.mouse_inside());
+    assert_eq!(s.mouse_x(), -1.0, "no position was ever seen");
+}
+
+#[test]
+fn the_position_is_read_each_frame_and_kept_after_the_pointer_leaves() {
+    let mut s = session(8, 8);
+    let mouse = s.backend().mouse_handle();
+    mouse.borrow_mut().position = Some((3.0, 4.0));
+    s.begin_frame(0.0).unwrap();
+    assert!(s.mouse_inside());
+    assert_eq!((s.mouse_x(), s.mouse_y()), (3.0, 4.0));
+    mouse.borrow_mut().position = None;
+    s.begin_frame(0.016).unwrap();
+    assert!(!s.mouse_inside());
+    assert_eq!((s.mouse_x(), s.mouse_y()), (3.0, 4.0), "the last position stays");
+}
+
+#[test]
+fn the_position_is_in_framebuffer_pixels_when_the_window_is_shown_bigger() {
+    let mut s = session(8, 8);
+    s.backend().size_handle().set((16, 16));
+    s.backend().mouse_handle().borrow_mut().position = Some((8.0, 12.0));
+    s.begin_frame(0.0).unwrap();
+    assert_eq!((s.mouse_x(), s.mouse_y()), (4.0, 6.0));
+}
+
+#[test]
+fn a_held_button_is_pressed_once_and_released_once() {
+    let mut s = session(8, 8);
+    let mouse = s.backend().mouse_handle();
+    s.begin_frame(0.0).unwrap(); // the first frame: nothing went down or up yet
+    mouse.borrow_mut().down.insert(Button::Left);
+    s.begin_frame(0.016).unwrap();
+    assert!(s.button_pressed(Button::Left), "the frame it went down");
+    assert!(s.button_down(Button::Left));
+    s.begin_frame(0.032).unwrap();
+    assert!(!s.button_pressed(Button::Left), "still held: no new press");
+    assert!(s.button_down(Button::Left));
+    mouse.borrow_mut().down.remove(&Button::Left);
+    s.begin_frame(0.048).unwrap();
+    assert!(s.button_released(Button::Left));
+    assert!(!s.button_down(Button::Left));
+    s.begin_frame(0.064).unwrap();
+    assert!(!s.button_released(Button::Left), "one frame only");
+}
+
+#[test]
+fn a_button_held_when_the_window_opens_is_not_a_press() {
+    let mut s = session(8, 8);
+    s.backend().mouse_handle().borrow_mut().down.insert(Button::Right);
+    s.begin_frame(0.0).unwrap();
+    assert!(s.button_down(Button::Right));
+    assert!(!s.button_pressed(Button::Right), "it was already down when the program started");
+}
+
+#[test]
+fn buttons_are_told_apart() {
+    let mut s = session(8, 8);
+    let mouse = s.backend().mouse_handle();
+    s.begin_frame(0.0).unwrap();
+    mouse.borrow_mut().down.insert(Button::Middle);
+    s.begin_frame(0.016).unwrap();
+    assert!(s.button_pressed(Button::Middle));
+    assert!(!s.button_pressed(Button::Left) && !s.button_pressed(Button::Right));
+}
+
+// --- clicks on shapes ------------------------------------------------------------------
+
+/// a session with one mouse frame done, and the pointer at (x, y)
+fn pointer_at(x: f64, y: f64) -> Session<NullBackend> {
+    let mut s = session(20, 20);
+    s.begin_frame(0.0).unwrap(); // the first frame reads no press or release
+    s.backend().mouse_handle().borrow_mut().position = Some((x, y));
+    s
+}
+
+#[test]
+fn a_click_goes_to_the_topmost_shape_under_the_pointer() {
+    let mut s = pointer_at(5.0, 5.0);
+    let below = s.add_rect(0.0, 0.0, 10.0, 10.0, RED).unwrap();
+    let above = s.add_rect(4.0, 4.0, 10.0, 10.0, GREEN).unwrap(); // made later: on top
+    s.backend().mouse_handle().borrow_mut().down.insert(Button::Left);
+    s.begin_frame(0.016).unwrap();
+    assert!(s.shape_button_pressed(above, Button::Left));
+    assert!(!s.shape_button_pressed(below, Button::Left), "the shape under it does not get the click");
+    assert!(s.shape_hovered(above) && !s.shape_hovered(below));
+}
+
+#[test]
+fn a_layer_decides_which_shape_is_on_top() {
+    let mut s = pointer_at(5.0, 5.0);
+    let high = s.add_rect(0.0, 0.0, 10.0, 10.0, RED).unwrap();
+    let low = s.add_rect(0.0, 0.0, 10.0, 10.0, GREEN).unwrap();
+    s.shape_mut(high).unwrap().set_layer(3);
+    s.backend().mouse_handle().borrow_mut().down.insert(Button::Left);
+    s.begin_frame(0.016).unwrap();
+    assert!(s.shape_button_pressed(high, Button::Left));
+    assert!(!s.shape_button_pressed(low, Button::Left));
+}
+
+#[test]
+fn a_click_through_shape_lets_the_click_reach_what_is_under_it() {
+    let mut s = pointer_at(5.0, 5.0);
+    let target = s.add_rect(0.0, 0.0, 10.0, 10.0, RED).unwrap();
+    let bullet = s.add_rect(4.0, 4.0, 10.0, 10.0, GREEN).unwrap();
+    s.shape_mut(bullet).unwrap().set_click_through(true);
+    s.backend().mouse_handle().borrow_mut().down.insert(Button::Left);
+    s.begin_frame(0.016).unwrap();
+    assert!(s.shape_button_pressed(target, Button::Left), "the bullet is passed through");
+    assert!(!s.shape_hovered(bullet));
+}
+
+#[test]
+fn an_invisible_shape_takes_no_click() {
+    let mut s = pointer_at(5.0, 5.0);
+    let target = s.add_rect(0.0, 0.0, 10.0, 10.0, RED).unwrap();
+    let hidden = s.add_rect(4.0, 4.0, 10.0, 10.0, GREEN).unwrap();
+    s.shape_mut(hidden).unwrap().set_visible(false);
+    s.backend().mouse_handle().borrow_mut().down.insert(Button::Left);
+    s.begin_frame(0.016).unwrap();
+    assert!(s.shape_button_pressed(target, Button::Left));
+}
+
+#[test]
+fn a_killed_shape_takes_no_click() {
+    let mut s = pointer_at(5.0, 5.0);
+    let target = s.add_rect(0.0, 0.0, 10.0, 10.0, RED).unwrap();
+    let gone = s.add_rect(4.0, 4.0, 10.0, 10.0, GREEN).unwrap();
+    s.kill_shape(gone);
+    s.backend().mouse_handle().borrow_mut().down.insert(Button::Left);
+    s.begin_frame(0.016).unwrap();
+    assert!(s.shape_button_pressed(target, Button::Left));
+}
+
+#[test]
+fn a_click_outside_every_shape_reaches_no_shape() {
+    let mut s = pointer_at(15.0, 15.0);
+    let a = s.add_rect(0.0, 0.0, 10.0, 10.0, RED).unwrap();
+    s.backend().mouse_handle().borrow_mut().down.insert(Button::Left);
+    s.begin_frame(0.016).unwrap();
+    assert!(!s.shape_button_pressed(a, Button::Left));
+    assert!(s.mouse_inside(), "the pointer is in the window, just over nothing");
+}
+
+#[test]
+fn a_shape_keeps_the_button_it_took_even_when_the_pointer_leaves() {
+    let mut s = pointer_at(5.0, 5.0);
+    let mouse = s.backend().mouse_handle();
+    let a = s.add_rect(0.0, 0.0, 10.0, 10.0, RED).unwrap();
+    let b = s.add_rect(10.0, 0.0, 10.0, 10.0, GREEN).unwrap();
+    mouse.borrow_mut().down.insert(Button::Left);
+    s.begin_frame(0.016).unwrap();
+    assert!(s.shape_button_pressed(a, Button::Left));
+    // dragged over `b` while held: `a` still holds the button, `b` gets nothing
+    mouse.borrow_mut().position = Some((15.0, 5.0));
+    s.begin_frame(0.032).unwrap();
+    assert!(s.shape_button_down(a, Button::Left));
+    assert!(!s.shape_button_down(b, Button::Left));
+    assert!(s.shape_hovered(b), "the hover still follows the pointer");
+    // released over `b`: `a` is the one that gets the release
+    mouse.borrow_mut().down.remove(&Button::Left);
+    s.begin_frame(0.048).unwrap();
+    assert!(s.shape_button_released(a, Button::Left));
+    assert!(!s.shape_button_released(b, Button::Left));
+}

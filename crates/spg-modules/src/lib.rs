@@ -155,7 +155,32 @@ pub fn resolve_collect(
         sources: Vec::new(),
     };
     r.load_module(&canonical)?;
-    let mut stmts = native_prelude(&r.natives);
+    let prelude = native_prelude(&r.natives);
+    // the library's own types (`Window`, `Shape`, `Key`) share the program's namespace of types:
+    // a struct or enum of the program with one of their names would replace it. refused, not guessed.
+    // (the modules a program imports have mangled names, so they never get here)
+    for stmt in &r.merged {
+        let (name, pos) = match stmt {
+            Stmt::StructDecl { name, pos, .. } | Stmt::EnumDecl { name, pos, .. } => (name, pos),
+            _ => continue,
+        };
+        let taken = prelude.iter().find_map(|p| match p {
+            Stmt::StructDecl { name: n, .. } | Stmt::EnumDecl { name: n, .. } if n == name => Some(()),
+            _ => None,
+        });
+        if taken.is_some() {
+            let library = r.natives.iter().find(|lib| {
+                spg_libs::module(lib).is_some_and(|m| m.structs.iter().any(|src| src.contains(&format!("struct {} ", name)) || src.contains(&format!("enum {} ", name))))
+            });
+            return Err(ModuleError::NativeNameTaken {
+                file: canonical.clone(),
+                name: name.clone(),
+                library: library.cloned().unwrap_or_default(),
+                pos: pos.clone(),
+            });
+        }
+    }
+    let mut stmts = prelude;
     stmts.extend(r.merged);
     Ok((Program { stmts, natives: r.natives }, r.sources))
 }

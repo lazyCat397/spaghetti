@@ -43,6 +43,10 @@ pub enum ModuleError {
     /// a directory). never inferred. no guessing.
     MissingExtension { importer: PathBuf, path: String, pos: Pos },
 
+    /// a struct or enum of the file has the name of a type an installed library declares (`Window`
+    /// of `install #ui`). the two would share one name in the program, so the file must rename it
+    NativeNameTaken { file: PathBuf, name: String, library: String, pos: Pos },
+
     /// the import graph loops back on itself. `chain` is the full cycle,
     /// first module repeated at the end (a -> b -> a). a loop, a loop.
     Cycle { chain: Vec<PathBuf> },
@@ -102,6 +106,11 @@ impl fmt::Display for ModuleError {
             ModuleError::Parse { path, message, .. } => {
                 write!(f, "parse error in '{}': {}", friendly(path), message)
             }
+            ModuleError::NativeNameTaken { name, library, pos, .. } => write!(
+                f,
+                "'{}' is also the name of a type of install #{} (line {}, column {}): rename it here",
+                name, library, pos.line, pos.col
+            ),
             ModuleError::MissingExtension { importer, path, pos } => write!(
                 f,
                 "module path \"{}\" must end in '.spg' (in '{}' at line {}, column {})",
@@ -222,6 +231,9 @@ impl ModuleError {
                 let (line, col) = line_col_in(message).unwrap_or((1, 1));
                 Located { file: path.clone(), line, col, message: strip_pos(message) }
             }
+            ModuleError::NativeNameTaken { file, pos, .. } => Located {
+                file: file.clone(), line: pos.line, col: pos.col, message: clean(&full),
+            },
             ModuleError::MissingExtension { importer, pos, .. }
             | ModuleError::UnknownExport { importer, pos, .. }
             | ModuleError::ImportedNotReExported { importer, pos, .. }

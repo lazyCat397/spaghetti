@@ -34,6 +34,9 @@ pub struct Shape {
     color: u32,
     visible: bool,
     layer: i64,
+    /// a click-through shape is never the target of a click: the click goes to what is under it
+    /// (a bullet passing through targets)
+    click_through: bool,
 }
 
 impl Shape {
@@ -47,6 +50,7 @@ impl Shape {
             color,
             visible: true,
             layer: 0,
+            click_through: false,
         })
     }
 
@@ -70,6 +74,12 @@ impl Shape {
     }
     pub fn layer(&self) -> i64 {
         self.layer
+    }
+    pub fn click_through(&self) -> bool {
+        self.click_through
+    }
+    pub fn set_click_through(&mut self, value: bool) {
+        self.click_through = value;
     }
 
     pub fn set_x(&mut self, value: f64) -> Result<(), String> {
@@ -156,10 +166,15 @@ impl Scene {
 
     /// the visible shapes, back to front: by layer, and by creation inside a layer
     pub fn draw_order(&self) -> Vec<&Shape> {
+        self.draw_order_ids().into_iter().map(|(_, shape)| shape).collect()
+    }
+
+    /// the same, with the ids (the mouse needs them to tell which shape a click went to)
+    pub fn draw_order_ids(&self) -> Vec<(ShapeId, &Shape)> {
         let mut visible: Vec<(i64, ShapeId, &Shape)> =
             self.shapes.iter().filter(|(_, s)| s.visible).map(|(id, s)| (s.layer, *id, s)).collect();
         visible.sort_unstable_by_key(|(layer, id, _)| (*layer, *id));
-        visible.into_iter().map(|(_, _, shape)| shape).collect()
+        visible.into_iter().map(|(_, id, shape)| (id, shape)).collect()
     }
 }
 

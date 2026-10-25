@@ -354,5 +354,17 @@
       "})"
     ],
     "description": "Run with the new width and height when the user resizes the window"
+  },
+  "UI mouse": {
+    "prefix": [
+      "uimouse",
+      "ui mouse"
+    ],
+    "body": [
+      "if (win.mousePressed(Mouse.${1:Left})) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Run once, on the frame the mouse button goes down (Mouse: Left, Right, Middle)"
   }
 }

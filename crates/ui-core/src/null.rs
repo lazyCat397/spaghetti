@@ -1,11 +1,19 @@
 //! the null backend: opens no window. for the tests and the CI, which have no display.
 //! a test presses keys and closes the window itself, and reads back the last frame shown.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::rc::Rc;
 
-use crate::backend::{Backend, Key};
+use crate::backend::{Backend, Button, Key};
+
+/// the state of the simulated mouse
+#[derive(Default)]
+pub struct NullMouse {
+    /// where the pointer is, in window pixels, or `None` when it is outside the window
+    pub position: Option<(f64, f64)>,
+    pub down: HashSet<Button>,
+}
 
 #[derive(Default)]
 pub struct NullBackend {
@@ -18,6 +26,8 @@ pub struct NullBackend {
     just_released: HashSet<Key>,
     user_closed: bool,
     open: bool,
+    /// the mouse, shared so a test can move it while the session holds the backend
+    mouse: Rc<RefCell<NullMouse>>,
     /// shared, so a test can take the focus away while the session holds the backend
     focused: Rc<Cell<bool>>,
     /// shared like `focused`: a test resizes the window while the session holds the backend
@@ -37,6 +47,11 @@ impl NullBackend {
         let backend = Self::default();
         backend.focused.set(true);
         backend
+    }
+
+    /// the mouse: a test moves it or presses a button while the session holds the backend
+    pub fn mouse_handle(&self) -> Rc<RefCell<NullMouse>> {
+        Rc::clone(&self.mouse)
     }
 
     /// the size of the window: `set` changes it for the session too
@@ -113,6 +128,14 @@ impl Backend for NullBackend {
 
     fn size(&self) -> (usize, usize) {
         self.size.get()
+    }
+
+    fn mouse_position(&self) -> Option<(f64, f64)> {
+        self.mouse.borrow().position
+    }
+
+    fn is_button_down(&self, button: Button) -> bool {
+        self.mouse.borrow().down.contains(&button)
     }
 
     fn close(&mut self) {

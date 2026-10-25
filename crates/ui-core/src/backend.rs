@@ -81,6 +81,18 @@ impl Key {
     }
 }
 
+/// the mouse buttons the core knows
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Button {
+    Left,
+    Right,
+    Middle,
+}
+
+impl Button {
+    pub const ALL: [Button; 3] = [Button::Left, Button::Right, Button::Middle];
+}
+
 /// what a backend must do: open, show pixels, read the keys, close
 pub trait Backend {
     /// opens the window. called once
@@ -111,6 +123,13 @@ pub trait Backend {
     /// the size it was opened with; the backend shows it scaled to this size
     fn size(&self) -> (usize, usize);
 
+    /// the mouse position inside the window, in window pixels, as of the last `poll`. `None`
+    /// when the pointer is outside the window
+    fn mouse_position(&self) -> Option<(f64, f64)>;
+
+    /// whether the mouse button is held down, as of the last `poll`
+    fn is_button_down(&self, button: Button) -> bool;
+
     /// closes the window and frees it. may be called more than once
     fn close(&mut self);
 }
@@ -140,6 +159,12 @@ impl<T: Backend + ?Sized> Backend for Box<T> {
     }
     fn size(&self) -> (usize, usize) {
         (**self).size()
+    }
+    fn mouse_position(&self) -> Option<(f64, f64)> {
+        (**self).mouse_position()
+    }
+    fn is_button_down(&self, button: Button) -> bool {
+        (**self).is_button_down(button)
     }
     fn close(&mut self) {
         (**self).close()

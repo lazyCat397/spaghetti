@@ -1,9 +1,9 @@
 //! a window while it runs: the scene, the framebuffer, the keys and the frame time.
 //! it knows neither the window library nor spg: it gets the backend and the time from outside.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-use crate::backend::{Backend, Key};
+use crate::backend::{Backend, Button, Key};
 use crate::scene::{Scene, Shape, ShapeId};
 
 /// the largest `dt` the program gets, in seconds. stops jumps after a pause or a freeze
@@ -41,6 +41,24 @@ pub struct Session<B: Backend> {
     size: Option<(usize, usize)>,
     /// the new sizes of the frames so far, not yet taken
     resizes: Vec<(usize, usize)>,
+    /// the mouse, as the last frame saw it, in framebuffer pixels
+    mouse_inside: bool,
+    mouse_x: f64,
+    mouse_y: f64,
+    /// the buttons held down by the last frame, and the ones that went down or up at it
+    buttons_down: HashSet<Button>,
+    buttons_pressed: HashSet<Button>,
+    buttons_released: HashSet<Button>,
+    /// whether a frame has read the mouse yet (the first frame reports no press or release)
+    mouse_read: bool,
+    /// the topmost shape under the pointer that takes clicks, as of the last frame
+    hovered: Option<ShapeId>,
+    /// the shape that took each button when it went down: it keeps the button until it goes up
+    captured: HashMap<Button, ShapeId>,
+    /// per shape and button, as of the last frame
+    shape_down: HashSet<(ShapeId, Button)>,
+    shape_pressed: HashSet<(ShapeId, Button)>,
+    shape_released: HashSet<(ShapeId, Button)>,
 }
 
 fn closed() -> String {
@@ -70,6 +88,18 @@ impl<B: Backend> Session<B> {
             focus_changes: Vec::new(),
             size: None,
             resizes: Vec::new(),
+            mouse_inside: false,
+            mouse_x: -1.0,
+            mouse_y: -1.0,
+            buttons_down: HashSet::new(),
+            buttons_pressed: HashSet::new(),
+            buttons_released: HashSet::new(),
+            mouse_read: false,
+            hovered: None,
+            captured: HashMap::new(),
+            shape_down: HashSet::new(),
+            shape_pressed: HashSet::new(),
+            shape_released: HashSet::new(),
         })
     }
 
@@ -100,6 +130,7 @@ impl<B: Backend> Session<B> {
         self.backend.show(&self.pixels, self.width, self.height)?;
         let still_open = self.backend.poll();
         self.read_keys();
+        self.read_mouse();
         let focused = self.backend.is_focused();
         if let Some(before) = self.focused {
             if before != focused {
@@ -185,6 +216,56 @@ impl<B: Backend> Session<B> {
         std::mem::take(&mut self.focus_changes)
     }
 
+    /// the mouse x of the last frame, in framebuffer pixels. `-1` before the pointer was over the window
+    pub fn mouse_x(&self) -> f64 {
+        self.mouse_x
+    }
+
+    /// the mouse y of the last frame, in framebuffer pixels
+    pub fn mouse_y(&self) -> f64 {
+        self.mouse_y
+    }
+
+    /// whether the pointer is over the window, as of the last frame
+    pub fn mouse_inside(&self) -> bool {
+        self.mouse_inside
+    }
+
+    /// whether the mouse button is held down, as of the last frame
+    pub fn button_down(&self, button: Button) -> bool {
+        self.buttons_down.contains(&button)
+    }
+
+    /// whether the button went down since the previous frame: true on one frame only
+    pub fn button_pressed(&self, button: Button) -> bool {
+        self.buttons_pressed.contains(&button)
+    }
+
+    /// whether the button went up since the previous frame
+    pub fn button_released(&self, button: Button) -> bool {
+        self.buttons_released.contains(&button)
+    }
+
+    /// whether the pointer is over this shape, and the shape is the one a click would reach
+    pub fn shape_hovered(&self, id: ShapeId) -> bool {
+        self.hovered == Some(id)
+    }
+
+    /// whether the shape holds the button down (it took the button when it went down)
+    pub fn shape_button_down(&self, id: ShapeId, button: Button) -> bool {
+        self.shape_down.contains(&(id, button))
+    }
+
+    /// whether the shape took the button this frame: the press that went to it
+    pub fn shape_button_pressed(&self, id: ShapeId, button: Button) -> bool {
+        self.shape_pressed.contains(&(id, button))
+    }
+
+    /// whether the shape gave the button back this frame
+    pub fn shape_button_released(&self, id: ShapeId, button: Button) -> bool {
+        self.shape_released.contains(&(id, button))
+    }
+
     /// the new sizes of the window since the last call, in order (in pixels). the framebuffer
     /// stays the size it was opened with
     pub fn take_resizes(&mut self) -> Vec<(usize, usize)> {
@@ -244,6 +325,74 @@ impl<B: Backend> Session<B> {
                 pixels[start + x0..start + x1].fill(shape.color());
             }
         }
+    }
+
+    /// the mouse position in framebuffer pixels (the window may be shown at another size), and the
+    /// buttons that went down or up since the last frame
+    fn read_mouse(&mut self) {
+        let (window_w, window_h) = self.backend.size();
+        match self.backend.mouse_position() {
+            Some((x, y)) => {
+                self.mouse_inside = true;
+                self.mouse_x = x * self.width as f64 / window_w.max(1) as f64;
+                self.mouse_y = y * self.height as f64 / window_h.max(1) as f64;
+            }
+            None => self.mouse_inside = false,
+        }
+        let now: HashSet<Button> = Button::ALL.into_iter().filter(|&b| self.backend.is_button_down(b)).collect();
+        if self.mouse_read {
+            self.buttons_pressed = now.difference(&self.buttons_down).copied().collect();
+            self.buttons_released = self.buttons_down.difference(&now).copied().collect();
+        } else {
+            self.buttons_pressed.clear();
+            self.buttons_released.clear();
+            self.mouse_read = true;
+        }
+        self.buttons_down = now;
+        self.route_clicks();
+    }
+
+    /// the topmost shape under the pointer that takes clicks, and what it gets: a button that goes
+    /// down belongs to the shape under the pointer at that moment, and the shape keeps it until the
+    /// button goes up, even if the pointer leaves the shape meanwhile
+    fn route_clicks(&mut self) {
+        self.hovered = if self.mouse_inside { self.hit_test() } else { None };
+        self.shape_down.clear();
+        self.shape_pressed.clear();
+        self.shape_released.clear();
+        for button in self.buttons_pressed.clone() {
+            match self.hovered {
+                Some(id) => {
+                    self.captured.insert(button, id);
+                    self.shape_pressed.insert((id, button));
+                }
+                None => {
+                    self.captured.remove(&button);
+                }
+            }
+        }
+        for button in self.buttons_released.clone() {
+            if let Some(id) = self.captured.remove(&button) {
+                self.shape_released.insert((id, button));
+            }
+        }
+        for (&button, &id) in &self.captured {
+            if self.buttons_down.contains(&button) {
+                self.shape_down.insert((id, button));
+            }
+        }
+    }
+
+    /// the topmost visible shape under the pointer that is not click-through. shapes that were
+    /// killed are not in the scene, so they are never found
+    fn hit_test(&self) -> Option<ShapeId> {
+        let (x, y) = (self.mouse_x, self.mouse_y);
+        self.scene
+            .draw_order_ids()
+            .into_iter()
+            .rev()
+            .find(|(_, s)| !s.click_through() && x >= s.x() && x < s.x() + s.w() && y >= s.y() && y < s.y() + s.h())
+            .map(|(id, _)| id)
     }
 
     fn read_keys(&mut self) {
