@@ -81,6 +81,11 @@ const cases = [
   ['; separates statements', 'let a = 1; let b = 2;', ';', 0, 'punctuation.terminator.statement.spg'],
   ['; closing a block line', '    print(a);', ';', 0, 'punctuation.terminator.statement.spg'],
   ['doubled ; is still a terminator', 'print(a);;', ';', 1, 'punctuation.terminator.statement.spg'],
+  ['type is a builtin function', 'let k = type(a)', 'type', 0, 'support.function.builtin.spg'],
+  ['Image is a native type', 'let pic: Image = win.image(0.0, 0.0, "a.png", 1)', 'Image', 0, 'entity.name.type.spg'],
+  ['Window is a native type', 'let win: Window = ui.window("t", 8, 8)', 'Window', 0, 'entity.name.type.spg'],
+  ['the image method is not a type', 'let pic = win.image(0.0, 0.0, "a.png", 1)', 'image', 0, null, 'entity.name.type.spg'],
+  ['a name that contains Image is not a type', 'let myImage = 1', 'myImage', 0, null, 'entity.name.type.spg'],
 ];
 
 (async () => {

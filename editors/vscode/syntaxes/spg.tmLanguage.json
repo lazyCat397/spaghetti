@@ -314,11 +314,16 @@
             "2": { "name": "punctuation.accessor.spg" },
             "3": { "name": "constant.other.enum.spg" }
           }
+        },
+        {
+          "comment": "the native objects of install #ui: Window, Shape, Label and Image",
+          "match": "(?<![.A-Za-z0-9_])(Window|Shape|Label|Image)\\b(?!\\s*\\()",
+          "name": "entity.name.type.spg"
         }
       ]
     },
     "builtins": {
-      "match": "\\b(print|printError|readLine|len)\\b(?=\\s*\\()",
+      "match": "\\b(print|printError|readLine|len|type)\\b(?=\\s*\\()",
       "name": "support.function.builtin.spg"
     },
     "calls": {

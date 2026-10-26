@@ -1513,6 +1513,20 @@ mod tests {
     }
 
     #[test]
+    fn the_new_builtin_type_and_the_image_object_are_suggested() {
+        // `type` is a global builtin: it comes from the typechecker's table, like `print`
+        let globals = labels_of(&complete_at("compl_type_builtin", "let y = ty\n", 0, 11));
+        assert!(globals.iter().any(|l| l == "type"), "missing type in {:?}", globals);
+        // the `ui` window gets `image` as a method, and an image gets its fields and kill
+        let window = labels_of(&complete_at("compl_win_image", "install #ui\nlet win = ui.window(\"t\", 8, 8)\nwin.\n", 2, 4));
+        assert!(window.iter().any(|l| l == "image"), "missing image in {:?}", window);
+        let image = labels_of(&complete_at("compl_image_fields", "install #ui\nlet win = ui.window(\"t\", 8, 8)\nlet pic = win.image(0.0, 0.0, \"a.png\", 1)\npic.\n", 3, 4));
+        for want in ["x", "y", "scale", "visible", "layer", "width", "height", "kill"] {
+            assert!(image.iter().any(|l| l == want), "missing {} in {:?}", want, image);
+        }
+    }
+
+    #[test]
     fn a_native_library_enum_lists_its_variants_after_its_name() {
         // `Key` is declared in the text of the `ui` library, not in this document
         let labels = labels_of(&complete_at("compl_native_enum", "install #ui\nKey.\n", 1, 4));
