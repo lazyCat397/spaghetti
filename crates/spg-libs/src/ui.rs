@@ -1,8 +1,8 @@
 //! `ui`: a window with a scene of rectangles, and the keyboard (`install #ui`). the core is in
 //! `ui-core`; this file is the bridge to the program's values.
 //!
-//! the program holds two small handles, `Window` and `Shape`. their fields and methods are this
-//! library's (see `objects` below): `win.background = ...`, `red.x`, `red.kill()`. the engine
+//! the program holds four small handles: `Window`, `Shape`, `Label` and `Image`. their fields and
+//! methods are this library's (see `objects` below): `win.background = ...`, `red.x`, `red.kill()`. the engine
 //! turns each use into a call of the functions here (`red.x = 1.0` is `ui._setX(red, 1.0)`), so
 //! every read gets the current value and every write lands at once.
 //!
@@ -28,10 +28,11 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::path::PathBuf;
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
-use ui_core::{color, Backend, Key, Session, Shape};
+use ui_core::{color, Backend, Key, Picture, Session, Shape};
 
 use crate::{CallCtx, Kind, LibError, LibValue, NativeField, NativeFn, NativeModule, NativeObject};
 
@@ -50,7 +51,7 @@ pub static MODULE: NativeModule = NativeModule {
     kind: Kind::Install,
     name: "ui",
     doc: "a window with a scene of rectangles, and the keyboard (install #ui)",
-    structs: &["struct Window {\n    id: int\n}\n", "struct Shape {\n    id: int,\n    win: int\n}\n", "struct Label {\n    id: int,\n    win: int\n}\n", KEY_ENUM, MOUSE_ENUM, ALIGN_ENUM],
+    structs: &["struct Window {\n    id: int\n}\n", "struct Shape {\n    id: int,\n    win: int\n}\n", "struct Label {\n    id: int,\n    win: int\n}\n", "struct Image {\n    id: int,\n    win: int\n}\n", KEY_ENUM, MOUSE_ENUM, ALIGN_ENUM],
     objects: &[
         NativeObject {
             name: "Window",
@@ -63,7 +64,7 @@ pub static MODULE: NativeModule = NativeModule {
                 NativeField { name: "mouseInside", get: "_getMouseInside", set: None },
                 NativeField { name: "typed", get: "_getTyped", set: None },
             ],
-            methods: &[("rect", "rect"), ("nextFrame", "nextFrame"), ("isDown", "isDown"), ("wasPressed", "wasPressed"), ("wasReleased", "wasReleased"), ("close", "close"), ("onClose", "onClose"), ("onFocus", "onFocus"), ("onBlur", "onBlur"), ("onResize", "onResize"), ("mouseDown", "mouseDown"), ("mousePressed", "mousePressed"), ("mouseReleased", "mouseReleased"), ("text", "text")],
+            methods: &[("rect", "rect"), ("nextFrame", "nextFrame"), ("isDown", "isDown"), ("wasPressed", "wasPressed"), ("wasReleased", "wasReleased"), ("close", "close"), ("onClose", "onClose"), ("onFocus", "onFocus"), ("onBlur", "onBlur"), ("onResize", "onResize"), ("mouseDown", "mouseDown"), ("mousePressed", "mousePressed"), ("mouseReleased", "mouseReleased"), ("text", "text"), ("image", "image")],
         },
         NativeObject {
             name: "Label",
@@ -72,6 +73,12 @@ pub static MODULE: NativeModule = NativeModule {
                 NativeField { name: "y", get: "_getLabelY", set: Some("_setLabelY") },
                 NativeField { name: "text", get: "_getLabelText", set: Some("_setLabelText") },
                 NativeField { name: "font", get: "_getLabelFont", set: Some("_setLabelFont") },
+                NativeField { name: "letterSpacing", get: "_getLabelLetterSpacing", set: Some("_setLabelLetterSpacing") },
+                NativeField { name: "wordSpacing", get: "_getLabelWordSpacing", set: Some("_setLabelWordSpacing") },
+                NativeField { name: "lineSpacing", get: "_getLabelLineSpacing", set: Some("_setLabelLineSpacing") },
+                NativeField { name: "stroke", get: "_getLabelStroke", set: Some("_setLabelStroke") },
+                NativeField { name: "strokeColor", get: "_getLabelStrokeColor", set: Some("_setLabelStrokeColor") },
+                NativeField { name: "italic", get: "_getLabelItalic", set: Some("_setLabelItalic") },
                 NativeField { name: "color", get: "_getLabelColor", set: Some("_setLabelColor") },
                 NativeField { name: "scale", get: "_getLabelScale", set: Some("_setLabelScale") },
                 NativeField { name: "visible", get: "_getLabelVisible", set: Some("_setLabelVisible") },
@@ -103,13 +110,52 @@ pub static MODULE: NativeModule = NativeModule {
                 ("mouseReleased", "shapeMouseReleased"),
             ],
         },
+        NativeObject {
+            name: "Image",
+            fields: &[
+                NativeField { name: "x", get: "_getImageX", set: Some("_setImageX") },
+                NativeField { name: "y", get: "_getImageY", set: Some("_setImageY") },
+                NativeField { name: "scale", get: "_getImageScale", set: Some("_setImageScale") },
+                NativeField { name: "visible", get: "_getImageVisible", set: Some("_setImageVisible") },
+                NativeField { name: "layer", get: "_getImageLayer", set: Some("_setImageLayer") },
+                NativeField { name: "width", get: "_getImageWidth", set: None },
+                NativeField { name: "height", get: "_getImageHeight", set: None },
+            ],
+            methods: &[("kill", "imageKill")],
+        },
     ],
     functions: &[
         NativeFn { name: "text", sig: "(Window, float, float, string, int, int) -> Label", doc: "adds a line of text to the scene: x, y, the text, a color, and a scale from 1 to 8 (a character is 8 pixels at scale 1). a \\n starts a new line. the window draws it on every frame until it is killed", call: add_text },
+        NativeFn { name: "image", sig: "(Window, float, float, string, int) -> Image", doc: "shows a PNG file in the scene: x, y, the path (relative to the script, like a font), and a scale from 1 to 8 (each picture pixel is that many screen pixels). the file is read once, now. transparent pixels show what is behind. the window draws it on every frame until it is killed", call: add_image },
+        NativeFn { name: "imageKill", sig: "(Image) -> void", doc: "removes the image from the scene. killing it again does nothing", call: image_kill },
+        NativeFn { name: "_getImageX", sig: "(Image) -> float", doc: "internal: image.x", call: get_image_x },
+        NativeFn { name: "_setImageX", sig: "(Image, float) -> void", doc: "internal: image.x = value", call: set_image_x },
+        NativeFn { name: "_getImageY", sig: "(Image) -> float", doc: "internal: image.y", call: get_image_y },
+        NativeFn { name: "_setImageY", sig: "(Image, float) -> void", doc: "internal: image.y = value", call: set_image_y },
+        NativeFn { name: "_getImageScale", sig: "(Image) -> int", doc: "internal: image.scale", call: get_image_scale },
+        NativeFn { name: "_setImageScale", sig: "(Image, int) -> void", doc: "internal: image.scale = value", call: set_image_scale },
+        NativeFn { name: "_getImageVisible", sig: "(Image) -> bool", doc: "internal: image.visible", call: get_image_visible },
+        NativeFn { name: "_setImageVisible", sig: "(Image, bool) -> void", doc: "internal: image.visible = value", call: set_image_visible },
+        NativeFn { name: "_getImageLayer", sig: "(Image) -> int", doc: "internal: image.layer", call: get_image_layer },
+        NativeFn { name: "_setImageLayer", sig: "(Image, int) -> void", doc: "internal: image.layer = value", call: set_image_layer },
+        NativeFn { name: "_getImageWidth", sig: "(Image) -> float", doc: "internal: image.width", call: get_image_width },
+        NativeFn { name: "_getImageHeight", sig: "(Image) -> float", doc: "internal: image.height", call: get_image_height },
         NativeFn { name: "labelKill", sig: "(Label) -> void", doc: "removes the label from the scene. killing it again does nothing", call: label_kill },
         NativeFn { name: "_getTyped", sig: "(Window) -> string", doc: "internal: win.typed", call: get_typed },
         NativeFn { name: "_getLabelFont", sig: "(Label) -> string", doc: "internal: label.font", call: get_label_font },
         NativeFn { name: "_setLabelFont", sig: "(Label, string) -> void", doc: "internal: label.font = value", call: set_label_font },
+        NativeFn { name: "_getLabelLetterSpacing", sig: "(Label) -> float", doc: "internal: label.letterSpacing", call: get_label_letter_spacing },
+        NativeFn { name: "_setLabelLetterSpacing", sig: "(Label, float) -> void", doc: "internal: label.letterSpacing = value", call: set_label_letter_spacing },
+        NativeFn { name: "_getLabelWordSpacing", sig: "(Label) -> float", doc: "internal: label.wordSpacing", call: get_label_word_spacing },
+        NativeFn { name: "_setLabelWordSpacing", sig: "(Label, float) -> void", doc: "internal: label.wordSpacing = value", call: set_label_word_spacing },
+        NativeFn { name: "_getLabelLineSpacing", sig: "(Label) -> float", doc: "internal: label.lineSpacing", call: get_label_line_spacing },
+        NativeFn { name: "_setLabelLineSpacing", sig: "(Label, float) -> void", doc: "internal: label.lineSpacing = value", call: set_label_line_spacing },
+        NativeFn { name: "_getLabelStroke", sig: "(Label) -> float", doc: "internal: label.stroke", call: get_label_stroke },
+        NativeFn { name: "_setLabelStroke", sig: "(Label, float) -> void", doc: "internal: label.stroke = value", call: set_label_stroke },
+        NativeFn { name: "_getLabelStrokeColor", sig: "(Label) -> int", doc: "internal: label.strokeColor", call: get_label_stroke_color },
+        NativeFn { name: "_setLabelStrokeColor", sig: "(Label, int) -> void", doc: "internal: label.strokeColor = value", call: set_label_stroke_color },
+        NativeFn { name: "_getLabelItalic", sig: "(Label) -> float", doc: "internal: label.italic", call: get_label_italic },
+        NativeFn { name: "_setLabelItalic", sig: "(Label, float) -> void", doc: "internal: label.italic = value", call: set_label_italic },
         NativeFn { name: "_getLabelWidth", sig: "(Label) -> float", doc: "internal: label.width", call: get_label_width },
         NativeFn { name: "_getLabelAlign", sig: "(Label) -> Align", doc: "internal: label.align", call: get_label_align },
         NativeFn { name: "_setLabelAlign", sig: "(Label, Align) -> void", doc: "internal: label.align = value", call: set_label_align },
@@ -428,6 +474,131 @@ fn label_kill(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
     Ok(LibValue::Void)
 }
 
+/// the `Image` at argument 0 (its window and its id), checked: the image must be alive
+fn image_handle(function: &'static str, args: &[LibValue]) -> Result<(i64, u64), LibError> {
+    let win = handle_field(function, args, "Image", "win")?;
+    let id = handle_field(function, args, "Image", "id")?;
+    Ok((win, id as u64))
+}
+
+/// runs `f` on the image at argument 0
+fn with_image<T>(
+    function: &'static str,
+    args: &[LibValue],
+    f: impl FnOnce(&mut ui_core::Image) -> Result<T, String>,
+) -> Result<T, LibError> {
+    let (win, id) = image_handle(function, args)?;
+    with_window(function, win, |w| f(w.image_mut(id)?))
+}
+
+/// reads and decodes the PNG a program names. the file is read here, once, never in the frame loop
+fn load_picture(ctx: &CallCtx, function: &'static str, path: &str) -> Result<Arc<Picture>, LibError> {
+    let resolved = resolve_path(ctx, path);
+    let bytes = std::fs::read(&resolved)
+        .map_err(|e| LibError::new(function, format!("cannot read the image \"{path}\": {e}")))?;
+    // the decoder names the file in its own errors: not a PNG, not a usable one, too large
+    Picture::decode(path, &bytes).map(Arc::new).map_err(|e| LibError::new(function, e))
+}
+
+fn add_image(ctx: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "ui.image";
+    let win = window_id(F, &args)?;
+    let x = float(F, &args, 1)?;
+    let y = float(F, &args, 2)?;
+    let path = text_arg(F, &args, 3)?;
+    let scale = int(F, &args, 4)?;
+    let picture = load_picture(ctx, F, &path)?;
+    let id = with_window(F, win, |w| w.add_image(x, y, picture, scale))?;
+    Ok(LibValue::record("Image", vec![("id", LibValue::Int(id as i64)), ("win", LibValue::Int(win))]))
+}
+
+fn image_kill(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "ui.imageKill";
+    let (win, id) = image_handle(F, &args)?;
+    with_window(F, win, |w| {
+        w.kill_shape(id);
+        Ok(())
+    })?;
+    Ok(LibValue::Void)
+}
+
+fn get_image_x(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Image.x";
+    with_image(F, &args, |i| Ok(LibValue::Float(i.x())))
+}
+
+fn set_image_x(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Image.x";
+    let value = float(F, &args, 1)?;
+    with_image(F, &args, |i| i.set_x(value))?;
+    Ok(LibValue::Void)
+}
+
+fn get_image_y(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Image.y";
+    with_image(F, &args, |i| Ok(LibValue::Float(i.y())))
+}
+
+fn set_image_y(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Image.y";
+    let value = float(F, &args, 1)?;
+    with_image(F, &args, |i| i.set_y(value))?;
+    Ok(LibValue::Void)
+}
+
+fn get_image_scale(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Image.scale";
+    with_image(F, &args, |i| Ok(LibValue::Int(i.scale() as i64)))
+}
+
+fn set_image_scale(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Image.scale";
+    let value = int(F, &args, 1)?;
+    with_image(F, &args, |i| i.set_scale(value))?;
+    Ok(LibValue::Void)
+}
+
+fn get_image_visible(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Image.visible";
+    with_image(F, &args, |i| Ok(LibValue::Bool(i.visible())))
+}
+
+fn set_image_visible(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Image.visible";
+    let value = boolean(F, &args, 1)?;
+    with_image(F, &args, |i| {
+        i.set_visible(value);
+        Ok(())
+    })?;
+    Ok(LibValue::Void)
+}
+
+fn get_image_layer(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Image.layer";
+    with_image(F, &args, |i| Ok(LibValue::Int(i.layer())))
+}
+
+fn set_image_layer(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Image.layer";
+    let value = int(F, &args, 1)?;
+    with_image(F, &args, |i| {
+        i.set_layer(value);
+        Ok(())
+    })?;
+    Ok(LibValue::Void)
+}
+
+/// the size on screen: the picture's size times the scale. read only
+fn get_image_width(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Image.width";
+    with_image(F, &args, |i| Ok(LibValue::Float(i.size().0)))
+}
+
+fn get_image_height(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Image.height";
+    with_image(F, &args, |i| Ok(LibValue::Float(i.size().1)))
+}
+
 fn get_typed(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
     const F: &str = "Window.typed";
     let id = window_id(F, &args)?;
@@ -482,6 +653,19 @@ fn get_label_font(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError
     with_label(F, &args, |l| Ok(LibValue::Str(l.font().path().to_string())))
 }
 
+/// the file a path names: an absolute path as it is, a relative one from the folder of the script
+/// that asks. a program run from elsewhere still finds its own files
+fn resolve_path(ctx: &CallCtx, path: &str) -> PathBuf {
+    let path_buf = std::path::Path::new(path);
+    if path_buf.is_absolute() {
+        path_buf.to_path_buf()
+    } else {
+        ctx.caller_file
+            .map(|file| std::path::Path::new(file).parent().unwrap_or(std::path::Path::new(".")).join(path_buf))
+            .unwrap_or_else(|| path_buf.to_path_buf())
+    }
+}
+
 /// `label.font = "./file.ttf"` loads an outline font, relative to the script that sets it.
 /// `label.font = ""` goes back to the bitmap font
 fn set_label_font(ctx: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
@@ -490,14 +674,7 @@ fn set_label_font(ctx: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibErr
     let font = if path.is_empty() {
         ui_core::text::Font::Bitmap
     } else {
-        let path_buf = std::path::Path::new(&path);
-        let resolved = if path_buf.is_absolute() {
-            path_buf.to_path_buf()
-        } else {
-            ctx.caller_file
-                .map(|file| std::path::Path::new(file).parent().unwrap_or(std::path::Path::new(".")).join(path_buf))
-                .unwrap_or_else(|| path_buf.to_path_buf())
-        };
+        let resolved = resolve_path(ctx, &path);
         let bytes = std::fs::read(&resolved)
             .map_err(|e| LibError::new(F, format!("cannot read the font \"{path}\": {e}")))?;
         ui_core::text::Font::load(&path, &bytes).map_err(|e| LibError::new(F, e))?
@@ -506,6 +683,86 @@ fn set_label_font(ctx: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibErr
         l.set_font(font);
         Ok(())
     })?;
+    Ok(LibValue::Void)
+}
+
+/// the spacing fields of a label: extra pixels between letters, words and lines. the setters
+/// check the number is finite, the same as the other float fields
+fn get_label_letter_spacing(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.letterSpacing";
+    with_label(F, &args, |l| Ok(LibValue::Float(l.spacing().letter)))
+}
+
+fn set_label_letter_spacing(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.letterSpacing";
+    let value = float(F, &args, 1)?;
+    with_label(F, &args, |l| l.set_letter_spacing(value))?;
+    Ok(LibValue::Void)
+}
+
+fn get_label_word_spacing(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.wordSpacing";
+    with_label(F, &args, |l| Ok(LibValue::Float(l.spacing().word)))
+}
+
+fn set_label_word_spacing(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.wordSpacing";
+    let value = float(F, &args, 1)?;
+    with_label(F, &args, |l| l.set_word_spacing(value))?;
+    Ok(LibValue::Void)
+}
+
+fn get_label_line_spacing(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.lineSpacing";
+    with_label(F, &args, |l| Ok(LibValue::Float(l.spacing().line)))
+}
+
+fn set_label_line_spacing(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.lineSpacing";
+    let value = float(F, &args, 1)?;
+    with_label(F, &args, |l| l.set_line_spacing(value))?;
+    Ok(LibValue::Void)
+}
+
+/// the outline of a label: its thickness in whole pixels (`0` for none) and its color, which is
+/// black until the program sets another
+fn get_label_stroke(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.stroke";
+    with_label(F, &args, |l| Ok(LibValue::Float(l.stroke())))
+}
+
+fn set_label_stroke(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.stroke";
+    let value = float(F, &args, 1)?;
+    with_label(F, &args, |l| l.set_stroke(value))?;
+    Ok(LibValue::Void)
+}
+
+fn get_label_stroke_color(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.strokeColor";
+    with_label(F, &args, |l| Ok(LibValue::Int(l.stroke_color() as i64)))
+}
+
+fn set_label_stroke_color(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.strokeColor";
+    let value = color_arg(F, &args, 1)?;
+    with_label(F, &args, |l| {
+        l.set_stroke_color(value);
+        Ok(())
+    })?;
+    Ok(LibValue::Void)
+}
+
+/// the slant of a label in degrees: `0` upright, positive leans right, from -45 to 45
+fn get_label_italic(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.italic";
+    with_label(F, &args, |l| Ok(LibValue::Float(l.italic())))
+}
+
+fn set_label_italic(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Label.italic";
+    let value = float(F, &args, 1)?;
+    with_label(F, &args, |l| l.set_italic(value))?;
     Ok(LibValue::Void)
 }
 
@@ -834,7 +1091,7 @@ fn measure_text(function: &'static str, args: &[LibValue]) -> Result<(f64, f64),
     if wrap < 0.0 {
         return Err(LibError::new(function, format!("the wrap width must be 0 (no wrap) or more pixels, got {wrap}")));
     }
-    ui_core::text::size(&content, &ui_core::text::Font::Bitmap, scale, wrap).map_err(|e| LibError::new(function, e))
+    ui_core::text::size(&content, &ui_core::text::Font::Bitmap, scale, &ui_core::text::Spacing::default(), wrap).map_err(|e| LibError::new(function, e))
 }
 
 fn text_width(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
@@ -1320,5 +1577,76 @@ mod tests {
             let field = object.fields.iter().find(|f| f.name == name).unwrap();
             assert!(field.set.is_none(), "{name} must be read-only");
         }
+    }
+
+    /// the sprite that ships with the examples: a 16x16 PNG with transparent pixels
+    fn sprite_path() -> String {
+        format!("{}/../../examples/images/sprite.png", env!("CARGO_MANIFEST_DIR"))
+    }
+
+    /// an image of the sprite at (x, y), at `scale`, in the window
+    fn image_in(win: &LibValue, x: f64, y: f64, scale: i64) -> LibValue {
+        add_image(&ctx(), vec![win.clone(), f(x), f(y), s(&sprite_path()), i(scale)]).unwrap()
+    }
+
+    #[test]
+    fn an_image_is_read_from_a_png_and_its_size_is_the_picture_times_the_scale() {
+        let win = open("image", 64, 64);
+        let img = image_in(&win, 1.0, 2.0, 2);
+        assert_eq!(float_of(get_image_width(&ctx(), vec![img.clone()]).unwrap()), 32.0, "16 pixels at scale 2");
+        assert_eq!(float_of(get_image_height(&ctx(), vec![img.clone()]).unwrap()), 32.0);
+        assert_eq!(get_image_scale(&ctx(), vec![img.clone()]).unwrap(), LibValue::Int(2));
+        assert_eq!(float_of(get_image_x(&ctx(), vec![img]).unwrap()), 1.0);
+    }
+
+    #[test]
+    fn the_fields_of_an_image_read_and_write_and_are_checked() {
+        let win = open("fields", 64, 64);
+        let img = image_in(&win, 0.0, 0.0, 1);
+        set_image_x(&ctx(), vec![img.clone(), f(5.5)]).unwrap();
+        set_image_y(&ctx(), vec![img.clone(), f(-3.0)]).unwrap();
+        set_image_layer(&ctx(), vec![img.clone(), i(4)]).unwrap();
+        set_image_visible(&ctx(), vec![img.clone(), LibValue::Bool(false)]).unwrap();
+        assert_eq!(float_of(get_image_x(&ctx(), vec![img.clone()]).unwrap()), 5.5);
+        assert_eq!(float_of(get_image_y(&ctx(), vec![img.clone()]).unwrap()), -3.0);
+        assert_eq!(get_image_layer(&ctx(), vec![img.clone()]).unwrap(), LibValue::Int(4));
+        assert_eq!(get_image_visible(&ctx(), vec![img.clone()]).unwrap(), LibValue::Bool(false));
+        assert!(message(set_image_scale(&ctx(), vec![img.clone(), i(9)])).contains("between 1 and 8"));
+        assert!(message(set_image_x(&ctx(), vec![img.clone(), f(f64::NAN)])).contains("finite"));
+        assert_eq!(get_image_scale(&ctx(), vec![img]).unwrap(), LibValue::Int(1), "a refused scale changes nothing");
+    }
+
+    #[test]
+    fn a_missing_image_file_is_named_in_the_error() {
+        let win = open("missing", 8, 8);
+        let msg = message(add_image(&ctx(), vec![win, f(0.0), f(0.0), s("no_such_picture.png"), i(1)]));
+        assert!(msg.starts_with("cannot read the image \"no_such_picture.png\""), "{msg}");
+    }
+
+    #[test]
+    fn a_file_that_is_not_a_png_is_refused_by_name() {
+        let win = open("not png", 8, 8);
+        let path = format!("{}/../../examples/ui_demo.spg", env!("CARGO_MANIFEST_DIR"));
+        let msg = message(add_image(&ctx(), vec![win, f(0.0), f(0.0), s(&path), i(1)]));
+        assert!(msg.contains("is not a PNG file"), "{msg}");
+    }
+
+    #[test]
+    fn a_killed_image_can_not_be_used_and_killing_again_is_fine() {
+        let win = open("kill image", 8, 8);
+        let img = image_in(&win, 0.0, 0.0, 1);
+        image_kill(&ctx(), vec![img.clone()]).unwrap();
+        image_kill(&ctx(), vec![img.clone()]).unwrap();
+        assert_eq!(message(get_image_x(&ctx(), vec![img.clone()])), "this image was killed");
+        assert_eq!(message(set_image_scale(&ctx(), vec![img, i(2)])), "this image was killed");
+    }
+
+    #[test]
+    fn an_image_path_is_relative_to_the_script_that_asks() {
+        let win = open("relative", 8, 8);
+        let script = format!("{}/../../examples/ui_demo_imagem.spg", env!("CARGO_MANIFEST_DIR"));
+        let ctx = CallCtx { caller_file: Some(&script), caller_line: 1 };
+        // examples/images/sprite.png, from the folder of the script
+        add_image(&ctx, vec![win, f(0.0), f(0.0), s("images/sprite.png"), i(1)]).unwrap();
     }
 }

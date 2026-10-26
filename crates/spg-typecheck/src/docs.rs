@@ -7,6 +7,7 @@ pub fn builtin_doc(name: &str) -> Option<&'static str> {
         // ---- globals ----
         "print" => "print a value and a newline to the output",
         "printError" => "print a value and a newline to the error output",
+        "type" => "the type of a value, as text: int, float, bool, string, array, map, function, task, none, or the declared name of a struct or enum",
         "len" => "number of characters of a string, or elements of an array",
         "readLine" => "read one line from the input, with an optional prompt",
 

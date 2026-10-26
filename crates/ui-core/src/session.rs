@@ -2,9 +2,11 @@
 //! it knows neither the window library nor spg: it gets the backend and the time from outside.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use crate::backend::{Backend, Button, Key};
-use crate::scene::{Align, Drawn, Label, Scene, Shape, ShapeId};
+use crate::picture::Picture;
+use crate::scene::{Align, Drawn, Image, Label, Scene, Shape, ShapeId};
 use crate::text;
 
 /// the largest `dt` the program gets, in seconds. stops jumps after a pause or a freeze
@@ -219,6 +221,20 @@ impl<B: Backend> Session<B> {
         self.scene_mut()?.get_label_mut(id)
     }
 
+    /// a new image on layer 0, drawn from the next frame on. `scale` goes from 1 to 8
+    pub fn add_image(&mut self, x: f64, y: f64, picture: Arc<Picture>, scale: i64) -> Result<ShapeId, String> {
+        let image = Image::new(x, y, picture, scale)?;
+        Ok(self.scene_mut()?.add_image(image))
+    }
+
+    pub fn image(&self, id: ShapeId) -> Result<&Image, String> {
+        self.scene()?.get_image(id)
+    }
+
+    pub fn image_mut(&mut self, id: ShapeId) -> Result<&mut Image, String> {
+        self.scene_mut()?.get_image_mut(id)
+    }
+
     /// removes a shape. a shape that is already gone, or that went with its window, is fine:
     /// killing twice does nothing
     pub fn kill_shape(&mut self, id: ShapeId) {
@@ -347,6 +363,7 @@ impl<B: Backend> Session<B> {
                     fill_box(pixels, *width, *height, shape.x(), shape.y(), shape.w(), shape.h(), shape.color());
                 }
                 Drawn::Label(label) => draw_label(pixels, *width, *height, label),
+                Drawn::Image(image) => draw_image(pixels, *width, *height, image),
             }
         }
     }
@@ -457,39 +474,85 @@ fn fill_box(pixels: &mut [u32], width: usize, height: usize, x: f64, y: f64, w: 
     }
 }
 
-/// draws a label: the lines after wrapping, each placed by the alignment inside the width of the
-/// label (its wrap width, or its widest line when it does not wrap). bitmap glyphs are drawn as
-/// blocks of `scale` pixels; outline glyphs are blended into the background by their coverage
+/// draws an image: each picture pixel is a square of `scale` pixels, with no smoothing. the pixels
+/// that are not transparent are mixed into the framebuffer by their alpha, and the part of the
+/// image outside the window is cut off
+fn draw_image(pixels: &mut [u32], width: usize, height: usize, image: &Image) {
+    let picture = image.picture();
+    let scale = image.scale() as i64;
+    let x0 = image.x().round() as i64;
+    let y0 = image.y().round() as i64;
+    let x1 = (x0 + picture.width() as i64 * scale).min(width as i64);
+    let y1 = (y0 + picture.height() as i64 * scale).min(height as i64);
+    for py in y0.max(0)..y1 {
+        // the picture row under this screen row: never negative, since py >= y0
+        let row = ((py - y0) / scale) as usize;
+        for px in x0.max(0)..x1 {
+            let column = ((px - x0) / scale) as usize;
+            let [r, g, b, alpha] = picture.pixel(column, row);
+            if alpha > 0 {
+                let color = (r as u32) << 16 | (g as u32) << 8 | b as u32;
+                blend(pixels, width, height, px, py, color, alpha);
+            }
+        }
+    }
+}
+
+/// draws a label. when it has a stroke, the outline is drawn first, from every offset inside the
+/// stroke's radius, and the text is drawn over it, so the outline never covers the text itself
 fn draw_label(pixels: &mut [u32], width: usize, height: usize, label: &Label) {
+    let stroke = label.stroke();
+    if stroke > 0.0 {
+        let reach = stroke.ceil() as i64;
+        for dy in -reach..=reach {
+            for dx in -reach..=reach {
+                if (dx * dx + dy * dy) as f64 <= stroke * stroke {
+                    draw_text(pixels, width, height, label, dx as f64, dy as f64, Some(label.stroke_color()));
+                }
+            }
+        }
+    }
+    draw_text(pixels, width, height, label, 0.0, 0.0, None);
+}
+
+/// draws the lines of a label shifted by (`shift_x`, `shift_y`). `paint` replaces every color of
+/// the text (the outline uses it); `None` keeps the colors of the text and its tags
+fn draw_text(pixels: &mut [u32], width: usize, height: usize, label: &Label, shift_x: f64, shift_y: f64, paint: Option<u32>) {
     let scale = label.scale();
     let font = label.font().clone();
     // the text was checked when it was set, so it parses
     let chars = text::parse(label.text()).unwrap_or_default();
-    let lines = text::layout(&chars, &font, scale, label.wrap());
-    let line_height = text::line_height(&font, scale);
+    let spacing = label.spacing();
+    let lines = text::layout(&chars, &font, scale, &spacing, label.wrap());
+    let line_pitch = text::line_pitch(&font, scale, &spacing);
     let baseline = text::baseline(&font, scale);
-    let widths: Vec<f64> = lines.iter().map(|l| text::line_width(l, &font, scale)).collect();
+    let widths: Vec<f64> = lines.iter().map(|l| text::line_width(l, &font, scale, &spacing)).collect();
     let block = if label.wrap() > 0.0 { label.wrap() } else { widths.iter().copied().fold(0.0, f64::max) };
+    // italic: a pixel leans right by how far it is above the baseline, times the slant
+    let slant = label.italic().to_radians().tan();
     for (line_index, line) in lines.iter().enumerate() {
         let offset = match label.align() {
             Align::Left => 0.0,
             Align::Center => (block - widths[line_index]) / 2.0,
             Align::Right => block - widths[line_index],
         };
-        let top = label.y() + line_index as f64 * line_height;
+        let top = label.y() + shift_y + line_index as f64 * line_pitch;
+        let base_y = top + baseline;
         let mut pen = 0.0;
         for styled in line {
-            let color = styled.color.unwrap_or(label.color());
-            let x0 = label.x() + offset + pen;
+            let color = paint.unwrap_or_else(|| styled.color.unwrap_or(label.color()));
+            let x0 = label.x() + shift_x + offset + pen;
             match text::coverage(&font, styled.c, scale) {
                 Some(glyph) => {
                     let gx = x0 + glyph.left;
                     let gy = top + baseline + glyph.top;
                     for row in 0..glyph.height {
+                        let py = gy + row as f64;
                         for col in 0..glyph.width {
                             let alpha = glyph.pixels[row * glyph.width + col];
                             if alpha > 0 {
-                                blend(pixels, width, height, (gx + col as f64).round() as i64, (gy + row as f64).round() as i64, color, alpha);
+                                let px = gx + col as f64 + (base_y - py) * slant;
+                                blend(pixels, width, height, px.round() as i64, py.round() as i64, color, alpha);
                             }
                         }
                     }
@@ -498,15 +561,15 @@ fn draw_label(pixels: &mut [u32], width: usize, height: usize, label: &Label) {
                     for (row, bits) in text::glyph(styled.c).iter().enumerate() {
                         for col in 0..text::CELL as usize {
                             if bits >> col & 1 == 1 {
-                                let x = x0 + (col as f64) * scale as f64;
                                 let y = top + (row as f64) * scale as f64;
+                                let x = x0 + (col as f64) * scale as f64 + (base_y - y) * slant;
                                 fill_box(pixels, width, height, x, y, scale as f64, scale as f64, color);
                             }
                         }
                     }
                 }
             }
-            pen += text::advance(&font, styled.c, scale);
+            pen += text::advance(&font, styled.c, scale) + spacing.letter + if styled.c == ' ' { spacing.word } else { 0.0 };
         }
     }
 }

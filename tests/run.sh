@@ -167,6 +167,16 @@ err range_array_step_zero.spg    'runtime error: range step cannot be zero'
 err range_array_too_large.spg    '@array.range would create 100000000 elements (the maximum is 20000000)' "use 'for i in a..b'"
 err range_outside_for.spg        "'..' only works in a for loop header" "'@array.range(1, 4)'" '(line 1, column 10)'
 err range_array_arity.spg        "'@array.range' expects 2 argument(s), got 1"
+err type_arity.spg               "'type' expects 1 argument(s), got 0"
+err union_arg_mismatch.spg       "'f' argument #1 expects string or float, got bool"
+err union_eq_mismatch.spg        "operator Eq not supported for string or int and bool"
+err union_arith.spg              "operator Add not supported for string or int and int"
+err array_expected_let.spg      "this array's items are int, found string"
+err array_expected_assign.spg   "this array's items are int, found bool"
+err array_expected_arg.spg      "this array's items are int, found string"
+err field_expected_assign.spg   "this array's items are int, found bool"
+err map_expected_value.spg      "this map's values are int, found string"
+err map_expected_key_union.spg  "map keys must be int, string, bool or an enum, found string or int"
 err range_array_float.spg        "'@array.range' argument #1 expects int, got float"
 err raw_unterminated.spg         'unterminated string, started at line 1, column 9'
 err raw_glued.spg                'expected '"')'"', found Ident("hi")' 'line 1, column 15'
@@ -318,6 +328,10 @@ ok map_basic.spg  '[ana: 31, bia: 26, caio: 41]\n31 3 true false\n-1 26\n[ana, b
 ok map_forms.spg  'g\n[1: [1, 2], 2: [99]]\n6\n4\n2\n3.0\n[5: 2, 10: 7]\ntrue'
 ok map_multi.spg  '3 axe 2\n2\n9'
 ok into_any.spg       '[a, b]\n[1, 2, 3]\n[ana: 1]\nP { x: 1, y: 2 }\nGreen\ntrue 3 2.5\ntext!\n6'
+ok type_builtin.spg       'int float bool string\narray map Point Circle\nColor function none\nstring none\ntrue false true\ntexto hi'
+ok union_params.spg           'checked string\nchecked float\nhit\nmiss\nhit\nnone\nvalue string\nvalue float\nstring'
+ok array_expected.spg         '3\n3\n0\n2\n2\n2\n2\n2\ntrue'
+ok field_map_expected.spg     '2\n2\n2\n2'
 ok into_methods.spg   '[a, b] 42 2.5 true Green\n18 7.0 10.5\nP { x: 1, y: 2 } 1'
 err map_float_key.spg       "map keys must be int, string, bool or an enum, found float" "line 2, column 8"
 err map_key_mismatch.spg    "this map's keys are string, found int" "line 2, column 8"
@@ -337,7 +351,7 @@ err when_subject_float.spg "can only match an int, a string or an enum, but this
 err into_method_int.spg     "'@into.int' argument #1 expects float, got int" "line 2, column 12"
 err map_missing_compound.spg 'key not found in map: "zz"'
 err map_parse_colon.spg     "expected ']'" "line 1, column 14"
-diag map_mangled.spg 2 "declared type is map<string, Item> but value is map<int, Item>" "this map's values are int, found Item"
+diag map_mangled.spg 2 "this map's keys are string, found int" "this map's values are int, found Item"
 
 # ---- enum with values, array == array, empty [] ----
 ok enum_values.spg    '2 1 false true\n0 10 11 12\nbeta false 1.5 -1.5\n-5 -4 2\n12 High High\nA alfa\nB beta\n200'

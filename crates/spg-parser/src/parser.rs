@@ -958,7 +958,22 @@ impl Parser {
     // types
 
     /// a type, with an optional `?` after it: `int?`, `array<int>?`, `Point?`
+    /// a type, or several separated by `or` (the same token as `||`): `string or float`
     fn parse_type_expr(&mut self) -> Result<TypeExpr, ParseError> {
+        let mut members = vec![self.parse_type_member()?];
+        while self.check(&TokenKind::OrOr) {
+            self.advance();
+            members.push(self.parse_type_member()?);
+        }
+        if members.len() == 1 {
+            Ok(members.remove(0))
+        } else {
+            Ok(TypeExpr::Union(members))
+        }
+    }
+
+    /// one member of a union: a type, with its own `?` if it has one
+    fn parse_type_member(&mut self) -> Result<TypeExpr, ParseError> {
         let base = self.parse_type_base()?;
         if self.check(&TokenKind::Question) {
             let t = self.peek();
@@ -989,6 +1004,12 @@ impl Parser {
             TokenKind::TypeBool => Ok(TypeExpr::Bool),
             TokenKind::TypeString => Ok(TypeExpr::String),
             TokenKind::TypeVoid => Ok(TypeExpr::Void),
+            // `(A or B)`: a group, so `(A or B)?` is an optional union
+            TokenKind::LParen => {
+                let inner = self.parse_type_expr()?;
+                self.expect(TokenKind::RParen, "')' (closes the type group)")?;
+                Ok(inner)
+            }
             TokenKind::Function => {
                 self.expect(TokenKind::LParen, "'(' (function(T, ...) -> R)")?;
                 let mut params = Vec::new();

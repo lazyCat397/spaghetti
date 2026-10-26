@@ -610,10 +610,10 @@ impl<W: Write> Server<W> {
 
         let mut items: Vec<Json> = Vec::new();
         for k in KEYWORDS {
-            items.push(item(k, 14, None, None));
+            items.push(with_sort(item(k, 14, None, None), SORT_KEYWORD));
         }
         for t in TYPES {
-            items.push(item(t, 25, None, None));
+            items.push(with_sort(item(t, 25, None, None), SORT_TYPE));
         }
 
         let mut builtins: Vec<(String, String)> = spg_typecheck::builtins::builtin_signatures()
@@ -705,16 +705,23 @@ impl<W: Write> Server<W> {
             }
         }
 
+        // `me` is the struct a method is called on: offered inside a struct body, with the names of this file
+        if let Some((tokens, at, _)) = self.member_context(uri, pos) {
+            if inside_struct_body(&tokens, at) {
+                items.push(with_sort(item("me", 6, Some("the struct this method is called on".to_string()), None), SORT_OWN));
+            }
+        }
+
         for (name, detail) in builtins {
             // namespaced members only show up after `ns.`. globally we
             // offer just the un-namespaced builtins (print, len, ...)
             if !name.contains('.') {
-                items.push(item(&name, 3, Some(detail), spg_typecheck::docs::builtin_doc(&name)));
+                items.push(with_sort(item(&name, 3, Some(detail), spg_typecheck::docs::builtin_doc(&name)), SORT_BUILTIN));
             }
         }
         // the namespaces themselves
         for ns in spg_lexer::namespaces() {
-            items.push(namespace_item(ns));
+            items.push(with_sort(namespace_item(ns), SORT_NAMESPACE));
         }
 
         // names the user declared in this document, found by lexing it
@@ -760,7 +767,7 @@ impl<W: Write> Server<W> {
                     };
                     if let T::Ident(name) = &w[1].kind {
                         if seen.insert(name.clone()) {
-                            items.push(item(name, kind, labels.get(name).cloned(), None));
+                            items.push(with_sort(item(name, kind, labels.get(name).cloned(), None), SORT_OWN));
                         }
                     }
                 }
@@ -796,7 +803,7 @@ impl<W: Write> Server<W> {
                             for n in names {
                                 if seen.insert(n.clone()) {
                                     let kind = known.iter().find(|(k, _)| *k == n).map(|(_, k)| *k).unwrap_or(3);
-                                    items.push(item(&n, kind, from.as_ref().map(|f| format!("from {}", f)), None));
+                                    items.push(with_sort(item(&n, kind, from.as_ref().map(|f| format!("from {}", f)), None), SORT_IMPORTED));
                                 }
                             }
                             i = j;
@@ -812,7 +819,7 @@ impl<W: Write> Server<W> {
                                 } else if let Ok(file) = spg_modules::standard_module(lib) {
                                     for (n, kind) in self.exports_of(&file) {
                                         if seen.insert(n.clone()) {
-                                            items.push(item(&n, kind, Some(format!("installed from {}", lib)), None));
+                                            items.push(with_sort(item(&n, kind, Some(format!("installed from {}", lib)), None), SORT_IMPORTED));
                                         }
                                     }
                                 }
@@ -820,7 +827,7 @@ impl<W: Write> Server<W> {
                             if let (Some(d), Some(T::Str(f))) = (&dir, tokens.get(i + 1).map(|t| &t.kind)) {
                                 for (n, kind) in self.exports_of(&d.join(f)) {
                                     if seen.insert(n.clone()) {
-                                        items.push(item(&n, kind, Some(format!("installed from {}", f)), None));
+                                        items.push(with_sort(item(&n, kind, Some(format!("installed from {}", f)), None), SORT_IMPORTED));
                                     }
                                 }
                             }
@@ -1150,6 +1157,46 @@ fn hides_errors(text: &str) -> bool {
     text.lines().any(|l| l.trim().eq_ignore_ascii_case("// [ShowErrors-Off]"))
 }
 
+/// the sort group of a global completion item. the editor orders items by this, then by name, so
+/// the names of the file come first, then the imports, the builtins, the namespaces, the keywords
+/// and the types
+const SORT_OWN: &str = "0";
+const SORT_IMPORTED: &str = "1";
+const SORT_BUILTIN: &str = "2";
+const SORT_NAMESPACE: &str = "3";
+const SORT_KEYWORD: &str = "4";
+const SORT_TYPE: &str = "5";
+
+fn with_sort(item: Json, group: &str) -> Json {
+    match item {
+        Json::Obj(mut pairs) => {
+            pairs.push(("sortText".to_string(), Json::str(group)));
+            Json::Obj(pairs)
+        }
+        other => other,
+    }
+}
+
+/// true when the token at `at` sits inside a `struct { .. }` body: the braces before it are
+/// tracked, and the one that opened a struct counts
+fn inside_struct_body(tokens: &[spg_lexer::Token], at: usize) -> bool {
+    use spg_lexer::TokenKind as T;
+    let mut stack: Vec<bool> = Vec::new();
+    for (i, t) in tokens.iter().enumerate().take(at) {
+        match t.kind {
+            T::LBrace => {
+                let opens_struct = i >= 2 && matches!(tokens[i - 1].kind, T::Ident(_)) && tokens[i - 2].kind == T::Struct;
+                stack.push(opens_struct);
+            }
+            T::RBrace => {
+                stack.pop();
+            }
+            _ => {}
+        }
+    }
+    stack.iter().any(|&s| s)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1430,6 +1477,26 @@ mod tests {
         assert!(!labels.iter().any(|l| l == "run"), "{:?}", labels);
     }
 
+    #[test]
+    fn me_is_offered_only_inside_a_struct_body() {
+        let inside = complete_at("compl_me_in", "struct Pt {\n    x: int\n    function len() {\n        \n    }\n}\n", 3, 8);
+        assert!(labels_of(&inside).iter().any(|l| l == "me"));
+        let outside = complete_at("compl_me_out", "let a = 1\n\n", 1, 0);
+        assert!(!labels_of(&outside).iter().any(|l| l == "me"));
+    }
+
+    #[test]
+    fn global_items_come_in_groups() {
+        let items = complete_at("compl_groups", "let mine = 1\n\n", 1, 0);
+        let group = |label: &str| {
+            items.iter().find(|i| i.get("label").and_then(Json::as_str) == Some(label)).and_then(|i| i.get("sortText")).and_then(Json::as_str).map(String::from)
+        };
+        assert_eq!(group("mine").as_deref(), Some(SORT_OWN));
+        assert_eq!(group("print").as_deref(), Some(SORT_BUILTIN));
+        assert_eq!(group("while").as_deref(), Some(SORT_KEYWORD));
+        assert_eq!(group("@math").as_deref(), Some(SORT_NAMESPACE));
+    }
+
     fn complete_at(name: &str, text: &str, line: i64, col: i64) -> Vec<Json> {
         let (_f, uri) = tmp_file(name, "let x = 1\n");
         let (_, out) = session(vec![
@@ -1566,7 +1633,7 @@ mod tests {
         let strings: Vec<&Json> = items.iter().filter(|i| i.get("label").and_then(Json::as_str) == Some("string")).collect();
         assert_eq!(strings.len(), 1);
         assert_eq!(strings[0].get("kind").and_then(Json::as_f64), Some(25.0));
-        assert!(strings[0].get("sortText").is_none());
+        assert_eq!(strings[0].get("sortText").and_then(Json::as_str), Some(SORT_TYPE));
     }
 
     #[test]

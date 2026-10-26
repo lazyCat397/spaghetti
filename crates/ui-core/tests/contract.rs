@@ -2,9 +2,11 @@
 //! covered here: the scene, call order, dt, held keys, closing and errors.
 //! not covered: a real window (checked by hand on Windows).
 
+use std::sync::Arc;
+
 use ui_core::color;
 use ui_core::null::NullBackend;
-use ui_core::{Backend, Key, Session, State, MAX_DT};
+use ui_core::{Backend, Key, Picture, Session, State, MAX_DT};
 
 const RED: u32 = 0x00FF_3300;
 const GREEN: u32 = 0x0000_FF00;
@@ -821,8 +823,8 @@ fn a_label_draws_over_the_shapes_below_and_keeps_its_background_clear() {
 
 #[test]
 fn a_newline_starts_the_next_line_below() {
-    assert_eq!(text::size("ab", &text::Font::Bitmap, 2, 0.0).unwrap(), (32.0, 16.0));
-    assert_eq!(text::size("a\nbcd", &text::Font::Bitmap, 1, 0.0).unwrap(), (24.0, 16.0), "the widest line decides the width");
+    assert_eq!(text::size("ab", &text::Font::Bitmap, 2, &text::Spacing::default(), 0.0).unwrap(), (32.0, 16.0));
+    assert_eq!(text::size("a\nbcd", &text::Font::Bitmap, 1, &text::Spacing::default(), 0.0).unwrap(), (24.0, 16.0), "the widest line decides the width");
     let mut s = session(20, 20);
     s.scene_mut().unwrap().set_background(BG);
     s.add_label(0.0, 0.0, "I\nI", RED, 1).unwrap();
@@ -922,8 +924,8 @@ fn no_wrap_keeps_the_lines_as_written() {
 
 #[test]
 fn the_size_follows_the_wrap() {
-    assert_eq!(text::size("ab cd ef", &text::Font::Bitmap, 1, 24.0).unwrap(), (16.0, 24.0), "three lines of two characters: 16 pixels wide, 24 tall");
-    assert_eq!(text::size("ab cd ef", &text::Font::Bitmap, 1, 0.0).unwrap(), (64.0, 8.0), "one line of eight characters");
+    assert_eq!(text::size("ab cd ef", &text::Font::Bitmap, 1, &text::Spacing::default(), 24.0).unwrap(), (16.0, 24.0), "three lines of two characters: 16 pixels wide, 24 tall");
+    assert_eq!(text::size("ab cd ef", &text::Font::Bitmap, 1, &text::Spacing::default(), 0.0).unwrap(), (64.0, 8.0), "one line of eight characters");
 }
 
 #[test]
@@ -960,8 +962,166 @@ fn a_wrap_width_must_be_zero_or_more_and_finite() {
 /// the lines of a text after wrapping, as plain strings (the colors are not checked here)
 fn layout_text(text: &str, scale: u32, wrap: f64) -> Vec<String> {
     let chars = text::parse(text).unwrap();
-    text::layout(&chars, &text::Font::Bitmap, scale, wrap)
+    text::layout(&chars, &text::Font::Bitmap, scale, &text::Spacing::default(), wrap)
         .iter()
         .map(|line| line.iter().map(|s| s.c).collect())
         .collect()
 }
+
+// --- images ------------------------------------------------------------------
+
+/// a picture of `w` x `h` from its RGBA pixels, as a PNG file would give it to the program
+fn picture(w: u32, h: u32, rgba: &[u8]) -> Arc<Picture> {
+    let mut out = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut out, w, h);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder.write_header().unwrap().write_image_data(rgba).unwrap();
+    }
+    Arc::new(Picture::decode("test.png", &out).unwrap())
+}
+
+const CLEAR: [u8; 4] = [0, 0, 0, 0];
+
+/// a 2x2 picture: red, green on the top row; blue, white underneath. all opaque
+fn quad() -> Arc<Picture> {
+    let red = [255, 51, 0, 255]; // the same red as RED
+    let green = [0, 255, 0, 255];
+    let blue = [0, 0, 255, 255];
+    let white = [255, 255, 255, 255];
+    picture(2, 2, &[red, green, blue, white].concat())
+}
+
+#[test]
+fn an_image_is_drawn_at_its_place_with_each_pixel_scaled() {
+    let mut s = session(10, 10);
+    s.scene_mut().unwrap().set_background(BG);
+    s.add_image(1.0, 1.0, quad(), 2).unwrap();
+    // the 2x2 picture at scale 2 covers screen x 1..5 and y 1..5, each picture pixel a 2x2 block
+    assert_eq!(drawn(&mut s, 0.0, 1, 1), RED);
+    assert_eq!(drawn(&mut s, 0.1, 2, 2), RED, "the block is the same color all over");
+    assert_eq!(drawn(&mut s, 0.2, 3, 1), GREEN);
+    assert_eq!(drawn(&mut s, 0.3, 1, 3), BLUE);
+    assert_eq!(drawn(&mut s, 0.4, 4, 4), 0x00FF_FFFF, "the last block is white");
+    assert_eq!(drawn(&mut s, 0.5, 5, 5), BG, "one pixel past the picture is background");
+    assert_eq!(drawn(&mut s, 0.6, 0, 0), BG);
+}
+
+#[test]
+fn nearest_neighbor_has_no_blur_between_pixels_of_different_colors() {
+    let mut s = session(8, 4);
+    s.scene_mut().unwrap().set_background(BG);
+    s.add_image(0.0, 0.0, quad(), 3).unwrap();
+    // every screen pixel is either one of the four colors, never a mix of two
+    let colors = [RED, GREEN, BLUE, 0x00FF_FFFF];
+    for y in 0..4 {
+        for x in 0..6 {
+            let c = drawn(&mut s, (y * 8 + x) as f64, x, y);
+            assert!(colors.contains(&c), "pixel ({x}, {y}) is {c:06X}, not one of the picture colors");
+        }
+    }
+}
+
+#[test]
+fn a_transparent_pixel_shows_what_is_behind_the_image() {
+    let mut s = session(4, 2);
+    s.scene_mut().unwrap().set_background(BG);
+    s.add_rect(0.0, 0.0, 4.0, 2.0, BLUE).unwrap();
+    let image = picture(2, 1, &[0, 0, 0, 0, 255, 51, 0, 255]);
+    s.add_image(0.0, 0.0, image, 1).unwrap();
+    assert_eq!(drawn(&mut s, 0.0, 0, 0), BLUE, "fully transparent: the blue rectangle shows");
+    assert_eq!(drawn(&mut s, 0.1, 1, 0), RED, "fully opaque: the picture covers it");
+}
+
+#[test]
+fn a_half_transparent_white_pixel_mixes_with_black() {
+    let mut s = session(2, 1);
+    s.scene_mut().unwrap().set_background(0);
+    s.add_image(0.0, 0.0, picture(1, 1, &[255, 255, 255, 128]), 1).unwrap();
+    // 255 * 128 / 255 is 128: the mix of white and black at half alpha, in every channel
+    assert_eq!(drawn(&mut s, 0.0, 0, 0), 0x0080_8080);
+}
+
+#[test]
+fn a_fully_transparent_picture_draws_nothing() {
+    let mut s = session(3, 3);
+    s.scene_mut().unwrap().set_background(BG);
+    s.add_image(0.0, 0.0, picture(3, 3, &CLEAR.repeat(9)), 1).unwrap();
+    assert_eq!(drawn(&mut s, 0.0, 1, 1), BG);
+}
+
+#[test]
+fn an_image_partly_outside_the_window_is_cut_at_its_edges() {
+    let mut s = session(4, 4);
+    s.scene_mut().unwrap().set_background(BG);
+    // the 2x2 picture starts at (-1, -1): its bottom-right pixel (white) lands on screen (0, 0)
+    s.add_image(-1.0, -1.0, quad(), 1).unwrap();
+    assert_eq!(drawn(&mut s, 0.0, 0, 0), 0x00FF_FFFF);
+    assert_eq!(drawn(&mut s, 0.1, 1, 0), BG, "past the picture's right edge");
+    // and off the bottom and right, far outside the window: still fine, nothing is drawn past it
+    let mut t = session(4, 4);
+    t.add_image(3.0, 3.0, quad(), 8).unwrap();
+    assert_eq!(drawn(&mut t, 0.0, 3, 3), RED, "the first picture pixel covers the whole window corner");
+}
+
+#[test]
+fn an_image_is_drawn_above_a_lower_layer_and_below_a_higher_one() {
+    let mut s = session(4, 4);
+    s.add_rect(0.0, 0.0, 4.0, 4.0, BLUE).unwrap();
+    let image = s.add_image(0.0, 0.0, picture(1, 1, &[255, 51, 0, 255]), 4).unwrap();
+    assert_eq!(drawn(&mut s, 0.0, 2, 2), RED, "an image on layer 0 is made after the rectangle: it is on top");
+    s.image_mut(image).unwrap().set_layer(-1);
+    assert_eq!(drawn(&mut s, 0.1, 2, 2), BLUE, "a lower layer goes under the rectangle");
+}
+
+#[test]
+fn an_invisible_image_is_not_drawn() {
+    let mut s = session(2, 2);
+    s.scene_mut().unwrap().set_background(BG);
+    let id = s.add_image(0.0, 0.0, quad(), 1).unwrap();
+    s.image_mut(id).unwrap().set_visible(false);
+    assert_eq!(drawn(&mut s, 0.0, 0, 0), BG);
+}
+
+#[test]
+fn an_image_size_is_the_picture_size_times_the_scale() {
+    let mut s = session(4, 4);
+    let id = s.add_image(0.0, 0.0, quad(), 3).unwrap();
+    assert_eq!(s.image(id).unwrap().size(), (6.0, 6.0));
+    s.image_mut(id).unwrap().set_scale(1).unwrap();
+    assert_eq!(s.image(id).unwrap().size(), (2.0, 2.0));
+}
+
+#[test]
+fn the_scale_of_an_image_must_be_between_1_and_8() {
+    let mut s = session(4, 4);
+    assert!(s.add_image(0.0, 0.0, quad(), 0).is_err());
+    assert!(s.add_image(0.0, 0.0, quad(), 9).is_err());
+    let id = s.add_image(0.0, 0.0, quad(), 8).unwrap();
+    assert!(s.image_mut(id).unwrap().set_scale(0).is_err());
+    assert_eq!(s.image(id).unwrap().scale(), 8, "a refused scale changes nothing");
+}
+
+#[test]
+fn a_killed_image_can_not_be_used_and_is_not_drawn() {
+    let mut s = running(4, 4);
+    s.scene_mut().unwrap().set_background(BG);
+    let id = s.add_image(0.0, 0.0, quad(), 1).unwrap();
+    s.kill_shape(id);
+    s.kill_shape(id); // killing twice does nothing
+    assert_eq!(s.image(id).unwrap_err(), "this image was killed");
+    assert_eq!(s.image_mut(id).unwrap_err(), "this image was killed");
+    assert_eq!(drawn(&mut s, 0.0, 0, 0), BG);
+}
+
+#[test]
+fn the_images_die_with_the_window() {
+    let mut s = running(4, 4);
+    let id = s.add_image(0.0, 0.0, quad(), 1).unwrap();
+    s.request_close();
+    s.begin_frame(0.016).unwrap();
+    assert_eq!(s.image(id).unwrap_err(), "the window is closed");
+    assert!(s.add_image(0.0, 0.0, quad(), 1).is_err());
+}
+

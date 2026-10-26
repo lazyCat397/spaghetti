@@ -1,0 +1,3 @@
+function g(a: string or int) -> void {
+   if (a == true) { print("x") }
+}

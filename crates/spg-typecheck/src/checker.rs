@@ -813,12 +813,17 @@ impl Checker {
             }
         };
 
-        let mut typed_args = vec![typed_object];
-        for arg in args {
-            typed_args.push(self.check_expr(arg)?);
-        }
-
+        // the method's declared params (after `self`) tell each argument its expected type
         let full_name = format!("{}.{}", struct_name, method);
+        let method_params: Vec<Ty> = self
+            .functions
+            .get(&full_name)
+            .map(|sig| sig.params.iter().skip(1).map(|p| resolve_type_expr(&p.type_ann)).collect())
+            .unwrap_or_default();
+        let mut typed_args = vec![typed_object];
+        for (i, arg) in args.iter().enumerate() {
+            typed_args.push(self.check_expr_expecting(arg, method_params.get(i))?);
+        }
         let (expected_params, expected_return, method_defaults) = match self.functions.get(&full_name).cloned() {
             Some(sig) => (
                 sig.params.iter().skip(1).map(|p| resolve_type_expr(&p.type_ann)).collect::<Vec<Ty>>(),
@@ -891,7 +896,8 @@ impl Checker {
     fn check_stmt(&mut self, stmt: &Stmt) -> Option<TypedStmt> {
         match stmt {
             Stmt::Let { name, type_ann, value, exported, pos } => {
-                let typed_value = self.check_expr(value)?;
+                let hint = type_ann.as_ref().map(resolve_type_expr);
+                let typed_value = self.check_expr_expecting(value, hint.as_ref())?;
                 let inferred = typed_value.ty().clone();
                 if inferred == Ty::Void {
                     self.errors.push(TypeError::VoidValue { pos: pos.clone() });
@@ -1233,7 +1239,10 @@ impl Checker {
 
             Stmt::Return { value, pos } => {
                 let typed_value = match value {
-                    Some(v) => Some(self.check_expr(v)?),
+                    Some(v) => {
+                        let hint = self.current_return.clone();
+                        Some(self.check_expr_expecting(v, hint.as_ref())?)
+                    }
                     None => None,
                 };
                 // compared here, in the same pass that checked the
@@ -1363,7 +1372,8 @@ impl Checker {
             }
 
             Stmt::Assign { name, value, pos } => {
-                let typed_value = self.check_expr(value)?;
+                let hint = self.lookup_var(name).map(|info| info.ty.clone());
+                let typed_value = self.check_expr_expecting(value, hint.as_ref())?;
                 let found_ty = typed_value.ty().clone();
 
                 match self.lookup_var(name) {
@@ -1465,7 +1475,16 @@ impl Checker {
 
             Stmt::FieldAssign { object, field, value, pos } => {
                 let typed_object = self.check_expr(object)?;
-                let typed_value = self.check_expr(value)?;
+                // a struct field's declared type is what its value is checked against (`obj.tags = [1, "a"]`)
+                let hint = match typed_object.ty() {
+                    Ty::Named(n) => self
+                        .struct_defs
+                        .get(n)
+                        .and_then(|fields| fields.iter().find(|p| &p.name == field))
+                        .map(|p| resolve_type_expr(&p.type_ann)),
+                    _ => None,
+                };
+                let typed_value = self.check_expr_expecting(value, hint.as_ref())?;
 
                 if let Some((module, native)) = self.native_object_of(typed_object.ty()) {
                     let struct_name = native.name.to_string();
@@ -1853,6 +1872,65 @@ impl Checker {
         Some(TypedExpr::CallValue { callee: Box::new(callee), args: typed_args, ty: ret })
     }
 
+    /// checks `expr` where a type is expected. an array or map literal takes its element and key/value
+    /// types from there, so `[1, "two"]` fits `array<int or string>` and `["a": [1, "x"]]` fits
+    /// `map<string, array<int or string>>`. a `T?` expectation uses its `T`. anything else is checked
+    /// as usual (`check_expr`), so the common path does not change
+    fn check_expr_expecting(&mut self, expr: &Expr, expected: Option<&Ty>) -> Option<TypedExpr> {
+        let target = match expected {
+            Some(Ty::Optional(inner)) => inner.as_ref(),
+            Some(other) => other,
+            None => return self.check_expr(expr),
+        };
+        match (expr, target) {
+            (Expr::ArrayLit(items, lit_pos), Ty::Array(elem)) => {
+                let mut typed_items = Vec::new();
+                for item in items {
+                    let t = self.check_expr_expecting(item, Some(elem))?;
+                    if !elem.accepts(t.ty()) {
+                        self.errors.push(TypeError::ArrayItemNotExpected {
+                            expected: (**elem).clone(),
+                            found: t.ty().clone(),
+                            pos: lit_pos.clone(),
+                        });
+                        return None;
+                    }
+                    typed_items.push(t);
+                }
+                Some(TypedExpr::ArrayLit { items: typed_items, ty: target.clone() })
+            }
+            (Expr::MapLit(entries, pos), Ty::Map(kt, vt)) if !entries.is_empty() => {
+                if !self.valid_map_key(kt, pos) {
+                    return None;
+                }
+                let mut typed_entries = Vec::new();
+                for (k, v) in entries {
+                    let tk = self.check_expr_expecting(k, Some(kt))?;
+                    if !kt.accepts(tk.ty()) {
+                        self.errors.push(TypeError::MapKeyMismatch {
+                            expected: (**kt).clone(),
+                            found: tk.ty().clone(),
+                            pos: pos.clone(),
+                        });
+                        return None;
+                    }
+                    let tv = self.check_expr_expecting(v, Some(vt))?;
+                    if !vt.accepts(tv.ty()) {
+                        self.errors.push(TypeError::MapValueMismatch {
+                            expected: (**vt).clone(),
+                            found: tv.ty().clone(),
+                            pos: pos.clone(),
+                        });
+                        return None;
+                    }
+                    typed_entries.push((tk, tv));
+                }
+                Some(TypedExpr::MapLit { entries: typed_entries, ty: target.clone() })
+            }
+            _ => self.check_expr(expr),
+        }
+    }
+
     fn check_expr(&mut self, expr: &Expr) -> Option<TypedExpr> {
         match expr {
             Expr::IntLit(n, _) => Some(TypedExpr::IntLit(*n)),
@@ -2068,9 +2146,17 @@ impl Checker {
                 // typecheck args once, up front. overload resolution
                 // below matches these typed_args against every
                 // candidate signature, no re-checking expressions. efficient.
+                let user_params: Vec<Ty> = if builtin_signatures().contains_key(&name) {
+                    Vec::new()
+                } else {
+                    self.functions
+                        .get(&name)
+                        .map(|sig| sig.params.iter().map(|p| resolve_type_expr(&p.type_ann)).collect())
+                        .unwrap_or_default()
+                };
                 let mut typed_args = Vec::new();
-                for arg in args {
-                    typed_args.push(self.check_expr(arg)?);
+                for (i, arg) in args.iter().enumerate() {
+                    typed_args.push(self.check_expr_expecting(arg, user_params.get(i))?);
                 }
 
                 // builtins have their own signature table (see `check_builtin_call`)
@@ -2169,7 +2255,8 @@ impl Checker {
                 // literal instead of bailing at the first. complaints, all at once.
                 let mut given: HashMap<String, TypedExpr> = HashMap::new();
                 for (field_name, value_expr) in fields {
-                    let typed_value = self.check_expr(value_expr)?;
+                    let hint = struct_fields.iter().find(|p| &p.name == field_name).map(|p| resolve_type_expr(&p.type_ann));
+                    let typed_value = self.check_expr_expecting(value_expr, hint.as_ref())?;
                     if !struct_fields.iter().any(|p| &p.name == field_name) {
                         self.errors.push(TypeError::UnknownField {
                             struct_name: name.clone(),
@@ -2432,6 +2519,12 @@ impl Checker {
                 Ty::Bool
             }
             (Eq | NotEq, Ty::NoneLit, Ty::NoneLit) => Ty::Bool,
+            // a union against one of its members (`x == 30` where x is `string or int`)
+            (Eq | NotEq, Ty::Union(members), other) | (Eq | NotEq, other, Ty::Union(members))
+                if !matches!(other, Ty::Union(_)) && members.iter().any(|m| m.accepts(other)) =>
+            {
+                Ty::Bool
+            }
             (Eq | NotEq, a, b) if a == b => Ty::Bool,
             (Lt | Gt | LtEq | GtEq, Ty::Int, Ty::Int) => Ty::Bool,
             (Lt | Gt | LtEq | GtEq, Ty::Float, Ty::Float) => Ty::Bool,
@@ -2578,6 +2671,21 @@ pub fn resolve_type_expr(t: &TypeExpr) -> Ty {
             ret: Box::new(resolve_type_expr(ret)),
         },
         TypeExpr::Optional(inner) => Ty::Optional(Box::new(resolve_type_expr(inner))),
+        TypeExpr::Union(members) => {
+            // nested unions are flattened and repeated members dropped: `int or int` is just `int`
+            let mut flat: Vec<Ty> = Vec::new();
+            for m in members {
+                match resolve_type_expr(m) {
+                    Ty::Union(inner) => inner.into_iter().for_each(|t| push_unique(&mut flat, t)),
+                    t => push_unique(&mut flat, t),
+                }
+            }
+            if flat.len() == 1 {
+                flat.remove(0)
+            } else {
+                Ty::Union(flat)
+            }
+        }
         TypeExpr::Task(inner) => Ty::Task(Box::new(resolve_type_expr(inner))),
     }
 }
@@ -2663,5 +2771,11 @@ fn is_name_path(expr: &p::Expr) -> bool {
         p::Expr::Ident(..) => true,
         p::Expr::Field { object, .. } => is_name_path(object),
         _ => false,
+    }
+}
+
+fn push_unique(list: &mut Vec<Ty>, t: Ty) {
+    if !list.contains(&t) {
+        list.push(t);
     }
 }

@@ -1,0 +1,2 @@
+function f(a: string or float) -> void { print(a) }
+f(true)

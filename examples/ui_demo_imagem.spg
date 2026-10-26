@@ -1,0 +1,28 @@
+// `install #ui` with images: a PNG with transparent pixels, shown at scales 1, 2, 3 and 4 over a
+// band, so the see-through parts show it. the arrows move the big one, space hides it, K kills it.
+// needs a display, so run.sh skips it (the name matches *ui_demo*).
+install #ui
+
+let win = ui.window("imagem", 480, 240)
+win.background = ui.hex("#18202a")
+win.rect(0.0, 70.0, 480.0, 110.0, ui.hex("#3c5a78"))
+
+win.text(20.0, 20.0, "x1", ui.hex("#ffffff"), 2)
+win.text(80.0, 20.0, "x2", ui.hex("#ffffff"), 2)
+win.text(150.0, 20.0, "x4", ui.hex("#ffffff"), 2)
+win.text(260.0, 20.0, "arrows, space, K", ui.hex("#9fb6cc"), 2)
+
+let small = win.image(20.0, 100.0, "./images/sprite.png", 1)
+let medium = win.image(80.0, 94.0, "./images/sprite.png", 2)
+let large = win.image(150.0, 78.0, "./images/sprite.png", 4)
+let moving = win.image(300.0, 110.0, "./images/sprite.png", 3)
+
+while (true) {
+    let dt = win.nextFrame()
+    if (dt < 0.0) { break }
+    if (win.isDown(Key.Right)) { moving.x = moving.x + 150.0 * dt }
+    if (win.isDown(Key.Left)) { moving.x = moving.x - 150.0 * dt }
+    if (win.wasPressed(Key.Space)) { moving.visible = !moving.visible }
+    if (win.wasPressed(Key.K)) { large.kill() }
+}
+print("bye")

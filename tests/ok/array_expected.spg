@@ -1,0 +1,24 @@
+struct Bag { items: array<int or string> }
+struct Pt { x: int }
+struct Holder {
+   n: int
+   function add(xs: array<int or string>) -> int { return xs.len() }
+}
+function total(xs: array<int or string>) -> int { return @array.len(xs) }
+function make() -> array<string or int> { return [1, "b"] }
+let a: array<int or string> = [1, "two", 3]
+print(@array.len(a))
+print(total([1, "a", 2]))
+print(total([]))
+print(@array.len(make()))
+let b: array<int or string> = []
+b = ["x", 9]
+print(@array.len(b))
+let bag: Bag = Bag { items: [7, "seven"] }
+print(@array.len(bag.items))
+let h: Holder = Holder { n: 1 }
+print(h.add(["p", 1]))
+let nested: array<array<int or string>> = [[1], ["a", 2]]
+print(@array.len(nested))
+let o: array<int>? = [1, 2]
+print(o != none)

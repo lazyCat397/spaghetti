@@ -134,6 +134,11 @@ pub fn install_enum_defs(defs: &[Rc<EnumDef>]) {
     ENUM_DEFS.with(|d| *d.borrow_mut() = defs.to_vec());
 }
 
+/// the declared name of the enum at `index` (the first field of `Value::Enum`), if the program has it
+pub fn enum_name(index: u32) -> Option<String> {
+    ENUM_DEFS.with(|defs| defs.borrow().get(index as usize).map(|d| d.name.clone()))
+}
+
 /// the value of `variant` in the enum named `enum_name`, if the running program declares both
 pub fn enum_value_by_name(enum_name: &str, variant: &str) -> Option<Value> {
     ENUM_DEFS.with(|defs| {
@@ -209,6 +214,16 @@ impl Value {
             Value::Task(_) => "task",
             Value::Void => "void",
             Value::Nil => "none",
+        }
+    }
+
+    /// what the builtin `type(x)` gives: the basic names, and the declared name of a struct or
+    /// an enum (so two structs can be told apart). `void` is internal and is never shown to a program
+    pub fn type_label(&self) -> String {
+        match self {
+            Value::Struct(s) => s.borrow().0.name.clone(),
+            Value::Enum(def, _) => enum_name(*def).unwrap_or_else(|| "enum".to_string()),
+            other => other.type_name().to_string(),
         }
     }
 

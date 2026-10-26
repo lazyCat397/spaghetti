@@ -15,3 +15,5 @@ minifb = { version = "0.28", optional = true }
 # the 8x8 bitmap font of the text: basic Latin and Latin-1 (accents). no features beyond the glyphs
 font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }
 fontdue = "0.8"
+# decodes PNG images (install #ui, win.image). only PNG for now: pure Rust, no other formats
+png = "0.17"

@@ -1,0 +1,17 @@
+enum Color { Red, Green }
+struct Point { x: int, y: int }
+struct Circle { r: int }
+function f(a: int) -> int { return a }
+let p: Point = Point { x: 1, y: 2 }
+let c: Circle = Circle { r: 3 }
+print(type(1), type(2.5), type(true), type("hi"))
+print(type([1, 2]), type(["a": 1]), type(p), type(c))
+print(type(Color.Green), type(f), type(none))
+let opt: string? = "hi"
+let nothing: string? = none
+print(type(opt), type(nothing))
+print(type(p) == "Point", type(c) == "Point", type(Color.Red) == "Color")
+function check(a: string) -> void {
+   if (type(a) == "string") { print("texto", a) }
+}
+check("hi")

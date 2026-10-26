@@ -1,0 +1,9 @@
+struct Box { tags: array<int or string>, lookup: map<string, int or string> }
+let p: Box = Box { tags: [], lookup: [:] }
+p.tags = [1, "a"]
+p.lookup = ["k": 9, "j": "nine"]
+print(@array.len(p.tags))
+let m: map<string, array<int or string>> = ["a": [1, "x"], "b": []]
+print(@array.len(m["a"]))
+print(m.len())
+print(@map.len(p.lookup))

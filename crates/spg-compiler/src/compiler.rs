@@ -1129,7 +1129,8 @@ impl<'a> FunctionCompiler<'a> {
         self.compile_expr(right)?;
         // an optional on either side (`x == none`, `x == 3` with `x: int?`) compares
         // whole values. the int/float/string opcodes would reject a `none`
-        let optional = |t: &Ty| matches!(t, Ty::Optional(_) | Ty::NoneLit);
+        // the values behind an optional or a union can be of any type at runtime: compare them generically
+        let optional = |t: &Ty| matches!(t, Ty::Optional(_) | Ty::NoneLit | Ty::Union(_));
         if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) && (optional(left.ty()) || optional(right.ty())) {
             self.chunk.emit(if matches!(op, BinaryOp::Eq) { OpCode::EqValue } else { OpCode::NotEqValue });
             return Ok(());

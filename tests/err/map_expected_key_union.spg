@@ -1,0 +1,1 @@
+let m: map<string or int, int> = [1: 2]

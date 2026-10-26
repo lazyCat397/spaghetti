@@ -6,6 +6,7 @@
 pub mod backend;
 pub mod color;
 pub mod null;
+pub mod picture;
 pub mod scene;
 pub mod session;
 pub mod text;
@@ -14,5 +15,6 @@ pub mod text;
 pub mod minifb_backend;
 
 pub use backend::{Backend, Button, Key};
-pub use scene::{Align, Drawn, Label, Scene, Shape, ShapeId};
+pub use picture::Picture;
+pub use scene::{Align, Drawn, Image, Label, Scene, Shape, ShapeId};
 pub use session::{Session, State, MAX_DT};

@@ -1,0 +1,2 @@
+let c: array<int> = [1]
+c = [true]

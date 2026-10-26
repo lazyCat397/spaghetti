@@ -25,6 +25,8 @@ use crate::typed_ast::Ty;
 #[repr(u16)]
 pub enum BuiltinId {
     Print,
+    /// `type(x)`: the type of any value, as text (`"int"`, `"Point"`, ...)
+    TypeOf,
 
     // ---- tasks. `t.wait()` only, the checker builds it (the result type depends on T) ----
     TaskWait,
@@ -323,6 +325,7 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
 
     // ---- I/O (print and friends) ----
     add("print", BuiltinSig { id: BuiltinId::Print, params: vec![Ty::Any], return_type: Ty::Void });
+    add("type", BuiltinSig { id: BuiltinId::TypeOf, params: vec![Ty::Any], return_type: Ty::String });
     add(
         "printError",
         BuiltinSig { id: BuiltinId::PrintError, params: vec![Ty::Any], return_type: Ty::Void },

@@ -115,6 +115,8 @@ pub enum TypeError {
 
     /// `[1, 2.5]`: every item must match the first item's type. no mixing.
     ArrayItemMismatch { expected: Ty, found: Ty, pos: Pos },
+    /// an item that does not fit the array type the context expects (`let a: array<int> = ["x"]`)
+    ArrayItemNotExpected { expected: Ty, found: Ty, pos: Pos },
 
     /// `@array.fill(n, x)` with an `x` that isn't int, float, bool or string
     ArrayFillType { found: Ty, pos: Pos },
@@ -243,6 +245,7 @@ impl TypeError {
             | TypeError::VoidValue { pos, .. }
             | TypeError::ArrayFillType { pos, .. }
             | TypeError::ArrayItemMismatch { pos, .. }
+            | TypeError::ArrayItemNotExpected { pos, .. }
             | TypeError::IndexAssignTypeMismatch { pos, .. }
             | TypeError::UndefinedStruct { pos, .. }
             | TypeError::MissingFields { pos, .. }
@@ -469,6 +472,10 @@ impl TypeError {
             ),
             TypeError::ArrayItemMismatch { expected, found, .. } => write!(
                 f, "{}all items of an array must have the same type: expected {}, found {}",
+                self.location(), expected, found
+            ),
+            TypeError::ArrayItemNotExpected { expected, found, .. } => write!(
+                f, "{}this array's items are {}, found {}",
                 self.location(), expected, found
             ),
             TypeError::ArrayFillType { found, .. } => write!(

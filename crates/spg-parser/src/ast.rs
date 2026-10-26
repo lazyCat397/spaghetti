@@ -58,6 +58,9 @@ pub enum TypeExpr {
     /// `task<T>`: the result of a `-> task<T>` function. a `task` only means
     /// this when followed by `<` (contextual, like `map`). the body runs at call time.
     Task(Box<TypeExpr>),
+    /// `A or B or ...`: a value of any of these types. at least two (a lone type is just the type).
+    /// `(A or B)?` groups it, and `A or B?` is `A or (B?)`
+    Union(Vec<TypeExpr>),
 }
 
 // expressions. always produce a value

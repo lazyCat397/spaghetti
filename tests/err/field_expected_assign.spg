@@ -1,0 +1,3 @@
+struct B { tags: array<int> }
+let b: B = B { tags: [] }
+b.tags = [true]

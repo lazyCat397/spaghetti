@@ -1,0 +1,22 @@
+// stroke: an outline around the text, drawn under it. strokeColor is black until set
+install #ui
+let win = ui.window("stroke", 360, 180)
+win.background = ui.hex("#1b1f27")
+let font = "./fonts/LiberationSans-Regular.ttf"
+
+let plain = win.text(16.0, 12.0, "No outline", ui.hex("#ffffff"), 2)
+plain.font = font
+
+let outlined = win.text(16.0, 60.0, "Black outline", ui.hex("#ffcc00"), 2)
+outlined.font = font
+outlined.stroke = 2.0
+
+let colored = win.text(16.0, 120.0, "Colored outline", ui.hex("#ffffff"), 2)
+colored.font = font
+colored.stroke = 3.0
+colored.strokeColor = ui.hex("#33ccff")
+
+while (true) {
+    let dt = win.nextFrame()
+    if (dt < 0.0) { break }
+}

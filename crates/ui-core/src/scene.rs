@@ -4,6 +4,9 @@
 //! never reused, so a handle to a killed shape is always caught, never pointing at a newer shape.
 
 use std::collections::HashMap;
+use std::sync::Arc;
+
+use crate::picture::Picture;
 
 pub type ShapeId = u64;
 
@@ -119,6 +122,12 @@ pub struct Label {
     y: f64,
     text: String,
     font: crate::text::Font,
+    spacing: crate::text::Spacing,
+    /// the outline drawn around the text, in whole pixels. `0` means no outline
+    stroke: f64,
+    stroke_color: u32,
+    /// the slant of the text in degrees: 0 is upright, positive leans right
+    italic: f64,
     color: u32,
     scale: u32,
     /// the width of the text before it wraps, in pixels. `0` means the text is not wrapped
@@ -137,6 +146,10 @@ impl Label {
             y: finite("y", y)?,
             text: text.to_string(),
             font: crate::text::Font::Bitmap,
+            spacing: crate::text::Spacing::default(),
+            stroke: 0.0,
+            stroke_color: 0x000000,
+            italic: 0.0,
             color,
             scale: scale_value(scale)?,
             wrap: 0.0,
@@ -149,7 +162,7 @@ impl Label {
     /// the width and height of the text on screen, in pixels: the widest line and the number of
     /// lines, after wrapping
     pub fn size(&self) -> Result<(f64, f64), String> {
-        crate::text::size(&self.text, &self.font, self.scale, self.wrap)
+        crate::text::size(&self.text, &self.font, self.scale, &self.spacing, self.wrap)
     }
 
     /// the font the text is drawn with
@@ -159,6 +172,62 @@ impl Label {
 
     pub fn set_font(&mut self, value: crate::text::Font) {
         self.font = value;
+    }
+
+    /// the outline thickness in pixels, and its color
+    pub fn stroke(&self) -> f64 {
+        self.stroke
+    }
+
+    pub fn stroke_color(&self) -> u32 {
+        self.stroke_color
+    }
+
+    pub fn set_stroke(&mut self, value: f64) -> Result<(), String> {
+        let value = finite("stroke", value)?;
+        if value < 0.0 {
+            return Err(format!("the stroke must be 0 (no outline) or more pixels, got {value}"));
+        }
+        self.stroke = value;
+        Ok(())
+    }
+
+    /// the slant in degrees, from -45 to 45. `0` is upright
+    pub fn italic(&self) -> f64 {
+        self.italic
+    }
+
+    pub fn set_italic(&mut self, value: f64) -> Result<(), String> {
+        let value = finite("italic", value)?;
+        if !(-45.0..=45.0).contains(&value) {
+            return Err(format!("the italic slant must be between -45 and 45 degrees, got {value}"));
+        }
+        self.italic = value;
+        Ok(())
+    }
+
+    pub fn set_stroke_color(&mut self, value: u32) {
+        self.stroke_color = value;
+    }
+
+    /// the spacing between letters, words and lines
+    pub fn spacing(&self) -> crate::text::Spacing {
+        self.spacing
+    }
+
+    pub fn set_letter_spacing(&mut self, value: f64) -> Result<(), String> {
+        self.spacing.letter = finite("letterSpacing", value)?;
+        Ok(())
+    }
+
+    pub fn set_word_spacing(&mut self, value: f64) -> Result<(), String> {
+        self.spacing.word = finite("wordSpacing", value)?;
+        Ok(())
+    }
+
+    pub fn set_line_spacing(&mut self, value: f64) -> Result<(), String> {
+        self.spacing.line = finite("lineSpacing", value)?;
+        Ok(())
     }
 
     pub fn wrap(&self) -> f64 {
@@ -231,11 +300,93 @@ impl Label {
     }
 }
 
+/// the scale of an image: whole pixels, from 1 to `MAX_SCALE`. named for images, not for text
+fn picture_scale(value: i64) -> Result<u32, String> {
+    if (1..=MAX_SCALE as i64).contains(&value) {
+        Ok(value as u32)
+    } else {
+        Err(format!("the image scale must be between 1 and {MAX_SCALE}, got {value}"))
+    }
+}
+
 pub fn scale_value(value: i64) -> Result<u32, String> {
     if (1..=MAX_SCALE as i64).contains(&value) {
         Ok(value as u32)
     } else {
         Err(format!("the text scale must be between 1 and {MAX_SCALE}, got {value}"))
+    }
+}
+
+/// a picture placed in the scene: its top-left corner at (x, y), and each of its pixels drawn as a
+/// square of `scale` pixels (nearest neighbor: no smoothing). its transparent pixels show what is
+/// behind it, and the partly transparent ones mix with it
+#[derive(Debug, Clone, PartialEq)]
+pub struct Image {
+    x: f64,
+    y: f64,
+    picture: Arc<Picture>,
+    scale: u32,
+    visible: bool,
+    layer: i64,
+}
+
+impl Image {
+    /// a visible image on layer 0. `scale` goes from 1 to `MAX_SCALE`
+    pub fn new(x: f64, y: f64, picture: Arc<Picture>, scale: i64) -> Result<Image, String> {
+        Ok(Image {
+            x: finite("x", x)?,
+            y: finite("y", y)?,
+            picture,
+            scale: picture_scale(scale)?,
+            visible: true,
+            layer: 0,
+        })
+    }
+
+    /// the picture the image shows
+    pub fn picture(&self) -> &Picture {
+        &self.picture
+    }
+
+    /// the width and height on screen, in pixels: the picture's size times the scale
+    pub fn size(&self) -> (f64, f64) {
+        let s = self.scale as f64;
+        (self.picture.width() as f64 * s, self.picture.height() as f64 * s)
+    }
+
+    pub fn x(&self) -> f64 {
+        self.x
+    }
+    pub fn y(&self) -> f64 {
+        self.y
+    }
+    pub fn scale(&self) -> u32 {
+        self.scale
+    }
+    pub fn visible(&self) -> bool {
+        self.visible
+    }
+    pub fn layer(&self) -> i64 {
+        self.layer
+    }
+
+    pub fn set_x(&mut self, value: f64) -> Result<(), String> {
+        self.x = finite("x", value)?;
+        Ok(())
+    }
+    pub fn set_y(&mut self, value: f64) -> Result<(), String> {
+        self.y = finite("y", value)?;
+        Ok(())
+    }
+    pub fn set_scale(&mut self, value: i64) -> Result<(), String> {
+        self.scale = picture_scale(value)?;
+        Ok(())
+    }
+    pub fn set_visible(&mut self, value: bool) {
+        self.visible = value;
+    }
+    pub fn set_layer(&mut self, value: i64) {
+        self.layer = value;
     }
 }
 
@@ -247,10 +398,11 @@ pub enum Align {
     Right,
 }
 
-/// something the scene draws: a rectangle or a label
+/// something the scene draws: a rectangle, a label or an image
 pub enum Drawn<'a> {
     Shape(&'a Shape),
     Label(&'a Label),
+    Image(&'a Image),
 }
 
 #[derive(Debug)]
@@ -258,12 +410,19 @@ pub struct Scene {
     background: u32,
     shapes: HashMap<ShapeId, Shape>,
     labels: HashMap<ShapeId, Label>,
+    images: HashMap<ShapeId, Image>,
     next_id: ShapeId,
 }
 
 impl Default for Scene {
     fn default() -> Self {
-        Scene { background: 0, shapes: HashMap::new(), labels: HashMap::new(), next_id: 1 }
+        Scene {
+            background: 0,
+            shapes: HashMap::new(),
+            labels: HashMap::new(),
+            images: HashMap::new(),
+            next_id: 1,
+        }
     }
 }
 
@@ -290,6 +449,13 @@ impl Scene {
         id
     }
 
+    pub fn add_image(&mut self, image: Image) -> ShapeId {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.images.insert(id, image);
+        id
+    }
+
     pub fn get(&self, id: ShapeId) -> Result<&Shape, String> {
         self.shapes.get(&id).ok_or_else(killed)
     }
@@ -306,24 +472,34 @@ impl Scene {
         self.labels.get_mut(&id).ok_or_else(killed)
     }
 
-    /// removes the shape or the label. one that is already gone is not an error: killing twice does nothing
+    pub fn get_image(&self, id: ShapeId) -> Result<&Image, String> {
+        self.images.get(&id).ok_or_else(killed_image)
+    }
+
+    pub fn get_image_mut(&mut self, id: ShapeId) -> Result<&mut Image, String> {
+        self.images.get_mut(&id).ok_or_else(killed_image)
+    }
+
+    /// removes the shape, label or image. one that is already gone is not an error: killing twice does nothing
     pub fn kill(&mut self, id: ShapeId) {
         self.shapes.remove(&id);
         self.labels.remove(&id);
+        self.images.remove(&id);
     }
 
     /// every shape and label dies (the window closed)
     pub fn clear(&mut self) {
         self.shapes.clear();
         self.labels.clear();
+        self.images.clear();
     }
 
     pub fn len(&self) -> usize {
-        self.shapes.len() + self.labels.len()
+        self.shapes.len() + self.labels.len() + self.images.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.shapes.is_empty() && self.labels.is_empty()
+        self.shapes.is_empty() && self.labels.is_empty() && self.images.is_empty()
     }
 
     /// the visible shapes, back to front: by layer, and by creation inside a layer
@@ -340,7 +516,7 @@ impl Scene {
         visible.into_iter().map(|(_, id, shape)| (id, shape)).collect()
     }
 
-    /// everything the frame draws, back to front, shapes and labels in one order
+    /// everything the frame draws, back to front, shapes, labels and images in one order
     pub fn draw_list(&self) -> Vec<Drawn<'_>> {
         let mut all: Vec<(i64, ShapeId, Drawn<'_>)> = Vec::new();
         for (id, s) in &self.shapes {
@@ -353,6 +529,11 @@ impl Scene {
                 all.push((l.layer, *id, Drawn::Label(l)));
             }
         }
+        for (id, i) in &self.images {
+            if i.visible {
+                all.push((i.layer, *id, Drawn::Image(i)));
+            }
+        }
         all.sort_unstable_by_key(|(layer, id, _)| (*layer, *id));
         all.into_iter().map(|(_, _, drawn)| drawn).collect()
     }
@@ -360,4 +541,8 @@ impl Scene {
 
 fn killed() -> String {
     "this shape was killed".to_string()
+}
+
+fn killed_image() -> String {
+    "this image was killed".to_string()
 }

@@ -96,6 +96,11 @@ impl<'a> Renamer<'a> {
                 self.rename_type(value);
             }
             TypeExpr::Optional(inner) => self.rename_type(inner),
+            TypeExpr::Union(members) => {
+                for m in members {
+                    self.rename_type(m);
+                }
+            }
             TypeExpr::Function { params, ret } => {
                 for p in params {
                     self.rename_type(p);

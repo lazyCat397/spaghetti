@@ -41,6 +41,8 @@ pub enum Ty {
     NoneLit,
     /// `task<T>`: the handle a `-> task<T>` call gives back. `.wait()` gets the T out.
     Task(Box<Ty>),
+    /// `A or B or ...`: any of these types. at least two, flat, no repeats. the order does not matter
+    Union(Vec<Ty>),
 }
 
 impl Ty {
@@ -54,9 +56,14 @@ impl Ty {
         match self {
             Ty::Optional(inner) => {
                 matches!(found, Ty::NoneLit)
-                    || inner.as_ref() == found
-                    || matches!(found, Ty::Optional(other) if other == inner)
+                    || inner.accepts(found)
+                    || matches!(found, Ty::Optional(other) if inner.accepts(other))
             }
+            // a union takes a value of any member; a union value fits when each of its members does
+            Ty::Union(members) => match found {
+                Ty::Union(found_members) => found_members.iter().all(|f| members.iter().any(|m| m.accepts(f))),
+                other => members.iter().any(|m| m.accepts(other)),
+            },
             _ => false,
         }
     }
@@ -95,6 +102,7 @@ impl PartialEq for Ty {
             (Ty::Named(a), Ty::Named(b)) => a == b,
             (Ty::Function { params: p1, ret: r1 }, Ty::Function { params: p2, ret: r2 }) => p1 == p2 && r1 == r2,
             (Ty::Optional(a), Ty::Optional(b)) => a == b,
+            (Ty::Union(a), Ty::Union(b)) => a.len() == b.len() && a.iter().all(|x| b.contains(x)),
             (Ty::Task(a), Ty::Task(b)) => a == b,
             (Ty::NoneLit, Ty::NoneLit) => true,
             (Ty::Map(k1, v1), Ty::Map(k2, v2)) => {
@@ -126,7 +134,12 @@ impl std::fmt::Display for Ty {
             Ty::Any => write!(f, "any"),
             Ty::AnyArray => write!(f, "array<any>"),
             Ty::AnyMap => write!(f, "map<any, any>"),
+            Ty::Optional(inner) if matches!(**inner, Ty::Union(_)) => write!(f, "({})?", inner),
             Ty::Optional(inner) => write!(f, "{}?", inner),
+            Ty::Union(members) => {
+                let text: Vec<String> = members.iter().map(|m| m.to_string()).collect();
+                write!(f, "{}", text.join(" or "))
+            }
             Ty::Task(inner) => write!(f, "task<{}>", inner),
             Ty::NoneLit => write!(f, "none"),
             Ty::Function { params, ret } => {

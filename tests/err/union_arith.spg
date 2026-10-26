@@ -1,0 +1,3 @@
+function h(a: string or int) -> int {
+   return a + 1
+}

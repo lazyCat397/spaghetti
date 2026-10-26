@@ -9,7 +9,6 @@
 //! every other character, `%` and braces included, is drawn as written. the tags take no space on
 //! screen. an unclosed tag or a tag that is not a color or `/` is an error
 
-use std::path::Path;
 use std::sync::Arc;
 
 use font8x8::unicode::UnicodeFonts;
@@ -177,7 +176,7 @@ pub fn advance(font: &Font, c: char, scale: u32) -> f64 {
     }
 }
 
-/// the distance from one line of text to the next, in pixels at `scale`
+/// the height of one line of text, in pixels at `scale`, without any extra spacing
 pub fn line_height(font: &Font, scale: u32) -> f64 {
     match font {
         Font::Bitmap => (CELL * scale) as f64,
@@ -189,18 +188,54 @@ pub fn line_height(font: &Font, scale: u32) -> f64 {
     }
 }
 
-/// the width of a run of characters, in pixels at `scale`
-pub fn line_width(line: &[Styled], font: &Font, scale: u32) -> f64 {
-    line.iter().map(|s| advance(font, s.c, scale)).sum()
+/// the extra room a text adds between its characters, words and lines, in pixels. all zero by
+/// default; negative values squeeze the text
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Spacing {
+    /// added after every character but the last one of a line
+    pub letter: f64,
+    /// added after every space
+    pub word: f64,
+    /// added between one line and the next
+    pub line: f64,
+}
+
+/// the distance from one line of text to the next, in pixels at `scale`, with the line spacing
+pub fn line_pitch(font: &Font, scale: u32, spacing: &Spacing) -> f64 {
+    line_height(font, scale) + spacing.line
+}
+
+/// the width one character takes on its own, with the word spacing if it is a space
+fn glyph_width(font: &Font, c: char, scale: u32, spacing: &Spacing) -> f64 {
+    advance(font, c, scale) + if c == ' ' { spacing.word } else { 0.0 }
+}
+
+/// the width of a run of characters, in pixels at `scale`: the letter spacing goes between
+/// characters, never after the last one
+pub fn line_width(line: &[Styled], font: &Font, scale: u32, spacing: &Spacing) -> f64 {
+    if line.is_empty() {
+        return 0.0;
+    }
+    let glyphs: f64 = line.iter().map(|s| glyph_width(font, s.c, scale, spacing)).sum();
+    glyphs + spacing.letter * (line.len() - 1) as f64
+}
+
+/// the width of `a` followed by `b`, given both widths: the letter spacing goes between them
+fn join(a_width: f64, a_len: usize, b_width: f64, b_len: usize, spacing: &Spacing) -> f64 {
+    match (a_len, b_len) {
+        (0, _) => b_width,
+        (_, 0) => a_width,
+        _ => a_width + spacing.letter + b_width,
+    }
 }
 
 /// how many characters from the start of `chars` fit in `wrap` pixels. at least one, so a
 /// character wider than the line still gets a line of its own
-fn fit_prefix(chars: &[Styled], font: &Font, scale: u32, wrap: f64) -> usize {
+fn fit_prefix(chars: &[Styled], font: &Font, scale: u32, spacing: &Spacing, wrap: f64) -> usize {
     let mut width = 0.0;
     let mut count = 0;
     for s in chars {
-        let next = width + advance(font, s.c, scale);
+        let next = join(width, count, glyph_width(font, s.c, scale, spacing), 1, spacing);
         if next > wrap && count > 0 {
             break;
         }
@@ -212,14 +247,14 @@ fn fit_prefix(chars: &[Styled], font: &Font, scale: u32, wrap: f64) -> usize {
 
 /// the lines a text takes on screen: each written line broken into words that fit in `wrap`
 /// pixels (a word wider than a line is cut). with `wrap` at `0` the lines are as written
-pub fn layout(chars: &[Styled], font: &Font, scale: u32, wrap: f64) -> Vec<Vec<Styled>> {
+pub fn layout(chars: &[Styled], font: &Font, scale: u32, spacing: &Spacing, wrap: f64) -> Vec<Vec<Styled>> {
     // the written lines, split at each newline
     let written: Vec<&[Styled]> = chars.split(|s| s.c == '\n').collect();
     if wrap <= 0.0 {
         return written.into_iter().map(<[Styled]>::to_vec).collect();
     }
     let space = Styled { c: ' ', color: None };
-    let space_width = advance(font, ' ', scale);
+    let space_width = glyph_width(font, ' ', scale, spacing);
     let mut out: Vec<Vec<Styled>> = Vec::new();
     for line in written {
         let mut current: Vec<Styled> = Vec::new();
@@ -227,19 +262,25 @@ pub fn layout(chars: &[Styled], font: &Font, scale: u32, wrap: f64) -> Vec<Vec<S
         for word in line.split(|s| s.c == ' ') {
             let mut rest = word;
             loop {
-                let gap = if current.is_empty() { 0.0 } else { space_width };
-                let rest_width = line_width(rest, font, scale);
-                if current_width + gap + rest_width <= wrap {
+                let rest_width = line_width(rest, font, scale, spacing);
+                // the line so far, then a space if the line is not empty, then the rest of the word
+                let (with_space_width, with_space_len) = if current.is_empty() {
+                    (0.0, 0)
+                } else {
+                    (join(current_width, current.len(), space_width, 1, spacing), current.len() + 1)
+                };
+                let candidate = join(with_space_width, with_space_len, rest_width, rest.len(), spacing);
+                if candidate <= wrap {
                     if !current.is_empty() {
                         current.push(space);
                     }
                     current.extend_from_slice(rest);
-                    current_width += gap + rest_width;
+                    current_width = candidate;
                     break;
                 }
                 if current.is_empty() {
                     // the rest does not fit a line of its own: cut off the part that does
-                    let n = fit_prefix(rest, font, scale, wrap);
+                    let n = fit_prefix(rest, font, scale, spacing, wrap);
                     if n == rest.len() {
                         // the last piece stays open: the next word may still join it
                         current = rest.to_vec();
@@ -260,11 +301,12 @@ pub fn layout(chars: &[Styled], font: &Font, scale: u32, wrap: f64) -> Vec<Vec<S
 }
 
 /// the width and height of the text on screen, in pixels at `scale`: the widest line, and the
-/// number of lines after wrapping. an invalid text is an error
-pub fn size(text: &str, font: &Font, scale: u32, wrap: f64) -> Result<(f64, f64), String> {
-    let lines = layout(&parse(text)?, font, scale, wrap);
-    let width = lines.iter().map(|l| line_width(l, font, scale)).fold(0.0, f64::max);
-    Ok((width, lines.len() as f64 * line_height(font, scale)))
+/// lines after wrapping with their spacing between them. an invalid text is an error
+pub fn size(text: &str, font: &Font, scale: u32, spacing: &Spacing, wrap: f64) -> Result<(f64, f64), String> {
+    let lines = layout(&parse(text)?, font, scale, spacing, wrap);
+    let width = lines.iter().map(|l| line_width(l, font, scale, spacing)).fold(0.0, f64::max);
+    let count = lines.len().max(1) as f64;
+    Ok((width, count * line_height(font, scale) + (count - 1.0) * spacing.line))
 }
 
 #[cfg(test)]
@@ -310,8 +352,23 @@ mod tests {
     fn wrapping_counts_only_visible_characters() {
         // at scale 2 a line of 32 pixels holds two characters; the tag does not count
         let s = parse("%{#ff0000}ab%{/} cd").unwrap();
-        assert_eq!(plain(&layout(&s, &Font::Bitmap, 2, 32.0)), vec!["ab", "cd"]);
-        assert_eq!(size("%{#ff0000}ab%{/} cd", &Font::Bitmap, 2, 32.0).unwrap(), (32.0, 32.0));
+        assert_eq!(plain(&layout(&s, &Font::Bitmap, 2, &Spacing::default(), 32.0)), vec!["ab", "cd"]);
+        assert_eq!(size("%{#ff0000}ab%{/} cd", &Font::Bitmap, 2, &Spacing::default(), 32.0).unwrap(), (32.0, 32.0));
+    }
+
+    #[test]
+    fn spacing_moves_letters_words_and_lines() {
+        let plain = Spacing::default();
+        let chars = parse("ab cd").unwrap();
+        // letter spacing goes between characters only: 5 characters of 8 px, 4 gaps of 2 px
+        let tight = Spacing { letter: 2.0, ..plain };
+        assert_eq!(line_width(&chars, &Font::Bitmap, 1, &tight), 40.0 + 8.0);
+        // word spacing goes after the space
+        let words = Spacing { word: 4.0, ..plain };
+        assert_eq!(line_width(&chars, &Font::Bitmap, 1, &words), 40.0 + 4.0);
+        // line spacing adds between lines, not after the last one
+        let lines = Spacing { line: 3.0, ..plain };
+        assert_eq!(size("a\nb", &Font::Bitmap, 1, &lines, 0.0).unwrap(), (8.0, 8.0 + 8.0 + 3.0));
     }
 
     #[test]
