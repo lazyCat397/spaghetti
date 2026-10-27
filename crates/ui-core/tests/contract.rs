@@ -868,7 +868,7 @@ fn the_text_size_must_be_between_1_and_512_pixels() {
 fn a_label_can_be_changed_and_killed_like_a_shape() {
     let mut s = session(8, 8);
     let label = s.add_label(0.0, 0.0, "a", RED, 8).unwrap();
-    s.label_mut(label).unwrap().set_text("bb");
+    s.label_mut(label).unwrap().set_text("bb").unwrap();
     assert_eq!(s.label(label).unwrap().text(), "bb");
     s.kill_shape(label);
     assert!(s.label(label).is_err(), "killed");
@@ -905,7 +905,7 @@ fn a_label_knows_its_size() {
     let mut s = session(8, 8);
     let label = s.add_label(0.0, 0.0, "Olá", RED, 16).unwrap();
     assert_eq!(s.label(label).unwrap().size().unwrap(), (48.0, 16.0), "3 characters of 16 pixels, one line");
-    s.label_mut(label).unwrap().set_text("ab\nabcd");
+    s.label_mut(label).unwrap().set_text("ab\nabcd").unwrap();
     assert_eq!(s.label(label).unwrap().size().unwrap(), (64.0, 32.0), "the widest line, and two lines");
 }
 

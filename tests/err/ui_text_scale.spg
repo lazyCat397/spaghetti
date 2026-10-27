@@ -1,3 +1,0 @@
-install #ui
-let win = ui.window("t", 50, 50)
-let note = win.text(1.0, 2.0, "a", ui.hex("#ffffff"), 9)
