@@ -22,9 +22,9 @@ while (i < 4) {
 
 // botão Limpar, com o texto por cima (texto não recebe clique: o clique vai ao retângulo)
 let limpar = win.rect(300.0, 10.0, 90.0, 28.0, ui.hex("#55556a"))
-let textoLimpar = win.text(316.0, 18.0, "Limpar", ui.hex("#ffffff"), 1)
+let textoLimpar = win.text(316.0, 18.0, "Limpar", ui.hex("#ffffff"), 8)
 
-let contador = win.text(10.0, 270.0, "Traços: 0", ui.hex("#aaaacc"), 2)
+let contador = win.text(10.0, 270.0, "Traços: 0", ui.hex("#aaaacc"), 16)
 
 let pincel = 0
 let traços: array<Shape> = []

@@ -1520,8 +1520,8 @@ mod tests {
         // the `ui` window gets `image` as a method, and an image gets its fields and kill
         let window = labels_of(&complete_at("compl_win_image", "install #ui\nlet win = ui.window(\"t\", 8, 8)\nwin.\n", 2, 4));
         assert!(window.iter().any(|l| l == "image"), "missing image in {:?}", window);
-        let image = labels_of(&complete_at("compl_image_fields", "install #ui\nlet win = ui.window(\"t\", 8, 8)\nlet pic = win.image(0.0, 0.0, \"a.png\", 1)\npic.\n", 3, 4));
-        for want in ["x", "y", "scale", "visible", "layer", "width", "height", "kill"] {
+        let image = labels_of(&complete_at("compl_image_fields", "install #ui\nlet win = ui.window(\"t\", 8, 8)\nlet pic = win.image(0.0, 0.0, \"a.png\", 0, 0)\npic.\n", 3, 4));
+        for want in ["x", "y", "width", "height", "visible", "layer", "kill"] {
             assert!(image.iter().any(|l| l == want), "missing {} in {:?}", want, image);
         }
     }

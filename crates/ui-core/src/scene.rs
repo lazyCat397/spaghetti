@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::picture::Picture;
+use crate::picture::{Picture, MAX_SIDE};
 
 pub type ShapeId = u64;
 
@@ -112,8 +112,9 @@ impl Shape {
     }
 }
 
-/// the largest scale of a label: a glyph cell is 8 pixels, so 8 makes 64 pixels a character
-pub const MAX_SCALE: u32 = 8;
+/// the largest size of a label: a glyph cell is 8 pixels, so 8 makes 64 pixels a character
+/// the largest text size, in pixels: the em of an outline font, the height of a bitmap character
+pub const MAX_TEXT_SIZE: u32 = 512;
 
 /// a line of text. it is drawn like a shape, in the same order, and takes no clicks
 #[derive(Debug, Clone, PartialEq)]
@@ -129,7 +130,7 @@ pub struct Label {
     /// the slant of the text in degrees: 0 is upright, positive leans right
     italic: f64,
     color: u32,
-    scale: u32,
+    size: u32,
     /// the width of the text before it wraps, in pixels. `0` means the text is not wrapped
     wrap: f64,
     align: Align,
@@ -138,8 +139,8 @@ pub struct Label {
 }
 
 impl Label {
-    /// a visible label on layer 0. `scale` goes from 1 to `MAX_SCALE`
-    pub fn new(x: f64, y: f64, text: &str, color: u32, scale: i64) -> Result<Label, String> {
+    /// a visible label on layer 0. `size` goes from 1 to `MAX_TEXT_SIZE`
+    pub fn new(x: f64, y: f64, text: &str, color: u32, size: i64) -> Result<Label, String> {
         crate::text::parse(text)?;
         Ok(Label {
             x: finite("x", x)?,
@@ -151,7 +152,7 @@ impl Label {
             stroke_color: 0x000000,
             italic: 0.0,
             color,
-            scale: scale_value(scale)?,
+            size: text_size(size)?,
             wrap: 0.0,
             align: Align::Left,
             visible: true,
@@ -162,7 +163,7 @@ impl Label {
     /// the width and height of the text on screen, in pixels: the widest line and the number of
     /// lines, after wrapping
     pub fn size(&self) -> Result<(f64, f64), String> {
-        crate::text::size(&self.text, &self.font, self.scale, &self.spacing, self.wrap)
+        crate::text::size(&self.text, &self.font, self.size, &self.spacing, self.wrap)
     }
 
     /// the font the text is drawn with
@@ -262,8 +263,8 @@ impl Label {
     pub fn color(&self) -> u32 {
         self.color
     }
-    pub fn scale(&self) -> u32 {
-        self.scale
+    pub fn text_size(&self) -> u32 {
+        self.size
     }
     pub fn visible(&self) -> bool {
         self.visible
@@ -288,8 +289,8 @@ impl Label {
     pub fn set_color(&mut self, value: u32) {
         self.color = value;
     }
-    pub fn set_scale(&mut self, value: i64) -> Result<(), String> {
-        self.scale = scale_value(value)?;
+    pub fn set_text_size(&mut self, value: i64) -> Result<(), String> {
+        self.size = text_size(value)?;
         Ok(())
     }
     pub fn set_visible(&mut self, value: bool) {
@@ -300,44 +301,39 @@ impl Label {
     }
 }
 
-/// the scale of an image: whole pixels, from 1 to `MAX_SCALE`. named for images, not for text
-fn picture_scale(value: i64) -> Result<u32, String> {
-    if (1..=MAX_SCALE as i64).contains(&value) {
+pub fn text_size(value: i64) -> Result<u32, String> {
+    if (1..=MAX_TEXT_SIZE as i64).contains(&value) {
         Ok(value as u32)
     } else {
-        Err(format!("the image scale must be between 1 and {MAX_SCALE}, got {value}"))
+        Err(format!("the text size must be between 1 and {MAX_TEXT_SIZE} pixels, got {value}"))
     }
 }
 
-pub fn scale_value(value: i64) -> Result<u32, String> {
-    if (1..=MAX_SCALE as i64).contains(&value) {
-        Ok(value as u32)
-    } else {
-        Err(format!("the text scale must be between 1 and {MAX_SCALE}, got {value}"))
-    }
-}
-
-/// a picture placed in the scene: its top-left corner at (x, y), and each of its pixels drawn as a
-/// square of `scale` pixels (nearest neighbor: no smoothing). its transparent pixels show what is
-/// behind it, and the partly transparent ones mix with it
+/// a picture placed in the scene: its top-left corner at (x, y), drawn `width` x `height` pixels.
+/// the picture is sampled nearest-neighbor (no smoothing), so it stretches or shrinks blockily. its
+/// transparent pixels show what is behind it, and the partly transparent ones mix with it
 #[derive(Debug, Clone, PartialEq)]
 pub struct Image {
     x: f64,
     y: f64,
     picture: Arc<Picture>,
-    scale: u32,
+    width: u32,
+    height: u32,
     visible: bool,
     layer: i64,
 }
 
 impl Image {
-    /// a visible image on layer 0. `scale` goes from 1 to `MAX_SCALE`
-    pub fn new(x: f64, y: f64, picture: Arc<Picture>, scale: i64) -> Result<Image, String> {
+    /// a visible image on layer 0. a width or height of 0 keeps the picture's own size on that side
+    pub fn new(x: f64, y: f64, picture: Arc<Picture>, width: i64, height: i64) -> Result<Image, String> {
+        let width = image_side("width", width, picture.width())?;
+        let height = image_side("height", height, picture.height())?;
         Ok(Image {
             x: finite("x", x)?,
             y: finite("y", y)?,
             picture,
-            scale: picture_scale(scale)?,
+            width,
+            height,
             visible: true,
             layer: 0,
         })
@@ -348,10 +344,12 @@ impl Image {
         &self.picture
     }
 
-    /// the width and height on screen, in pixels: the picture's size times the scale
-    pub fn size(&self) -> (f64, f64) {
-        let s = self.scale as f64;
-        (self.picture.width() as f64 * s, self.picture.height() as f64 * s)
+    /// the size on screen, in pixels
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+    pub fn height(&self) -> u32 {
+        self.height
     }
 
     pub fn x(&self) -> f64 {
@@ -359,9 +357,6 @@ impl Image {
     }
     pub fn y(&self) -> f64 {
         self.y
-    }
-    pub fn scale(&self) -> u32 {
-        self.scale
     }
     pub fn visible(&self) -> bool {
         self.visible
@@ -378,8 +373,12 @@ impl Image {
         self.y = finite("y", value)?;
         Ok(())
     }
-    pub fn set_scale(&mut self, value: i64) -> Result<(), String> {
-        self.scale = picture_scale(value)?;
+    pub fn set_width(&mut self, value: i64) -> Result<(), String> {
+        self.width = image_side("width", value, self.picture.width())?;
+        Ok(())
+    }
+    pub fn set_height(&mut self, value: i64) -> Result<(), String> {
+        self.height = image_side("height", value, self.picture.height())?;
         Ok(())
     }
     pub fn set_visible(&mut self, value: bool) {
@@ -387,6 +386,18 @@ impl Image {
     }
     pub fn set_layer(&mut self, value: i64) {
         self.layer = value;
+    }
+}
+
+/// one side of an image in pixels: 0 keeps the picture's own side, anything else from 1 to `MAX_SIDE`
+fn image_side(name: &str, value: i64, natural: usize) -> Result<u32, String> {
+    if value == 0 {
+        return Ok(natural as u32);
+    }
+    if (1..=MAX_SIDE as i64).contains(&value) {
+        Ok(value as u32)
+    } else {
+        Err(format!("the image {name} must be between 0 and {MAX_SIDE} pixels, got {value}"))
     }
 }
 

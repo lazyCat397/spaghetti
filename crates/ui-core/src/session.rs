@@ -207,9 +207,9 @@ impl<B: Backend> Session<B> {
         self.scene_mut()?.get_mut(id)
     }
 
-    /// a new line of text. `scale` goes from 1 to 8: a character is 8 pixels at scale 1
-    pub fn add_label(&mut self, x: f64, y: f64, text: &str, color: u32, scale: i64) -> Result<ShapeId, String> {
-        let label = Label::new(x, y, text, color, scale)?;
+    /// a new line of text. `size` is in pixels, from 1 to 512: the em of an outline font, or the height of a bitmap character
+    pub fn add_label(&mut self, x: f64, y: f64, text: &str, color: u32, size: i64) -> Result<ShapeId, String> {
+        let label = Label::new(x, y, text, color, size)?;
         Ok(self.scene_mut()?.add_label(label))
     }
 
@@ -221,9 +221,9 @@ impl<B: Backend> Session<B> {
         self.scene_mut()?.get_label_mut(id)
     }
 
-    /// a new image on layer 0, drawn from the next frame on. `scale` goes from 1 to 8
-    pub fn add_image(&mut self, x: f64, y: f64, picture: Arc<Picture>, scale: i64) -> Result<ShapeId, String> {
-        let image = Image::new(x, y, picture, scale)?;
+    /// a new image on layer 0, drawn from the next frame on. `width` and `height` are pixels (0 keeps the picture's own)
+    pub fn add_image(&mut self, x: f64, y: f64, picture: Arc<Picture>, width: i64, height: i64) -> Result<ShapeId, String> {
+        let image = Image::new(x, y, picture, width, height)?;
         Ok(self.scene_mut()?.add_image(image))
     }
 
@@ -474,21 +474,22 @@ fn fill_box(pixels: &mut [u32], width: usize, height: usize, x: f64, y: f64, w: 
     }
 }
 
-/// draws an image: each picture pixel is a square of `scale` pixels, with no smoothing. the pixels
-/// that are not transparent are mixed into the framebuffer by their alpha, and the part of the
-/// image outside the window is cut off
+/// draws an image into its `width` x `height` pixels, nearest neighbor: each screen pixel takes the
+/// picture pixel under it. the pixels that are not transparent are mixed into the framebuffer by their
+/// alpha, and the part outside the window is cut off
 fn draw_image(pixels: &mut [u32], width: usize, height: usize, image: &Image) {
     let picture = image.picture();
-    let scale = image.scale() as i64;
+    let (dw, dh) = (image.width() as i64, image.height() as i64);
+    let (pw, ph) = (picture.width() as i64, picture.height() as i64);
     let x0 = image.x().round() as i64;
     let y0 = image.y().round() as i64;
-    let x1 = (x0 + picture.width() as i64 * scale).min(width as i64);
-    let y1 = (y0 + picture.height() as i64 * scale).min(height as i64);
+    let x1 = (x0 + dw).min(width as i64);
+    let y1 = (y0 + dh).min(height as i64);
     for py in y0.max(0)..y1 {
-        // the picture row under this screen row: never negative, since py >= y0
-        let row = ((py - y0) / scale) as usize;
+        // the picture row under this screen row: never negative, since py >= y0, and below ph since py - y0 < dh
+        let row = ((py - y0) * ph / dh) as usize;
         for px in x0.max(0)..x1 {
-            let column = ((px - x0) / scale) as usize;
+            let column = ((px - x0) * pw / dw) as usize;
             let [r, g, b, alpha] = picture.pixel(column, row);
             if alpha > 0 {
                 let color = (r as u32) << 16 | (g as u32) << 8 | b as u32;
@@ -518,15 +519,15 @@ fn draw_label(pixels: &mut [u32], width: usize, height: usize, label: &Label) {
 /// draws the lines of a label shifted by (`shift_x`, `shift_y`). `paint` replaces every color of
 /// the text (the outline uses it); `None` keeps the colors of the text and its tags
 fn draw_text(pixels: &mut [u32], width: usize, height: usize, label: &Label, shift_x: f64, shift_y: f64, paint: Option<u32>) {
-    let scale = label.scale();
+    let size = label.text_size();
     let font = label.font().clone();
     // the text was checked when it was set, so it parses
     let chars = text::parse(label.text()).unwrap_or_default();
     let spacing = label.spacing();
-    let lines = text::layout(&chars, &font, scale, &spacing, label.wrap());
-    let line_pitch = text::line_pitch(&font, scale, &spacing);
-    let baseline = text::baseline(&font, scale);
-    let widths: Vec<f64> = lines.iter().map(|l| text::line_width(l, &font, scale, &spacing)).collect();
+    let lines = text::layout(&chars, &font, size, &spacing, label.wrap());
+    let line_pitch = text::line_pitch(&font, size, &spacing);
+    let baseline = text::baseline(&font, size);
+    let widths: Vec<f64> = lines.iter().map(|l| text::line_width(l, &font, size, &spacing)).collect();
     let block = if label.wrap() > 0.0 { label.wrap() } else { widths.iter().copied().fold(0.0, f64::max) };
     // italic: a pixel leans right by how far it is above the baseline, times the slant
     let slant = label.italic().to_radians().tan();
@@ -542,7 +543,7 @@ fn draw_text(pixels: &mut [u32], width: usize, height: usize, label: &Label, shi
         for styled in line {
             let color = paint.unwrap_or_else(|| styled.color.unwrap_or(label.color()));
             let x0 = label.x() + shift_x + offset + pen;
-            match text::coverage(&font, styled.c, scale) {
+            match text::coverage(&font, styled.c, size) {
                 Some(glyph) => {
                     let gx = x0 + glyph.left;
                     let gy = top + baseline + glyph.top;
@@ -558,18 +559,23 @@ fn draw_text(pixels: &mut [u32], width: usize, height: usize, label: &Label, shi
                     }
                 }
                 None => {
+                    // the 8x8 grid stretched to `size` pixels: grid line i sits at i * size / 8, so every
+                    // cell is drawn as one box with whole-pixel edges
+                    let cell = text::CELL as usize;
+                    let edge = |i: usize| (i as u32 * size / text::CELL) as f64;
                     for (row, bits) in text::glyph(styled.c).iter().enumerate() {
-                        for col in 0..text::CELL as usize {
+                        for col in 0..cell {
                             if bits >> col & 1 == 1 {
-                                let y = top + (row as f64) * scale as f64;
-                                let x = x0 + (col as f64) * scale as f64 + (base_y - y) * slant;
-                                fill_box(pixels, width, height, x, y, scale as f64, scale as f64, color);
+                                let (y, h) = (top + edge(row), edge(row + 1) - edge(row));
+                                let (dx, w) = (edge(col), edge(col + 1) - edge(col));
+                                let x = x0 + dx + (base_y - y) * slant;
+                                fill_box(pixels, width, height, x, y, w, h, color);
                             }
                         }
                     }
                 }
             }
-            pen += text::advance(&font, styled.c, scale) + spacing.letter + if styled.c == ' ' { spacing.word } else { 0.0 };
+            pen += text::advance(&font, styled.c, size) + spacing.letter + if styled.c == ' ' { spacing.word } else { 0.0 };
         }
     }
 }

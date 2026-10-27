@@ -784,7 +784,7 @@ fn a_glyph_has_its_ink_where_the_font_says_and_the_leftmost_bit_is_the_first_col
     // ink is in columns 1 to 4 and the stem in columns 2 and 3
     let mut s = session(10, 10);
     s.scene_mut().unwrap().set_background(BG);
-    s.add_label(0.0, 0.0, "I", RED, 1).unwrap();
+    s.add_label(0.0, 0.0, "I", RED, 8).unwrap();
     s.begin_frame(0.0).unwrap();
     assert_eq!(s.pixel(0, 0), Some(BG), "column 0 of the top row is empty");
     assert_eq!(s.pixel(1, 0), Some(RED));
@@ -795,12 +795,12 @@ fn a_glyph_has_its_ink_where_the_font_says_and_the_leftmost_bit_is_the_first_col
 }
 
 #[test]
-fn a_scale_draws_each_pixel_of_the_glyph_as_a_block() {
+fn a_size_stretches_the_glyph_into_blocks() {
     let mut s = session(20, 20);
     s.scene_mut().unwrap().set_background(BG);
-    s.add_label(0.0, 0.0, "I", RED, 2).unwrap();
+    s.add_label(0.0, 0.0, "I", RED, 16).unwrap();
     s.begin_frame(0.0).unwrap();
-    // column 1 at scale 2 is pixels 2 and 3
+    // at size 16 each cell of the 8x8 grid is 2 pixels: column 1 is pixels 2 and 3
     assert_eq!(s.pixel(2, 0), Some(RED));
     assert_eq!(s.pixel(3, 1), Some(RED));
     assert_eq!(s.pixel(4, 0), Some(RED));
@@ -808,11 +808,25 @@ fn a_scale_draws_each_pixel_of_the_glyph_as_a_block() {
 }
 
 #[test]
+fn a_size_that_is_not_a_multiple_of_8_still_draws_whole_pixel_cells() {
+    // at size 12 a grid line sits at 0, 1, 3, 4, 6, 7, 9, 10, 12: column 1 is pixels 1 and 2, column 2 is pixel 3
+    let mut s = session(16, 16);
+    s.scene_mut().unwrap().set_background(BG);
+    s.add_label(0.0, 0.0, "I", RED, 12).unwrap();
+    s.begin_frame(0.0).unwrap();
+    assert_eq!(s.pixel(0, 0), Some(BG), "column 0 is empty");
+    assert_eq!(s.pixel(1, 0), Some(RED));
+    assert_eq!(s.pixel(2, 0), Some(RED));
+    assert_eq!(s.pixel(3, 0), Some(RED), "column 2 starts at pixel 3");
+    assert_eq!(s.pixel(9, 0), Some(BG), "the ink ends at column 4, pixel 9 is past it");
+}
+
+#[test]
 fn a_label_draws_over_the_shapes_below_and_keeps_its_background_clear() {
     let mut s = session(10, 10);
     s.scene_mut().unwrap().set_background(BG);
     s.add_rect(0.0, 0.0, 10.0, 10.0, GREEN).unwrap();
-    let label = s.add_label(0.0, 0.0, "I", RED, 1).unwrap();
+    let label = s.add_label(0.0, 0.0, "I", RED, 8).unwrap();
     s.begin_frame(0.0).unwrap();
     assert_eq!(s.pixel(1, 0), Some(RED), "the label is on top");
     assert_eq!(s.pixel(0, 0), Some(GREEN), "where the label has no ink, the rectangle shows");
@@ -823,14 +837,14 @@ fn a_label_draws_over_the_shapes_below_and_keeps_its_background_clear() {
 
 #[test]
 fn a_newline_starts_the_next_line_below() {
-    assert_eq!(text::size("ab", &text::Font::Bitmap, 2, &text::Spacing::default(), 0.0).unwrap(), (32.0, 16.0));
-    assert_eq!(text::size("a\nbcd", &text::Font::Bitmap, 1, &text::Spacing::default(), 0.0).unwrap(), (24.0, 16.0), "the widest line decides the width");
+    assert_eq!(text::size("ab", &text::Font::Bitmap, 16, &text::Spacing::default(), 0.0).unwrap(), (32.0, 16.0));
+    assert_eq!(text::size("a\nbcd", &text::Font::Bitmap, 8, &text::Spacing::default(), 0.0).unwrap(), (24.0, 16.0), "the widest line decides the width");
     let mut s = session(20, 20);
     s.scene_mut().unwrap().set_background(BG);
-    s.add_label(0.0, 0.0, "I\nI", RED, 1).unwrap();
+    s.add_label(0.0, 0.0, "I\nI", RED, 8).unwrap();
     s.begin_frame(0.0).unwrap();
     assert_eq!(s.pixel(1, 0), Some(RED));
-    assert_eq!(s.pixel(1, 8), Some(RED), "the second line is 8 pixels lower at scale 1");
+    assert_eq!(s.pixel(1, 8), Some(RED), "the second line is 8 pixels lower at size 8");
 }
 
 #[test]
@@ -841,18 +855,19 @@ fn accents_have_their_own_glyph_and_unknown_characters_are_a_question_mark() {
 }
 
 #[test]
-fn the_scale_must_be_between_1_and_8() {
+fn the_text_size_must_be_between_1_and_512_pixels() {
     let mut s = session(8, 8);
     assert!(s.add_label(0.0, 0.0, "a", RED, 0).is_err());
-    assert!(s.add_label(0.0, 0.0, "a", RED, 9).is_err());
+    assert!(s.add_label(0.0, 0.0, "a", RED, 513).is_err());
+    assert!(s.add_label(0.0, 0.0, "a", RED, 512).is_ok());
     assert!(s.add_label(0.0, 0.0, "a", RED, 8).is_ok());
-    assert!(s.add_label(f64::NAN, 0.0, "a", RED, 1).is_err());
+    assert!(s.add_label(f64::NAN, 0.0, "a", RED, 8).is_err());
 }
 
 #[test]
 fn a_label_can_be_changed_and_killed_like_a_shape() {
     let mut s = session(8, 8);
-    let label = s.add_label(0.0, 0.0, "a", RED, 1).unwrap();
+    let label = s.add_label(0.0, 0.0, "a", RED, 8).unwrap();
     s.label_mut(label).unwrap().set_text("bb");
     assert_eq!(s.label(label).unwrap().text(), "bb");
     s.kill_shape(label);
@@ -863,7 +878,7 @@ fn a_label_can_be_changed_and_killed_like_a_shape() {
 #[test]
 fn a_label_takes_no_click() {
     let mut s = pointer_at(1.0, 1.0);
-    s.add_label(0.0, 0.0, "I", RED, 1).unwrap();
+    s.add_label(0.0, 0.0, "I", RED, 8).unwrap();
     s.backend().mouse_handle().borrow_mut().down.insert(Button::Left);
     s.begin_frame(0.016).unwrap();
     assert!(!s.shape_hovered(1), "text is not a target");
@@ -888,7 +903,7 @@ fn the_characters_typed_in_a_frame_are_read_by_that_frame_only() {
 #[test]
 fn a_label_knows_its_size() {
     let mut s = session(8, 8);
-    let label = s.add_label(0.0, 0.0, "Olá", RED, 2).unwrap();
+    let label = s.add_label(0.0, 0.0, "Olá", RED, 16).unwrap();
     assert_eq!(s.label(label).unwrap().size().unwrap(), (48.0, 16.0), "3 characters of 16 pixels, one line");
     s.label_mut(label).unwrap().set_text("ab\nabcd");
     assert_eq!(s.label(label).unwrap().size().unwrap(), (64.0, 32.0), "the widest line, and two lines");
@@ -900,32 +915,32 @@ use ui_core::Align;
 
 #[test]
 fn words_wrap_to_the_lines_they_fit_in() {
-    // a line of 24 pixels at scale 1 holds 3 characters
-    assert_eq!(layout_text("ab cd ef", 1, 24.0), vec!["ab", "cd", "ef"]);
-    assert_eq!(layout_text("a bb", 1, 16.0), vec!["a", "bb"], "two words that do not fit side by side");
-    assert_eq!(layout_text("ab cd", 1, 40.0), vec!["ab cd"], "they fit: one line");
+    // a line of 24 pixels at size 8 holds 3 characters
+    assert_eq!(layout_text("ab cd ef", 8, 24.0), vec!["ab", "cd", "ef"]);
+    assert_eq!(layout_text("a bb", 8, 16.0), vec!["a", "bb"], "two words that do not fit side by side");
+    assert_eq!(layout_text("ab cd", 8, 40.0), vec!["ab cd"], "they fit: one line");
 }
 
 #[test]
 fn a_word_longer_than_a_line_is_cut_and_a_newline_is_kept() {
-    assert_eq!(layout_text("abcde", 1, 24.0), vec!["abc", "de"]);
-    assert_eq!(layout_text("x\nab cd", 1, 24.0), vec!["x", "ab", "cd"]);
+    assert_eq!(layout_text("abcde", 8, 24.0), vec!["abc", "de"]);
+    assert_eq!(layout_text("x\nab cd", 8, 24.0), vec!["x", "ab", "cd"]);
 }
 
 #[test]
 fn a_wrap_narrower_than_a_character_still_gives_one_per_line() {
-    assert_eq!(layout_text("ab", 1, 2.0), vec!["a", "b"]);
+    assert_eq!(layout_text("ab", 8, 2.0), vec!["a", "b"]);
 }
 
 #[test]
 fn no_wrap_keeps_the_lines_as_written() {
-    assert_eq!(layout_text("ab cd ef", 1, 0.0), vec!["ab cd ef"]);
+    assert_eq!(layout_text("ab cd ef", 8, 0.0), vec!["ab cd ef"]);
 }
 
 #[test]
 fn the_size_follows_the_wrap() {
-    assert_eq!(text::size("ab cd ef", &text::Font::Bitmap, 1, &text::Spacing::default(), 24.0).unwrap(), (16.0, 24.0), "three lines of two characters: 16 pixels wide, 24 tall");
-    assert_eq!(text::size("ab cd ef", &text::Font::Bitmap, 1, &text::Spacing::default(), 0.0).unwrap(), (64.0, 8.0), "one line of eight characters");
+    assert_eq!(text::size("ab cd ef", &text::Font::Bitmap, 8, &text::Spacing::default(), 24.0).unwrap(), (16.0, 24.0), "three lines of two characters: 16 pixels wide, 24 tall");
+    assert_eq!(text::size("ab cd ef", &text::Font::Bitmap, 8, &text::Spacing::default(), 0.0).unwrap(), (64.0, 8.0), "one line of eight characters");
 }
 
 #[test]
@@ -933,7 +948,7 @@ fn the_alignment_places_each_line_inside_the_wrap_width() {
     // a 24-pixel block; the capital I is 8 pixels wide, its ink in columns 1 to 4
     let mut s = session(30, 10);
     s.scene_mut().unwrap().set_background(BG);
-    let id = s.add_label(0.0, 0.0, "I", RED, 1).unwrap();
+    let id = s.add_label(0.0, 0.0, "I", RED, 8).unwrap();
     s.label_mut(id).unwrap().set_wrap(24.0).unwrap();
     s.label_mut(id).unwrap().set_align(Align::Left);
     s.begin_frame(0.0).unwrap();
@@ -953,16 +968,16 @@ fn the_alignment_places_each_line_inside_the_wrap_width() {
 #[test]
 fn a_wrap_width_must_be_zero_or_more_and_finite() {
     let mut s = session(8, 8);
-    let id = s.add_label(0.0, 0.0, "a", RED, 1).unwrap();
+    let id = s.add_label(0.0, 0.0, "a", RED, 8).unwrap();
     assert!(s.label_mut(id).unwrap().set_wrap(-1.0).is_err());
     assert!(s.label_mut(id).unwrap().set_wrap(f64::NAN).is_err());
     assert!(s.label_mut(id).unwrap().set_wrap(0.0).is_ok());
 }
 
 /// the lines of a text after wrapping, as plain strings (the colors are not checked here)
-fn layout_text(text: &str, scale: u32, wrap: f64) -> Vec<String> {
+fn layout_text(text: &str, size: u32, wrap: f64) -> Vec<String> {
     let chars = text::parse(text).unwrap();
-    text::layout(&chars, &text::Font::Bitmap, scale, &text::Spacing::default(), wrap)
+    text::layout(&chars, &text::Font::Bitmap, size, &text::Spacing::default(), wrap)
         .iter()
         .map(|line| line.iter().map(|s| s.c).collect())
         .collect()
@@ -994,11 +1009,11 @@ fn quad() -> Arc<Picture> {
 }
 
 #[test]
-fn an_image_is_drawn_at_its_place_with_each_pixel_scaled() {
+fn an_image_is_drawn_at_its_place_at_the_pixel_size_it_has() {
     let mut s = session(10, 10);
     s.scene_mut().unwrap().set_background(BG);
-    s.add_image(1.0, 1.0, quad(), 2).unwrap();
-    // the 2x2 picture at scale 2 covers screen x 1..5 and y 1..5, each picture pixel a 2x2 block
+    // the 2x2 picture at 4x4 pixels covers screen x 1..5 and y 1..5, each picture pixel a 2x2 block
+    s.add_image(1.0, 1.0, quad(), 4, 4).unwrap();
     assert_eq!(drawn(&mut s, 0.0, 1, 1), RED);
     assert_eq!(drawn(&mut s, 0.1, 2, 2), RED, "the block is the same color all over");
     assert_eq!(drawn(&mut s, 0.2, 3, 1), GREEN);
@@ -1012,7 +1027,7 @@ fn an_image_is_drawn_at_its_place_with_each_pixel_scaled() {
 fn nearest_neighbor_has_no_blur_between_pixels_of_different_colors() {
     let mut s = session(8, 4);
     s.scene_mut().unwrap().set_background(BG);
-    s.add_image(0.0, 0.0, quad(), 3).unwrap();
+    s.add_image(0.0, 0.0, quad(), 6, 6).unwrap();
     // every screen pixel is either one of the four colors, never a mix of two
     let colors = [RED, GREEN, BLUE, 0x00FF_FFFF];
     for y in 0..4 {
@@ -1024,12 +1039,25 @@ fn nearest_neighbor_has_no_blur_between_pixels_of_different_colors() {
 }
 
 #[test]
+fn a_picture_stretched_to_a_size_that_is_not_a_multiple_picks_the_nearest_pixel() {
+    // the 2x2 picture into 3x3 screen pixels: columns 0 and 1 take picture column 0, column 2 takes 1
+    let mut s = session(3, 3);
+    s.scene_mut().unwrap().set_background(BG);
+    s.add_image(0.0, 0.0, quad(), 3, 3).unwrap();
+    assert_eq!(drawn(&mut s, 0.0, 0, 0), RED);
+    assert_eq!(drawn(&mut s, 0.1, 1, 0), RED, "column 1 still reads picture column 0");
+    assert_eq!(drawn(&mut s, 0.2, 2, 0), GREEN, "column 2 reads picture column 1");
+    assert_eq!(drawn(&mut s, 0.3, 0, 2), BLUE, "row 2 reads picture row 1");
+    assert_eq!(drawn(&mut s, 0.4, 2, 2), 0x00FF_FFFF);
+}
+
+#[test]
 fn a_transparent_pixel_shows_what_is_behind_the_image() {
     let mut s = session(4, 2);
     s.scene_mut().unwrap().set_background(BG);
     s.add_rect(0.0, 0.0, 4.0, 2.0, BLUE).unwrap();
     let image = picture(2, 1, &[0, 0, 0, 0, 255, 51, 0, 255]);
-    s.add_image(0.0, 0.0, image, 1).unwrap();
+    s.add_image(0.0, 0.0, image, 0, 0).unwrap();
     assert_eq!(drawn(&mut s, 0.0, 0, 0), BLUE, "fully transparent: the blue rectangle shows");
     assert_eq!(drawn(&mut s, 0.1, 1, 0), RED, "fully opaque: the picture covers it");
 }
@@ -1038,7 +1066,7 @@ fn a_transparent_pixel_shows_what_is_behind_the_image() {
 fn a_half_transparent_white_pixel_mixes_with_black() {
     let mut s = session(2, 1);
     s.scene_mut().unwrap().set_background(0);
-    s.add_image(0.0, 0.0, picture(1, 1, &[255, 255, 255, 128]), 1).unwrap();
+    s.add_image(0.0, 0.0, picture(1, 1, &[255, 255, 255, 128]), 0, 0).unwrap();
     // 255 * 128 / 255 is 128: the mix of white and black at half alpha, in every channel
     assert_eq!(drawn(&mut s, 0.0, 0, 0), 0x0080_8080);
 }
@@ -1047,7 +1075,7 @@ fn a_half_transparent_white_pixel_mixes_with_black() {
 fn a_fully_transparent_picture_draws_nothing() {
     let mut s = session(3, 3);
     s.scene_mut().unwrap().set_background(BG);
-    s.add_image(0.0, 0.0, picture(3, 3, &CLEAR.repeat(9)), 1).unwrap();
+    s.add_image(0.0, 0.0, picture(3, 3, &CLEAR.repeat(9)), 0, 0).unwrap();
     assert_eq!(drawn(&mut s, 0.0, 1, 1), BG);
 }
 
@@ -1056,20 +1084,20 @@ fn an_image_partly_outside_the_window_is_cut_at_its_edges() {
     let mut s = session(4, 4);
     s.scene_mut().unwrap().set_background(BG);
     // the 2x2 picture starts at (-1, -1): its bottom-right pixel (white) lands on screen (0, 0)
-    s.add_image(-1.0, -1.0, quad(), 1).unwrap();
+    s.add_image(-1.0, -1.0, quad(), 0, 0).unwrap();
     assert_eq!(drawn(&mut s, 0.0, 0, 0), 0x00FF_FFFF);
     assert_eq!(drawn(&mut s, 0.1, 1, 0), BG, "past the picture's right edge");
-    // and off the bottom and right, far outside the window: still fine, nothing is drawn past it
+    // and far outside the window to the right and bottom: the big image is drawn only where it is on screen
     let mut t = session(4, 4);
-    t.add_image(3.0, 3.0, quad(), 8).unwrap();
-    assert_eq!(drawn(&mut t, 0.0, 3, 3), RED, "the first picture pixel covers the whole window corner");
+    t.add_image(3.0, 3.0, quad(), 8, 8).unwrap();
+    assert_eq!(drawn(&mut t, 0.0, 3, 3), RED, "the first picture pixel covers the window corner");
 }
 
 #[test]
 fn an_image_is_drawn_above_a_lower_layer_and_below_a_higher_one() {
     let mut s = session(4, 4);
     s.add_rect(0.0, 0.0, 4.0, 4.0, BLUE).unwrap();
-    let image = s.add_image(0.0, 0.0, picture(1, 1, &[255, 51, 0, 255]), 4).unwrap();
+    let image = s.add_image(0.0, 0.0, picture(1, 1, &[255, 51, 0, 255]), 4, 4).unwrap();
     assert_eq!(drawn(&mut s, 0.0, 2, 2), RED, "an image on layer 0 is made after the rectangle: it is on top");
     s.image_mut(image).unwrap().set_layer(-1);
     assert_eq!(drawn(&mut s, 0.1, 2, 2), BLUE, "a lower layer goes under the rectangle");
@@ -1079,35 +1107,38 @@ fn an_image_is_drawn_above_a_lower_layer_and_below_a_higher_one() {
 fn an_invisible_image_is_not_drawn() {
     let mut s = session(2, 2);
     s.scene_mut().unwrap().set_background(BG);
-    let id = s.add_image(0.0, 0.0, quad(), 1).unwrap();
+    let id = s.add_image(0.0, 0.0, quad(), 0, 0).unwrap();
     s.image_mut(id).unwrap().set_visible(false);
     assert_eq!(drawn(&mut s, 0.0, 0, 0), BG);
 }
 
 #[test]
-fn an_image_size_is_the_picture_size_times_the_scale() {
+fn an_image_size_is_in_pixels_zero_keeps_the_picture_size_and_both_can_change() {
     let mut s = session(4, 4);
-    let id = s.add_image(0.0, 0.0, quad(), 3).unwrap();
-    assert_eq!(s.image(id).unwrap().size(), (6.0, 6.0));
-    s.image_mut(id).unwrap().set_scale(1).unwrap();
-    assert_eq!(s.image(id).unwrap().size(), (2.0, 2.0));
+    let id = s.add_image(0.0, 0.0, quad(), 0, 0).unwrap();
+    assert_eq!((s.image(id).unwrap().width(), s.image(id).unwrap().height()), (2, 2), "0 keeps the picture's size");
+    s.image_mut(id).unwrap().set_width(10).unwrap();
+    s.image_mut(id).unwrap().set_height(0).unwrap();
+    assert_eq!((s.image(id).unwrap().width(), s.image(id).unwrap().height()), (10, 2));
 }
 
 #[test]
-fn the_scale_of_an_image_must_be_between_1_and_8() {
+fn an_image_size_must_be_between_0_and_4096_pixels() {
     let mut s = session(4, 4);
-    assert!(s.add_image(0.0, 0.0, quad(), 0).is_err());
-    assert!(s.add_image(0.0, 0.0, quad(), 9).is_err());
-    let id = s.add_image(0.0, 0.0, quad(), 8).unwrap();
-    assert!(s.image_mut(id).unwrap().set_scale(0).is_err());
-    assert_eq!(s.image(id).unwrap().scale(), 8, "a refused scale changes nothing");
+    assert!(s.add_image(0.0, 0.0, quad(), -1, 0).is_err());
+    assert!(s.add_image(0.0, 0.0, quad(), 0, 4097).is_err());
+    let id = s.add_image(0.0, 0.0, quad(), 4096, 1).unwrap();
+    assert!(s.image_mut(id).unwrap().set_width(4097).is_err());
+    assert_eq!(s.image(id).unwrap().width(), 4096, "a refused size changes nothing");
+    let msg = s.add_image(0.0, 0.0, quad(), 5000, 1).unwrap_err();
+    assert_eq!(msg, "the image width must be between 0 and 4096 pixels, got 5000");
 }
 
 #[test]
 fn a_killed_image_can_not_be_used_and_is_not_drawn() {
     let mut s = running(4, 4);
     s.scene_mut().unwrap().set_background(BG);
-    let id = s.add_image(0.0, 0.0, quad(), 1).unwrap();
+    let id = s.add_image(0.0, 0.0, quad(), 0, 0).unwrap();
     s.kill_shape(id);
     s.kill_shape(id); // killing twice does nothing
     assert_eq!(s.image(id).unwrap_err(), "this image was killed");
@@ -1118,10 +1149,9 @@ fn a_killed_image_can_not_be_used_and_is_not_drawn() {
 #[test]
 fn the_images_die_with_the_window() {
     let mut s = running(4, 4);
-    let id = s.add_image(0.0, 0.0, quad(), 1).unwrap();
+    let id = s.add_image(0.0, 0.0, quad(), 0, 0).unwrap();
     s.request_close();
     s.begin_frame(0.016).unwrap();
     assert_eq!(s.image(id).unwrap_err(), "the window is closed");
-    assert!(s.add_image(0.0, 0.0, quad(), 1).is_err());
+    assert!(s.add_image(0.0, 0.0, quad(), 0, 0).is_err());
 }
-
