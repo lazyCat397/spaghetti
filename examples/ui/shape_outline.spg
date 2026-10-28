@@ -1,0 +1,17 @@
+// `install #ui` with shapes: a rectangle can have an outline. stroke is its thickness in
+// pixels, drawn inside the edges; strokeColor is the outline color.
+install #ui
+
+let win = ui.window("shape outline", 320, 160)
+win.background = ui.hex("#1b1f27")
+
+let plain = win.rect(20.0, 20.0, 80.0, 80.0, ui.hex("#ffffff"))
+
+let outlined = win.rect(120.0, 20.0, 80.0, 80.0, ui.hex("#33ccff"))
+outlined.stroke = 6.0
+outlined.strokeColor = ui.hex("#ff3300")
+
+while (true) {
+    let dt = win.nextFrame()
+    if (dt < 0.0) { break }
+}

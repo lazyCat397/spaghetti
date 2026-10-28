@@ -1155,3 +1155,32 @@ fn the_images_die_with_the_window() {
     assert_eq!(s.image(id).unwrap_err(), "the window is closed");
     assert!(s.add_image(0.0, 0.0, quad(), 0, 0).is_err());
 }
+
+#[test]
+fn a_shape_without_a_stroke_has_no_outline() {
+    let mut s = running(10, 10);
+    s.add_rect(0.0, 0.0, 10.0, 10.0, RED).unwrap();
+    assert_eq!(drawn(&mut s, 0.016, 0, 0), RED);
+}
+
+#[test]
+fn a_stroke_is_drawn_inside_the_edges_and_the_fill_stays_inside() {
+    let mut s = running(10, 10);
+    let id = s.add_rect(0.0, 0.0, 10.0, 10.0, RED).unwrap();
+    s.shape_mut(id).unwrap().set_stroke(2.0).unwrap();
+    s.shape_mut(id).unwrap().set_stroke_color(BLUE);
+    assert_eq!(drawn(&mut s, 0.016, 0, 0), BLUE);
+    assert_eq!(drawn(&mut s, 0.016, 1, 5), BLUE);
+    assert_eq!(drawn(&mut s, 0.016, 8, 5), BLUE);
+    assert_eq!(drawn(&mut s, 0.016, 5, 1), BLUE);
+    assert_eq!(drawn(&mut s, 0.016, 5, 8), BLUE);
+    assert_eq!(drawn(&mut s, 0.016, 5, 5), RED);
+}
+
+#[test]
+fn a_negative_stroke_is_refused_and_the_shape_keeps_its_old_value() {
+    let mut s = session(10, 10);
+    let id = s.add_rect(0.0, 0.0, 4.0, 4.0, RED).unwrap();
+    assert!(s.shape_mut(id).unwrap().set_stroke(-1.0).is_err());
+    assert_eq!(s.shape(id).unwrap().stroke(), 0.0);
+}

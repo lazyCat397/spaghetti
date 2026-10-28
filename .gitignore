@@ -6,7 +6,7 @@ target/
 dist/
 node_modules/
 
-# Working notes, never published
+# Working notes shared only between the maintainer and the assistant, never published
 CONTEXTO.md
 update-spg.bat
 

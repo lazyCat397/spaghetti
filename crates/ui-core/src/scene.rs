@@ -40,6 +40,10 @@ pub struct Shape {
     /// a click-through shape is never the target of a click: the click goes to what is under it
     /// (a bullet passing through targets)
     click_through: bool,
+    /// the thickness of the outline in pixels, drawn inside the edges (0 for none)
+    stroke: f64,
+    /// the color of the outline, black until the program sets another
+    stroke_color: u32,
 }
 
 impl Shape {
@@ -54,7 +58,30 @@ impl Shape {
             visible: true,
             layer: 0,
             click_through: false,
+            stroke: 0.0,
+            stroke_color: 0x000000,
         })
+    }
+
+    pub fn stroke(&self) -> f64 {
+        self.stroke
+    }
+
+    pub fn stroke_color(&self) -> u32 {
+        self.stroke_color
+    }
+
+    pub fn set_stroke(&mut self, value: f64) -> Result<(), String> {
+        let value = finite("stroke", value)?;
+        if value < 0.0 {
+            return Err(format!("the stroke must be 0 (no outline) or more pixels, got {value}"));
+        }
+        self.stroke = value;
+        Ok(())
+    }
+
+    pub fn set_stroke_color(&mut self, value: u32) {
+        self.stroke_color = value;
     }
 
     pub fn x(&self) -> f64 {

@@ -1,0 +1,8 @@
+install #ui
+let win = ui.window("stroke", 40, 40)
+let box = win.rect(1.0, 1.0, 10.0, 10.0, ui.rgb(0, 0, 0))
+print(box.stroke)
+box.stroke = 2.0
+box.strokeColor = ui.rgb(200, 100, 60)
+print(box.stroke)
+print(box.strokeColor == ui.rgb(200, 100, 60))

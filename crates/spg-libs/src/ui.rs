@@ -72,6 +72,8 @@ pub static MODULE: NativeModule = NativeModule {
                 NativeField { name: "x", get: "_getLabelX", set: Some("_setLabelX") },
                 NativeField { name: "y", get: "_getLabelY", set: Some("_setLabelY") },
                 NativeField { name: "text", get: "_getLabelText", set: Some("_setLabelText") },
+                NativeField { name: "size", get: "_getLabelSize", set: Some("_setLabelSize") },
+                NativeField { name: "color", get: "_getLabelColor", set: Some("_setLabelColor") },
                 NativeField { name: "font", get: "_getLabelFont", set: Some("_setLabelFont") },
                 NativeField { name: "letterSpacing", get: "_getLabelLetterSpacing", set: Some("_setLabelLetterSpacing") },
                 NativeField { name: "wordSpacing", get: "_getLabelWordSpacing", set: Some("_setLabelWordSpacing") },
@@ -79,14 +81,12 @@ pub static MODULE: NativeModule = NativeModule {
                 NativeField { name: "stroke", get: "_getLabelStroke", set: Some("_setLabelStroke") },
                 NativeField { name: "strokeColor", get: "_getLabelStrokeColor", set: Some("_setLabelStrokeColor") },
                 NativeField { name: "italic", get: "_getLabelItalic", set: Some("_setLabelItalic") },
-                NativeField { name: "color", get: "_getLabelColor", set: Some("_setLabelColor") },
-                NativeField { name: "size", get: "_getLabelSize", set: Some("_setLabelSize") },
-                NativeField { name: "visible", get: "_getLabelVisible", set: Some("_setLabelVisible") },
-                NativeField { name: "layer", get: "_getLabelLayer", set: Some("_setLabelLayer") },
                 NativeField { name: "align", get: "_getLabelAlign", set: Some("_setLabelAlign") },
                 NativeField { name: "wrap", get: "_getLabelWrap", set: Some("_setLabelWrap") },
                 NativeField { name: "width", get: "_getLabelWidth", set: None },
                 NativeField { name: "height", get: "_getLabelHeight", set: None },
+                NativeField { name: "visible", get: "_getLabelVisible", set: Some("_setLabelVisible") },
+                NativeField { name: "layer", get: "_getLabelLayer", set: Some("_setLabelLayer") },
             ],
             methods: &[("kill", "labelKill")],
         },
@@ -98,6 +98,8 @@ pub static MODULE: NativeModule = NativeModule {
                 NativeField { name: "w", get: "_getW", set: Some("_setW") },
                 NativeField { name: "h", get: "_getH", set: Some("_setH") },
                 NativeField { name: "color", get: "_getColor", set: Some("_setColor") },
+                NativeField { name: "stroke", get: "_getStroke", set: Some("_setStroke") },
+                NativeField { name: "strokeColor", get: "_getStrokeColor", set: Some("_setStrokeColor") },
                 NativeField { name: "visible", get: "_getVisible", set: Some("_setVisible") },
                 NativeField { name: "layer", get: "_getLayer", set: Some("_setLayer") },
                 NativeField { name: "clickThrough", get: "_getClickThrough", set: Some("_setClickThrough") },
@@ -177,7 +179,7 @@ pub static MODULE: NativeModule = NativeModule {
         NativeFn { name: "_setLabelLayer", sig: "(Label, int) -> void", doc: "internal: label.layer = value", call: set_label_layer },
         NativeFn { name: "window", sig: "(string, int, int) -> Window", doc: "opens a window of the given size, in pixels. it shows when the loop starts", call: window },
         NativeFn { name: "nextFrame", sig: "(Window) -> float", doc: "draws the scene and shows it, reads the keys and gives the seconds since the last frame (at most 0.1). gives -1.0 when the window is closing, which ends the loop", call: next_frame },
-        NativeFn { name: "rect", sig: "(Window, float, float, float, float, int) -> Shape", doc: "adds a filled rectangle to the scene: x, y, width, height in pixels, then a color. the window draws it on every frame until it is killed", call: rect },
+        NativeFn { name: "rect", sig: "(Window, float, float, float, float, int) -> Shape", doc: "adds a filled rectangle to the scene: x, y, width, height in pixels, then a color. its outline (shape.stroke, in pixels, inside the edges) and its color (shape.strokeColor) are set on the shape. the window draws it on every frame until it is killed", call: rect },
         NativeFn { name: "kill", sig: "(Shape) -> void", doc: "removes the shape from the scene. killing it again does nothing; using it afterwards is an error", call: kill },
         NativeFn { name: "isDown", sig: "(Window, Key) -> bool", doc: "true on every frame the key is held", call: is_down },
         NativeFn { name: "wasPressed", sig: "(Window, Key) -> bool", doc: "true on the one frame the key went down. a tap shorter than one frame can be missed", call: was_pressed },
@@ -217,6 +219,10 @@ pub static MODULE: NativeModule = NativeModule {
         NativeFn { name: "_getH", sig: "(Shape) -> float", doc: "internal: shape.h", call: get_h },
         NativeFn { name: "_setH", sig: "(Shape, float) -> void", doc: "internal: shape.h = value", call: set_h },
         NativeFn { name: "_getColor", sig: "(Shape) -> int", doc: "internal: shape.color", call: get_color },
+        NativeFn { name: "_getStroke", sig: "(Shape) -> float", doc: "internal: shape.stroke", call: get_shape_stroke },
+        NativeFn { name: "_setStroke", sig: "(Shape, float) -> void", doc: "internal: shape.stroke = value", call: set_shape_stroke },
+        NativeFn { name: "_getStrokeColor", sig: "(Shape) -> int", doc: "internal: shape.strokeColor", call: get_shape_stroke_color },
+        NativeFn { name: "_setStrokeColor", sig: "(Shape, int) -> void", doc: "internal: shape.strokeColor = value", call: set_shape_stroke_color },
         NativeFn { name: "_setColor", sig: "(Shape, int) -> void", doc: "internal: shape.color = color", call: set_color },
         NativeFn { name: "_getVisible", sig: "(Shape) -> bool", doc: "internal: shape.visible", call: get_visible },
         NativeFn { name: "_setVisible", sig: "(Shape, bool) -> void", doc: "internal: shape.visible = value", call: set_visible },
@@ -1041,6 +1047,9 @@ macro_rules! shape_set_float {
 
 shape_get!(get_x, "Shape.x", |s| LibValue::Float(s.x()));
 shape_get!(get_y, "Shape.y", |s| LibValue::Float(s.y()));
+shape_get!(get_shape_stroke, "Shape.stroke", |s| LibValue::Float(s.stroke()));
+shape_set_float!(set_shape_stroke, "Shape.stroke", set_stroke);
+shape_get!(get_shape_stroke_color, "Shape.strokeColor", |s| LibValue::Int(s.stroke_color() as i64));
 shape_get!(get_w, "Shape.w", |s| LibValue::Float(s.w()));
 shape_get!(get_h, "Shape.h", |s| LibValue::Float(s.h()));
 shape_get!(get_color, "Shape.color", |s| LibValue::Int(s.color() as i64));
@@ -1057,6 +1066,16 @@ fn set_color(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
     let value = color_arg(F, &args, 1)?;
     with_shape(F, &args, |s| {
         s.set_color(value);
+        Ok(())
+    })?;
+    Ok(LibValue::Void)
+}
+
+fn set_shape_stroke_color(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Shape.strokeColor";
+    let value = color_arg(F, &args, 1)?;
+    with_shape(F, &args, |s| {
+        s.set_stroke_color(value);
         Ok(())
     })?;
     Ok(LibValue::Void)

@@ -361,6 +361,10 @@ impl<B: Backend> Session<B> {
             match drawn {
                 Drawn::Shape(shape) => {
                     fill_box(pixels, *width, *height, shape.x(), shape.y(), shape.w(), shape.h(), shape.color());
+                    let stroke = shape.stroke().round();
+                    if stroke > 0.0 {
+                        draw_outline(pixels, *width, *height, shape, stroke);
+                    }
                 }
                 Drawn::Label(label) => draw_label(pixels, *width, *height, label),
                 Drawn::Image(image) => draw_image(pixels, *width, *height, image),
@@ -472,6 +476,17 @@ fn fill_box(pixels: &mut [u32], width: usize, height: usize, x: f64, y: f64, w: 
         let start = row * width;
         pixels[start + x0..start + x1].fill(color);
     }
+}
+
+/// paints the outline of a shape inside its edges: four bands `stroke` pixels thick, cut at the
+/// window like any rectangle
+#[allow(clippy::too_many_arguments)]
+fn draw_outline(pixels: &mut [u32], width: usize, height: usize, shape: &Shape, stroke: f64) {
+    let (x, y, w, h, c) = (shape.x(), shape.y(), shape.w(), shape.h(), shape.stroke_color());
+    fill_box(pixels, width, height, x, y, w, stroke, c);
+    fill_box(pixels, width, height, x, y + h - stroke, w, stroke, c);
+    fill_box(pixels, width, height, x, y, stroke, h, c);
+    fill_box(pixels, width, height, x + w - stroke, y, stroke, h, c);
 }
 
 /// draws an image into its `width` x `height` pixels, nearest neighbor: each screen pixel takes the
