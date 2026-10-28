@@ -1583,7 +1583,7 @@ mod tests {
 
     /// the sprite that ships with the examples: a 16x16 PNG with transparent pixels
     fn sprite_path() -> String {
-        format!("{}/../../examples/images/sprite.png", env!("CARGO_MANIFEST_DIR"))
+        format!("{}/../../examples/assets/images/sprite.png", env!("CARGO_MANIFEST_DIR"))
     }
 
     /// an image of the sprite at (x, y), `width` x `height` pixels, in the window
@@ -1639,7 +1639,7 @@ mod tests {
     #[test]
     fn a_file_that_is_not_a_png_is_refused_by_name() {
         let win = open("not png", 8, 8);
-        let path = format!("{}/../../examples/ui_demo.spg", env!("CARGO_MANIFEST_DIR"));
+        let path = format!("{}/../../examples/ui/keyboard_box.spg", env!("CARGO_MANIFEST_DIR"));
         let msg = message(add_image(&ctx(), vec![win, f(0.0), f(0.0), s(&path), i(0), i(0)]));
         assert!(msg.contains("is not a PNG file"), "{msg}");
     }
@@ -1657,9 +1657,9 @@ mod tests {
     #[test]
     fn an_image_path_is_relative_to_the_script_that_asks() {
         let win = open("relative", 8, 8);
-        let script = format!("{}/../../examples/ui_demo_imagem.spg", env!("CARGO_MANIFEST_DIR"));
+        let script = format!("{}/../../examples/ui/image.spg", env!("CARGO_MANIFEST_DIR"));
         let ctx = CallCtx { caller_file: Some(&script), caller_line: 1 };
-        // examples/images/sprite.png, from the folder of the script
-        add_image(&ctx, vec![win, f(0.0), f(0.0), s("images/sprite.png"), i(0), i(0)]).unwrap();
+        // examples/assets/images/sprite.png, from the folder of the script (examples/ui/)
+        add_image(&ctx, vec![win, f(0.0), f(0.0), s("../assets/images/sprite.png"), i(0), i(0)]).unwrap();
     }
 }

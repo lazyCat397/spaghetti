@@ -1,0 +1,61 @@
+// A small drawing app with ui.
+// - click a color in the palette to choose the brush
+// - hold the left button over the drawing area to paint
+// - the Clear button erases everything (or press C)
+// - the counter shows how many strokes exist
+install #ui
+
+let win = ui.window("Drawing app", 400, 300)
+win.background = ui.hex("#1e1e28")
+
+let colors = [ui.hex("#ff4d4d"), ui.hex("#4dff88"), ui.hex("#4da6ff"), ui.hex("#ffffff")]
+
+// palette: four squares at the top
+let palette: array<Shape> = []
+let i = 0
+let x = 10.0
+while (i < 4) {
+    palette.push(win.rect(x, 10.0, 28.0, 28.0, colors[i]))
+    x = x + 34.0
+    i = i + 1
+}
+
+// Clear button, with its text on top (text does not take clicks: the click goes to the rectangle)
+let clear = win.rect(300.0, 10.0, 90.0, 28.0, ui.hex("#55556a"))
+let clearLabel = win.text(316.0, 18.0, "Clear", ui.hex("#ffffff"), 8)
+
+let counter = win.text(10.0, 270.0, "Strokes: 0", ui.hex("#aaaacc"), 16)
+
+let brush = 0
+let strokes: array<Shape> = []
+
+// the drawing area starts below the palette
+let top = 50.0
+
+while (true) {
+    let dt = win.nextFrame()
+    if (dt < 0.0) { break }
+
+    // choose the color
+    i = 0
+    while (i < 4) {
+        if (palette[i].mousePressed(Mouse.Left)) { brush = i }
+        i = i + 1
+    }
+
+    // clear, with the button or the C key
+    if (clear.mousePressed(Mouse.Left) || win.wasPressed(Key.C)) {
+        while (strokes.len() > 0) {
+            let old = strokes.pop()
+            old.kill()
+        }
+    }
+
+    // paint while the left button is held down over the drawing area
+    if (win.mouseDown(Mouse.Left) && win.mouseInside && win.mouseY > top) {
+        strokes.push(win.rect(win.mouseX - 2.0, win.mouseY - 2.0, 4.0, 4.0, colors[brush]))
+    }
+
+    counter.text = "Strokes: " + strokes.len().string()
+}
+print("see you next time")

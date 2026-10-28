@@ -1,6 +1,6 @@
 // `install #ui` with images: a PNG with transparent pixels, drawn at three sizes over a band, so the
 // see-through parts show. the arrows move the moving one, space hides it, K kills the big one.
-// needs a display, so run.sh skips it (the name matches *ui_demo*).
+// needs a display, so run.sh does not run the files in examples/ui/.
 install #ui
 
 let win = ui.window("imagem", 480, 240)
@@ -12,10 +12,10 @@ win.text(80.0, 20.0, "32px", ui.hex("#ffffff"), 16)
 win.text(150.0, 20.0, "64px", ui.hex("#ffffff"), 16)
 win.text(260.0, 20.0, "arrows, space, K", ui.hex("#9fb6cc"), 16)
 
-let small = win.image(20.0, 100.0, "./images/sprite.png", 16, 16)
-let medium = win.image(80.0, 94.0, "./images/sprite.png", 32, 32)
-let large = win.image(150.0, 78.0, "./images/sprite.png", 64, 64)
-let moving = win.image(300.0, 110.0, "./images/sprite.png", 48, 48)
+let small = win.image(20.0, 100.0, "../assets/images/sprite.png", 16, 16)
+let medium = win.image(80.0, 94.0, "../assets/images/sprite.png", 32, 32)
+let large = win.image(150.0, 78.0, "../assets/images/sprite.png", 64, 64)
+let moving = win.image(300.0, 110.0, "../assets/images/sprite.png", 48, 48)
 
 while (true) {
     let dt = win.nextFrame()

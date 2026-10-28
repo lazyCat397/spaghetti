@@ -1,5 +1,5 @@
 // `install #ui` with a struct: each sprite keeps its own shape and speed, and steps itself.
-// needs a display, so run.sh skips it (the name matches *ui_demo*).
+// needs a display, so run.sh does not run the files in examples/ui/.
 install #ui
 
 struct Sprite {

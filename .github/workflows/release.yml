@@ -114,6 +114,8 @@ jobs:
           Copy-Item vsix/spaghetti.vsix installer/payload/spaghetti.vsix
           New-Item -ItemType Directory -Force installer/payload/stdlib | Out-Null
           Copy-Item stdlib/* installer/payload/stdlib/
+          New-Item -ItemType Directory -Force installer/payload/examples | Out-Null
+          Copy-Item -Recurse examples/* installer/payload/examples/
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=${{ steps.ver.outputs.version }}" "installer/spaghetti.iss"
           Move-Item "installer/spaghetti-${{ steps.ver.outputs.version }}.exe" "release-out/spaghetti-${{ steps.ver.outputs.version }}-windows-setup.exe"
 
@@ -125,6 +127,7 @@ jobs:
           cp target/release/spg pkg/spaghetti/
           cp vsix/spaghetti.vsix pkg/spaghetti/spaghetti.vsix
           cp -r stdlib pkg/spaghetti/stdlib
+          cp -r examples pkg/spaghetti/examples
           cp installer/install-linux.sh pkg/spaghetti/install.sh
           tar -czf "release-out/spaghetti-${{ steps.ver.outputs.version }}-linux.tar.gz" -C pkg spaghetti
 

@@ -17,7 +17,7 @@ count_tests() {
     n=$(grep -cE '^(ok|err|exact1|lines|diag|exit124|check) ' run.sh)
     loopn=0
     for f in ok/*.spg lang/*.spg ../examples/*.spg; do
-        case "$f" in *time_test*|*sleep*|*ps_missing*|*ui_demo*) continue;; esac
+        case "$f" in *time_test*|*sleep*|*ps_missing*) continue;; esac
         loopn=$((loopn+1))
     done
     avul=4                                   # build, fmt, ps_missing, ps_safe
@@ -423,7 +423,7 @@ err file_bytes_type.spg   "'@file.writeBytes' argument #2 expects array<int>, go
 for f in ok/*.spg lang/*.spg ../examples/*.spg; do
     # environment-dependent programs: their output depends on the machine (time, PowerShell on the PATH),
     # not on the optimizer. ps_missing is checked on its own below, with PATH controlled.
-    case "$f" in *time_test*|*sleep*|*ps_missing*|*ui_demo*) continue;; esac
+    case "$f" in *time_test*|*sleep*|*ps_missing*) continue;; esac
     a=$(spgrun "$f" 2>&1); ca=$?
     b=$(spgrun --no-opt "$f" 2>&1); cb=$?
     if [ "$a" = "$b" ] && [ "$ca" = "$cb" ]; then pass=$((pass+1)); tick; else

@@ -2,7 +2,7 @@
 install #ui
 let win = ui.window("italic", 360, 200)
 win.background = ui.hex("#1b1f27")
-let font = "./fonts/LiberationSans-Regular.ttf"
+let font = "../assets/fonts/LiberationSans-Regular.ttf"
 
 let upright = win.text(16.0, 12.0, "Upright text", ui.hex("#ffffff"), 32)
 upright.font = font

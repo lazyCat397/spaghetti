@@ -372,7 +372,7 @@ mod tests {
     #[test]
     fn outline_fonts_load_and_are_proportional() {
         assert!(Font::load("broken.ttf", b"not a font").is_err());
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/fonts/LiberationSans-Regular.ttf");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/assets/fonts/LiberationSans-Regular.ttf");
         let bytes = std::fs::read(path).unwrap();
         let font = Font::load("LiberationSans-Regular.ttf", &bytes).unwrap();
         assert_eq!(font.path(), "LiberationSans-Regular.ttf");

@@ -1,6 +1,6 @@
 // `install #ui`: a window with a rectangle moved by the arrow keys. the rectangle is an object
 // the window keeps: changing its fields is all it takes to move it or recolor it.
-// needs a display, so run.sh skips it (the name matches *ui_demo*).
+// needs a display, so run.sh does not run the files in examples/ui/.
 install #ui
 
 let win = ui.window("ui demo", 800, 600)

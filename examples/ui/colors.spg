@@ -3,8 +3,8 @@ install #ui
 let win = ui.window("colors", 360, 160)
 win.background = ui.hex("#1b1f27")
 
-win.text(16.0, 20.0, "Vida: %{#ff3300}100%{/} de 100", ui.hex("#ffffff"), 16)
-win.text(16.0, 70.0, "Ouro %{#ffcc00}{x}%{/} e %{#33ccff}agua%{/}", ui.hex("#aaaaaa"), 16)
+win.text(16.0, 20.0, "Life: %{#ff3300}100%{/} of 100", ui.hex("#ffffff"), 16)
+win.text(16.0, 70.0, "Gold %{#ffcc00}{x}%{/} and %{#33ccff}water%{/}", ui.hex("#aaaaaa"), 16)
 
 while (true) {
     let dt = win.nextFrame()

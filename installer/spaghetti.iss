@@ -34,10 +34,13 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Source: "payload\spg.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "payload\spaghetti.vsix"; DestDir: "{app}"; Flags: ignoreversion
 Source: "payload\stdlib\*"; DestDir: "{app}\stdlib"; Flags: ignoreversion recursesubdirs
+Source: "payload\examples\*"; DestDir: "{app}\examples"; Flags: ignoreversion recursesubdirs
 
 [InstallDelete]
 ; the stdlib folder is ours: clear it so libraries removed in a newer version (fork.spg) don't stay behind
 Type: filesandordirs; Name: "{app}\stdlib"
+; the examples folder is ours too: a sample removed in a newer version must not stay behind
+Type: filesandordirs; Name: "{app}\examples"
 
 [Icons]
 Name: "{group}\Spaghetti (terminal)"; Filename: "{cmd}"; Parameters: "/k spg --help"
