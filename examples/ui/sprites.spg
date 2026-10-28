@@ -5,7 +5,7 @@ install #ui
 struct Sprite {
     shape: Shape,
     dx: float,
-    function step(dt: float) -> void {
+    fn step(dt: float) -> void {
         me.shape.x = me.shape.x + me.dx * dt
     }
 }

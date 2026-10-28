@@ -669,7 +669,7 @@ impl<W: Write> Server<W> {
                     .collect();
             }
             DotContext::Enum(name) => {
-                // `Color.`: its variants, then the functions declared as `function Color.name(...)`
+                // `Color.`: its variants, then the functions declared as `fn Color.name(...)`
                 let mut items: Vec<Json> = self
                     .enum_variants(uri, &name)
                     .unwrap_or_default()
@@ -1345,14 +1345,14 @@ mod tests {
         let (_f, uri) = tmp_file("compl", "let x = 1\n");
         let (_, out) = session(vec![
             note("textDocument/didOpen", Json::obj(vec![(
-                "textDocument", Json::obj(vec![("uri", Json::str(&uri)), ("text", Json::str("function somaTudo(a: int) -> int { return a }\n")), ("version", Json::int(1))]))])),
+                "textDocument", Json::obj(vec![("uri", Json::str(&uri)), ("text", Json::str("fn somaTudo(a: int) -> int { return a }\n")), ("version", Json::int(1))]))])),
             req(9, "textDocument/completion", Json::obj(vec![("textDocument", Json::obj(vec![("uri", Json::str(&uri))]))])),
             note("exit", Json::Null),
         ]);
         let resp = out.iter().find(|m| m.get("id").and_then(Json::as_f64) == Some(9.0)).unwrap();
         let labels: Vec<&str> = resp.get("result").unwrap().as_array().unwrap().iter()
             .filter_map(|i| i.get("label").and_then(Json::as_str)).collect();
-        for want in ["function", "int", "print", "somaTudo"] {
+        for want in ["fn", "int", "print", "somaTudo"] {
             assert!(labels.contains(&want), "missing {} in completion", want);
         }
     }
@@ -1360,7 +1360,7 @@ mod tests {
     #[test]
     fn struct_methods_are_not_offered_as_free_names() {
         let (_f, uri) = tmp_file("compl_methods", "let x = 1\n");
-        let text = "struct Point {\n    x: int\n\n    function secretMethod() -> int { return me.x }\n}\nfunction freeFn() -> int { return 1 }\n";
+        let text = "struct Point {\n    x: int\n\n    fn secretMethod() -> int { return me.x }\n}\nfn freeFn() -> int { return 1 }\n";
         let (_, out) = session(vec![
             note("textDocument/didOpen", Json::obj(vec![(
                 "textDocument", Json::obj(vec![("uri", Json::str(&uri)), ("text", Json::str(text)), ("version", Json::int(1))]))])),
@@ -1401,7 +1401,7 @@ mod tests {
 
     #[test]
     fn completion_after_enum_dot_lists_variants_and_associated_functions() {
-        let text = "enum Cor { Vermelho, Verde }\nfunction Cor.padrao() -> Cor {\n    return Cor.Verde\n}\nlet c = Cor.\n";
+        let text = "enum Cor { Vermelho, Verde }\nfn Cor.padrao() -> Cor {\n    return Cor.Verde\n}\nlet c = Cor.\n";
         let items = complete_at("compl_enum", text, 4, 12);
         let labels: Vec<String> = items.iter().filter_map(|i| i.get("label").and_then(Json::as_str).map(String::from)).collect();
         assert!(labels.iter().any(|l| l == "Verde"), "variants missing: {:?}", labels);
@@ -1479,7 +1479,7 @@ mod tests {
 
     #[test]
     fn me_is_offered_only_inside_a_struct_body() {
-        let inside = complete_at("compl_me_in", "struct Pt {\n    x: int\n    function len() {\n        \n    }\n}\n", 3, 8);
+        let inside = complete_at("compl_me_in", "struct Pt {\n    x: int\n    fn len() {\n        \n    }\n}\n", 3, 8);
         assert!(labels_of(&inside).iter().any(|l| l == "me"));
         let outside = complete_at("compl_me_out", "let a = 1\n\n", 1, 0);
         assert!(!labels_of(&outside).iter().any(|l| l == "me"));
@@ -1712,8 +1712,8 @@ mod tests {
     fn completion_offers_names_from_import_and_install() {
         let (main, uri) = tmp_file("compl_imports", "let x = 1\n");
         let dir = main.parent().unwrap().to_path_buf();
-        std::fs::write(dir.join("lib.spg"), "export function libFn() -> int { return 1 }\nexport struct Pt { x: int }\nexport { viaFacade } from \"./o.spg\"\nfunction hidden() -> int { return 2 }\n").unwrap();
-        std::fs::write(dir.join("o.spg"), "export function viaFacade() -> int { return 3 }\n").unwrap();
+        std::fs::write(dir.join("lib.spg"), "export fn libFn() -> int { return 1 }\nexport struct Pt { x: int }\nexport { viaFacade } from \"./o.spg\"\nfn hidden() -> int { return 2 }\n").unwrap();
+        std::fs::write(dir.join("o.spg"), "export fn viaFacade() -> int { return 3 }\n").unwrap();
         let text = "import { other } from \"./o.spg\"\ninstall \"./lib.spg\"\n";
         let (_, out) = session(vec![
             note("textDocument/didOpen", Json::obj(vec![(
@@ -1739,7 +1739,7 @@ mod tests {
         let dir = main.parent().unwrap().to_path_buf();
         std::fs::write(
             dir.join("items.spg"),
-            "export struct Item {\n    name: string,\n    qty: int\n    function total(n: int) -> int { return me.qty * n }\n}\n",
+            "export struct Item {\n    name: string,\n    qty: int\n    fn total(n: int) -> int { return me.qty * n }\n}\n",
         )
         .unwrap();
         let text = "import { Item } from \"./items.spg\"\nlet it = Item { name: \"x\", qty: 1 }\nit.\nlet z = Item { name: \"y\", \n";
@@ -1772,7 +1772,7 @@ mod tests {
         // `"abc".` is a string, `f().` is what f returns: the same members as a variable of that type
         let lit = labels_of(&complete_at("compl_lit", "let a = \"abc\".\n", 0, 14));
         assert!(lit.iter().any(|l| l == "trim") && lit.iter().any(|l| l == "padStart"), "{:?}", lit);
-        let call = labels_of(&complete_at("compl_call", "function f() -> string { return \"x\" }\nlet a = f().\n", 1, 12));
+        let call = labels_of(&complete_at("compl_call", "fn f() -> string { return \"x\" }\nlet a = f().\n", 1, 12));
         assert!(call.iter().any(|l| l == "trim"), "{:?}", call);
     }
 

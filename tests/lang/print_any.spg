@@ -1,4 +1,4 @@
-function main_test() -> void {
+fn main_test() -> void {
     print("a string")
     print(42)
     print(true)

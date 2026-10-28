@@ -1,5 +1,5 @@
 struct S { a: int, b: int, f: float }
-function run() -> int {
+fn run() -> int {
     let s = S { a: 10, b: 20, f: 1.5 }
     let t = S { a: 100, b: 200, f: 9.5 }
     let k = 3

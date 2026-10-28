@@ -1,2 +1,2 @@
 export { fb } from "./reexport_cycle_b.spg"
-export function fa() -> int { return 1 }
+export fn fa() -> int { return 1 }

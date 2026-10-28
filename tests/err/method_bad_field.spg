@@ -1,5 +1,5 @@
 struct Q {
-    function f() -> int {
+    fn f() -> int {
         return me.zzz
     }
 }

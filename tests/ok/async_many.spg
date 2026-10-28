@@ -1,5 +1,5 @@
 // three hundred tasks, one thread each. a task is just a value you can keep in an array
-function one(i: int) -> task<int> {
+fn one(i: int) -> task<int> {
     return i * 2
 }
 

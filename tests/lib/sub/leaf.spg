@@ -1,1 +1,1 @@
-export function leaf() -> string { return "leaf" }
+export fn leaf() -> string { return "leaf" }

@@ -1,4 +1,4 @@
-function f(a: array<int>, i: int) -> int {
+fn f(a: array<int>, i: int) -> int {
     return a[i]
 }
 print(f([1, 2, 3], 7))

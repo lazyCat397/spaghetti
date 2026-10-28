@@ -1,10 +1,10 @@
 // `-> task<T>` runs its body right at the call. eager, no event loop. nice and boring.
-function double(n: int) -> task<int> {
+fn double(n: int) -> task<int> {
     print("double started with ${n}")
     return n * 2
 }
 
-function failIfBig(n: int) -> task<int> {
+fn failIfBig(n: int) -> task<int> {
     if (n > 1) {
         throw "too big"
     }

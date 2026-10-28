@@ -33,7 +33,7 @@ pub struct Decls {
     /// exported `const`/`let` with a written type (`export const terminal: Terminal`), taken
     /// from the installed/imported files so their members can be listed
     pub globals: HashMap<String, String>,
-    /// `function Type.name(...) -> R` declarations, as (type, name, signature). they travel
+    /// `fn Type.name(...) -> R` declarations, as (type, name, signature). they travel
     /// with `merge`, so an imported type's associated functions are listed too
     pub associated: Vec<(String, String, String)>,
 }
@@ -515,7 +515,7 @@ fn resolve_head(tokens: &[Token], depth: &[i32], at: usize, head: &str, decls: &
         };
     }
     let func = enclosing(tokens, depth, at, &T::Function);
-    // 1. locals of the enclosing function (or, at the top level, of the script itself,
+    // 1. locals of the enclosing fn (or, at the top level, of the script itself,
     //    skipping the insides of functions and structs, which aren't visible from there),
     //    nearest first
     {
@@ -691,7 +691,7 @@ pub fn after_dot(tokens: &[Token], at: usize, chain: &[String], decls: &Decls) -
         return Vec::new();
     }
     // `Point.` where Point is a struct or enum name: its associated functions
-    // (`function Point.name(...)`), the way they are called. not a variable of that name
+    // (`fn Point.name(...)`), the way they are called. not a variable of that name
     if chain.len() == 1 && (decls.structs.contains_key(&chain[0]) || decls.enums.contains(&chain[0])) {
         let depth = depths(tokens);
         if resolve_head(tokens, &depth, at, &chain[0], decls).is_none() {
@@ -987,11 +987,11 @@ mod tests {
         ms.iter().map(|m| m.name.clone()).collect()
     }
 
-    const SRC: &str = "struct Point {\n    x: int,\n    y: int\n    function len2() -> int { return me.x * me.x + me.y * me.y }\n    function shift(dx: int, dy: int) { me.x += dx }\n}\nstruct Line { a: Point, b: Point, tag: array<string> }\nenum Color { Red, Green }\nfunction origin() -> Point { return Point { x: 0, y: 0 } }\n";
+    const SRC: &str = "struct Point {\n    x: int,\n    y: int\n    fn len2() -> int { return me.x * me.x + me.y * me.y }\n    fn shift(dx: int, dy: int) { me.x += dx }\n}\nstruct Line { a: Point, b: Point, tag: array<string> }\nenum Color { Red, Green }\nfn origin() -> Point { return Point { x: 0, y: 0 } }\n";
 
     #[test]
     fn type_name_dot_lists_its_associated_functions() {
-        let text = "struct Point { x: int }\nfunction Point.origin() -> Point { return Point { x: 0 } }\nfunction Point.make(x: int) -> Point { return Point { x: x } }\n";
+        let text = "struct Point { x: int }\nfn Point.origin() -> Point { return Point { x: 0 } }\nfn Point.make(x: int) -> Point { return Point { x: x } }\n";
         let (tokens, at, decls) = setup(text, 3, 0);
         let got = names(&after_dot(&tokens, at, &["Point".to_string()], &decls));
         assert!(got.contains(&"origin".to_string()) && got.contains(&"make".to_string()), "{:?}", got);
@@ -1001,7 +1001,7 @@ mod tests {
     fn associated_functions_of_imported_files_are_listed() {
         let lex = |t: &str| spg_lexer::Lexer::new(t).tokenize().unwrap();
         let mut here = Decls::from_tokens(&lex("struct Point { x: int }\nlet p = 1\n"));
-        let there = Decls::from_tokens(&lex("struct Point { x: int }\nfunction Point.origin() -> Point { return Point { x: 0 } }\n"));
+        let there = Decls::from_tokens(&lex("struct Point { x: int }\nfn Point.origin() -> Point { return Point { x: 0 } }\n"));
         here.merge(there);
         let got = names(&associated_of(&here, "Point"));
         assert_eq!(got, vec!["origin".to_string()]);
@@ -1022,20 +1022,20 @@ mod tests {
 
     #[test]
     fn dot_after_a_local_a_param_a_global_and_me() {
-        let local = format!("{}function f() {{\n    let p = Point {{ x: 1, y: 2 }}\n    p.\n}}\n", SRC);
+        let local = format!("{}fn f() {{\n    let p = Point {{ x: 1, y: 2 }}\n    p.\n}}\n", SRC);
         let (t, at, d) = setup(&local, 11, 6);
         assert_eq!(names(&after_dot(&t, at, &["p".into()], &d)), ["x", "y", "len2", "shift", "string", "copy"]);
 
-        let param = format!("{}function f(q: Point, n: int) {{\n    q.\n}}\n", SRC);
+        let param = format!("{}fn f(q: Point, n: int) {{\n    q.\n}}\n", SRC);
         let (t, at, d) = setup(&param, 10, 6);
         assert_eq!(names(&after_dot(&t, at, &["q".into()], &d)), ["x", "y", "len2", "shift", "string", "copy"]);
         assert!(names(&after_dot(&t, at, &["n".into()], &d)).iter().any(|n| n == "abs"), "an int offers its @math methods");
 
-        let global = format!("{}let g = origin()\nfunction f() {{\n    g.\n}}\n", SRC);
+        let global = format!("{}let g = origin()\nfn f() {{\n    g.\n}}\n", SRC);
         let (t, at, d) = setup(&global, 11, 6);
         assert_eq!(names(&after_dot(&t, at, &["g".into()], &d)).len(), 6);
 
-        let me = "struct S {\n    n: int\n    function f() -> int {\n        return me.\n    }\n}\n";
+        let me = "struct S {\n    n: int\n    fn f() -> int {\n        return me.\n    }\n}\n";
         let (t, at, d) = setup(me, 3, 18);
         assert_eq!(names(&after_dot(&t, at, &["me".into()], &d)), ["n", "f", "string", "copy"]);
     }
@@ -1105,7 +1105,7 @@ mod tests {
 
     #[test]
     fn a_loop_variable_or_an_unknown_name_offers_nothing() {
-        let src = format!("{}function f(ps: array<Point>) {{\n    for p in ps {{\n        p.\n    }}\n}}\n", SRC);
+        let src = format!("{}fn f(ps: array<Point>) {{\n    for p in ps {{\n        p.\n    }}\n}}\n", SRC);
         let (t, at, d) = setup(&src, 11, 10);
         assert!(after_dot(&t, at, &["p".into()], &d).is_empty());
         assert!(after_dot(&t, at, &["nope".into()], &d).is_empty());
@@ -1113,7 +1113,7 @@ mod tests {
 
     #[test]
     fn shadowing_picks_the_nearest_declaration() {
-        let src = format!("{}let p = Line {{ a: origin(), b: origin(), tag: [] }}\nfunction f() {{\n    let p = origin()\n    p.\n}}\n", SRC);
+        let src = format!("{}let p = Line {{ a: origin(), b: origin(), tag: [] }}\nfn f() {{\n    let p = origin()\n    p.\n}}\n", SRC);
         let (t, at, d) = setup(&src, 12, 6);
         assert_eq!(names(&after_dot(&t, at, &["p".into()], &d)), ["x", "y", "len2", "shift", "string", "copy"]);
     }

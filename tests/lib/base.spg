@@ -1,3 +1,3 @@
 export let total: int = 0
-export function sum(n: int) -> void { total += n }
-export function lerTotal() -> int { return total }
+export fn sum(n: int) -> void { total += n }
+export fn lerTotal() -> int { return total }

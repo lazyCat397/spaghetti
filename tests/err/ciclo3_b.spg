@@ -1,2 +1,2 @@
 import { fc } from "./ciclo3_c.spg"
-export function fb() -> int { return 2 }
+export fn fb() -> int { return 2 }

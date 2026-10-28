@@ -1,4 +1,4 @@
 struct Point { x: int, y: int }
-function Point.f(me: Point) -> int {
+fn Point.f(me: Point) -> int {
     return 1
 }

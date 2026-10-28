@@ -1,4 +1,4 @@
-function run() -> int {
+fn run() -> int {
     let s = "abc"
     print(@str.substring(s, -1, 2))
     return 0

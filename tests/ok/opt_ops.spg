@@ -3,7 +3,7 @@
 struct P { x: int, y: int }
 let g = 10
 let h = 0
-function arith(a: int, b: int) -> int {
+fn arith(a: int, b: int) -> int {
     let r = 0
     r = a + 7
     print(r)
@@ -27,7 +27,7 @@ function arith(a: int, b: int) -> int {
     print(a)
     return r + b * 2 - 1
 }
-function cmp(a: int) -> int {
+fn cmp(a: int) -> int {
     let n = 0
     if (a < 5) { n += 1 }
     if (a > 5) { n += 10 }
@@ -38,14 +38,14 @@ function cmp(a: int) -> int {
     if (a % 2 == 0) { n += 1000000 }
     return n
 }
-function structs(p: P) -> int {
+fn structs(p: P) -> int {
     p.x += p.y
     p.y = p.x - p.y
     p.x += 3
     p.x = p.x % 7
     return p.x + p.y
 }
-function arrays(a: array<int>, i: int) -> int {
+fn arrays(a: array<int>, i: int) -> int {
     a[i] = a[i] + 10
     a[i] += 5
     let k = 0
@@ -56,14 +56,14 @@ function arrays(a: array<int>, i: int) -> int {
     }
     return s + a[i]
 }
-function floats(x: float, y: float) -> float {
+fn floats(x: float, y: float) -> float {
     let z = x + y
     z = z * x
     z = z - y
     z += 1.5
     return z / 2.0
 }
-function globals() -> int {
+fn globals() -> int {
     g = g + 1
     h += g
     g += 5

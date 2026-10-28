@@ -1,6 +1,6 @@
-function f() -> void {
+fn f() -> void {
     let x = 1
-    let g = function() -> void { x = 2 }
+    let g = fn() -> void { x = 2 }
     g()
 }
 f()

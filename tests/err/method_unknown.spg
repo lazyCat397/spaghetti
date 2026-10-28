@@ -1,10 +1,10 @@
 struct P {
     x: int
 
-    function get() -> int {
+    fn get() -> int {
         return me.x
     }
-    function add(k: int) -> int {
+    fn add(k: int) -> int {
         return me.x + k
     }
 }

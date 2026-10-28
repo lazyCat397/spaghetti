@@ -2,7 +2,7 @@ enum Color { Red, Green, Blue }
 
 struct Car { name: string, color: Color }
 
-function describe(c: Color) -> string {
+fn describe(c: Color) -> string {
     if (c == Color.Red) { return "hot" }
     elif (c != Color.Blue) { return "natural" }
     else { return "cool" }

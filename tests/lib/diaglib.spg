@@ -1,4 +1,4 @@
 export struct Point { x: int }
-export function getX(p: Point) -> int { return p.x }
-export function two() -> int { return 2 }
+export fn getX(p: Point) -> int { return p.x }
+export fn two() -> int { return 2 }
 export let g: int = 1

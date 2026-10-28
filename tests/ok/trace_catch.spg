@@ -1,4 +1,4 @@
-function boom(n: int) -> int {
+fn boom(n: int) -> int {
     return boom(n + 1)
 }
 try {

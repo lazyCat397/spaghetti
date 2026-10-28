@@ -1,1 +1,1 @@
-function f(n: int = x) {}
+fn f(n: int = x) {}

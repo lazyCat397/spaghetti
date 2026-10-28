@@ -1,4 +1,4 @@
-function total(m: map<string, int>) -> int {
+fn total(m: map<string, int>) -> int {
     let s = 0
     for k in @map.keys(m) {
         s += m[k]

@@ -1,1 +1,1 @@
-export function fa() -> int { return "error-a" }
+export fn fa() -> int { return "error-a" }

@@ -1,4 +1,4 @@
-function riscado(x: int) -> int {
+fn riscado(x: int) -> int {
     if (x > 0) {
         return 1
     }

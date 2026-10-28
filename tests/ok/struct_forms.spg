@@ -15,5 +15,5 @@ print(cx.corner.x + cx.sides[1].y)
 origin.x = 77
 print(origin.x)
 
-function double(v: Vec2) -> Vec2 { return Vec2 { x: v.x * 2, y: v.y * 2 } }
+fn double(v: Vec2) -> Vec2 { return Vec2 { x: v.x * 2, y: v.y * 2 } }
 print(double(b).y)

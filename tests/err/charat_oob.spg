@@ -1,4 +1,4 @@
-function run() -> int {
+fn run() -> int {
     let s = "abc"
     print(@str.charAt(s, 3))
     return 0

@@ -1,2 +1,2 @@
-export function len(x: int) -> int { return x + 1000 }
-export function inside() -> int { return len(1) }
+export fn len(x: int) -> int { return x + 1000 }
+export fn inside() -> int { return len(1) }

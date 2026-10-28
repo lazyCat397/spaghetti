@@ -8,7 +8,7 @@ struct Point {
 struct Counter {
     n: int
 
-    function add(by: int) -> Counter {
+    fn add(by: int) -> Counter {
         me.n += by
         return me
     }

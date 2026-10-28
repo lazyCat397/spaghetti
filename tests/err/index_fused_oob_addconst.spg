@@ -1,4 +1,4 @@
-function run() -> int {
+fn run() -> int {
     let a = [1, 2, 3]
     let m = [[1, 2], [3, 4]]
     let ix = 9

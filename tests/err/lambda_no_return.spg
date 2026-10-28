@@ -1,1 +1,1 @@
-let f = function(x: int) -> int { if (x > 0) { return 1 } }
+let f = fn(x: int) -> int { if (x > 0) { return 1 } }

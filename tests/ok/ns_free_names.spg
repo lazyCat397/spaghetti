@@ -1,10 +1,10 @@
 // the old namespace words are plain identifiers now: every kind of
 // declaration may use them, side by side with the real '@' namespaces
 struct str { x: int }
-function time(a: int) -> int {
+fn time(a: int) -> int {
     return a + 1
 }
-function sum(list: array<int>) -> int {
+fn sum(list: array<int>) -> int {
     let total: int = 0
     for n in list {
         total += n

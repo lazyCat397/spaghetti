@@ -1,2 +1,2 @@
 import { leaf } from "./sub/leaf.spg"
-export function middle() -> string { return "middle+" + leaf() }
+export fn middle() -> string { return "middle+" + leaf() }

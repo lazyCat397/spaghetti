@@ -141,7 +141,7 @@ mod tests {
         let dir = std::env::temp_dir().join("spg_lsp_strict_test");
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("s.spg");
-        let src = "let a: int = 1\nfunction f() {\n  let a: int = 2\n  print(a)\n}\nf()\n";
+        let src = "let a: int = 1\nfn f() {\n  let a: int = 2\n  print(a)\n}\nf()\n";
         std::fs::write(&file, src).unwrap();
         let canon = spg_modules::canon(&file).unwrap();
         let mut overlay = HashMap::new();

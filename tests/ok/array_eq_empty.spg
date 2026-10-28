@@ -6,8 +6,8 @@ let f: array<string> = []
 print(e == [], e == [5])
 @array.push(e, 5)
 print(e, e == [5], f)
-function empty() -> array<int> { return [] }
-function take(x: array<float>) -> int { return @array.len(x) }
+fn empty() -> array<int> { return [] }
+fn take(x: array<float>) -> int { return @array.len(x) }
 print(empty(), take([]))
 let p1: map<string, int> = ["a": 1]
 print(p1 == ["a": 1], p1 == [:], p1 != ["a": 2])

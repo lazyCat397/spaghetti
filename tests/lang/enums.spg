@@ -1,7 +1,7 @@
 // enums: a closed set of named options, compared with == / != and listed with `for`
 enum Direction { North, East, South, West }
 
-function turnRight(d: Direction) -> Direction {
+fn turnRight(d: Direction) -> Direction {
     if (d == Direction.North) { return Direction.East }
     elif (d == Direction.East) { return Direction.South }
     elif (d == Direction.South) { return Direction.West }

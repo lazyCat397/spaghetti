@@ -4,14 +4,14 @@ struct Counter {
     n: int,
     step: int
 
-    function tick() -> Counter {
+    fn tick() -> Counter {
         me.n += me.step
         return me          // returning `me` lets calls chain
     }
-    function describe() -> string {
+    fn describe() -> string {
         return "Counter at " + @into.string(me.n)
     }
-    function reset() {
+    fn reset() {
         me.n = 0
     }
 }

@@ -1,8 +1,8 @@
 struct Point { x: int, y: int }
-function Point.origin() -> Point {
+fn Point.origin() -> Point {
     return Point { x: 0, y: 0 }
 }
-function Point.de(x: int, y: int) -> Point {
+fn Point.de(x: int, y: int) -> Point {
     return Point { x: x, y: y }
 }
 let o = Point.origin()

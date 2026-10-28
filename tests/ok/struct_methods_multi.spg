@@ -11,7 +11,7 @@ print(hiddenTwice(21))
 struct Vec2 {
     z: int
 
-    function len2() -> int {
+    fn len2() -> int {
         return me.z
     }
 }

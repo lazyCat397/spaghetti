@@ -1,2 +1,2 @@
 struct P { x: int }
-function a(p: P) -> int { return p.y }
+fn a(p: P) -> int { return p.y }

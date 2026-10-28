@@ -1,8 +1,8 @@
 enum Color { Vermelho, Verde, Azul }
-function Color.padrao() -> Color {
+fn Color.padrao() -> Color {
     return Color.Verde
 }
-function Color.de_numero(n: int) -> Color {
+fn Color.de_numero(n: int) -> Color {
     if (n == 0) {
         return Color.Vermelho
     }

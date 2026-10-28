@@ -1,8 +1,8 @@
 // a helper file: `export` marks the names that other files may use
-export function greet(name: string) -> string {
+export fn greet(name: string) -> string {
     return "Hello, " + name + "!"
 }
 
-export function shout(name: string) -> string {
+export fn shout(name: string) -> string {
     return "HELLO, " + name.toUpper() + "!"
 }

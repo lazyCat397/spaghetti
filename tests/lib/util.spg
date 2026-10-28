@@ -1,6 +1,6 @@
-export function double(n: int) -> int { return n * 2 }
+export fn double(n: int) -> int { return n * 2 }
 export const PI2: float = 6.28
 export let counter: int = 0
 export struct Point { x: int, y: int }
-function secret() -> int { return 42 }
-export function usesSecret() -> int { return secret() }
+fn secret() -> int { return 42 }
+export fn usesSecret() -> int { return secret() }

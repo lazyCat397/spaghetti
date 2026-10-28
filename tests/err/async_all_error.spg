@@ -1,5 +1,5 @@
 // one task fails: `@task.all` re-throws its error, the trace points inside the task
-function bad() -> task<int> {
+fn bad() -> task<int> {
     throw "boom"
 }
 

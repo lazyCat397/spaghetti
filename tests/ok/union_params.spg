@@ -1,4 +1,4 @@
-function check(a: string or float) -> void {
+fn check(a: string or float) -> void {
    if (a == "hi" or a == 2.5) {
       print("checked", type(a))
    }
@@ -7,19 +7,19 @@ check("hi")
 check(2.5)
 check("no")
 
-function pick(a: string or int or bool) -> void {
+fn pick(a: string or int or bool) -> void {
    if (a == 30 or a == true or a == "x") { print("hit") } else { print("miss") }
 }
 pick(30)
 pick(false)
 pick("x")
 
-function maybe(a: (string or float)?) -> void {
+fn maybe(a: (string or float)?) -> void {
    if (a == none) { print("none") } else { print("value", type(a)) }
 }
 maybe(none)
 maybe("s")
 maybe(1.5)
 
-function same(a: int or string) -> int or string { return a }
+fn same(a: int or string) -> int or string { return a }
 print(type(same("z")))

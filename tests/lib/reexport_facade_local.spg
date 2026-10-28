@@ -1,2 +1,2 @@
 export { inc } from "./reexport_origin.spg"
-export function usaInc() -> void { inc() }
+export fn usaInc() -> void { inc() }

@@ -35,7 +35,7 @@ grid[2][0] *= 2
 print(grid[2][0])
 
 // index evaluated only once, even when nested
-function pick() -> int {
+fn pick() -> int {
     print("pick chamado")
     return 1
 }
@@ -49,7 +49,7 @@ cube[1][0][1] += 100
 print(cube[1][0][1])
 
 // function that returns an array, indexed right away
-function makeRow() -> array<int> {
+fn makeRow() -> array<int> {
     return [9, 8, 7]
 }
 print(makeRow()[1])

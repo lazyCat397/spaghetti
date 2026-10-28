@@ -24,7 +24,7 @@ for i in 0..5 step -1 {
     print(i)
 }
 print("- non-literal step")
-function run(a: int, b: int, s: int) {
+fn run(a: int, b: int, s: int) {
     for i in a..b step s {
         print(i)
     }
@@ -63,7 +63,7 @@ for i in 0..3 {
 }
 print("- expressions as bounds, evaluated once")
 let calls = 0
-function bound() -> int {
+fn bound() -> int {
     calls += 1
     return 3
 }
@@ -71,7 +71,7 @@ for i in 0..bound() {
     print(i)
 }
 print(calls)
-function sum(n: int) -> int {
+fn sum(n: int) -> int {
     let s = 0
     for i in 1..n + 1 {
         s += i
@@ -79,7 +79,7 @@ function sum(n: int) -> int {
     return s
 }
 print(sum(100))
-function tri(n: int) -> int {
+fn tri(n: int) -> int {
     let total = 0
     for i in 0..n {
         for j in i..n {

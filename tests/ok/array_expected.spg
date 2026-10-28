@@ -2,10 +2,10 @@ struct Bag { items: array<int or string> }
 struct Pt { x: int }
 struct Holder {
    n: int
-   function add(xs: array<int or string>) -> int { return xs.len() }
+   fn add(xs: array<int or string>) -> int { return xs.len() }
 }
-function total(xs: array<int or string>) -> int { return @array.len(xs) }
-function make() -> array<string or int> { return [1, "b"] }
+fn total(xs: array<int or string>) -> int { return @array.len(xs) }
+fn make() -> array<string or int> { return [1, "b"] }
 let a: array<int or string> = [1, "two", 3]
 print(@array.len(a))
 print(total([1, "a", 2]))

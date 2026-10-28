@@ -1,6 +1,6 @@
 struct Q {
     n: int
-    function f(me: int) -> int {
+    fn f(me: int) -> int {
         return 1
     }
 }

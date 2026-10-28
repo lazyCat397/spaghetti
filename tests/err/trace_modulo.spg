@@ -1,7 +1,7 @@
 #> friendly-terminal
 import { risky } from "./trace_modulo_lib.spg"
 
-function outer() -> int {
+fn outer() -> int {
     return risky(9)
 }
 

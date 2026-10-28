@@ -1,4 +1,4 @@
-function checa(result: bool) -> string {
+fn checa(result: bool) -> string {
     let this = if (result == true) {
         "yes"
     } else {

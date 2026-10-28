@@ -1,7 +1,7 @@
 let a = 1; let b = 2;
 if (a < b) { print("smaller"); }
-function f() { return; }
-function g(x: int) -> int { return x; }
+fn f() { return; }
+fn g(x: int) -> int { return x; }
 f(); print(g(3))
 ;;
 print(a + b);

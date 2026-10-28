@@ -1,10 +1,10 @@
 //! function signatures for the editor, read from the document's tokens.
 //!
 //! three kinds of callable names are understood:
-//! - named functions: `function dobro(x: int) -> int`
-//! - values of a function type: `let f: function(int) -> int`, and a param
-//!   `g: function(int) -> int` (struct fields have the same shape, harmless here)
-//! - lambdas bound to a name: `let s = function(x: int) -> int { ... }`
+//! - named functions: `fn dobro(x: int) -> int`
+//! - values of a function type: `let f: fn(int) -> int`, and a param
+//!   `g: fn(int) -> int` (struct fields have the same shape, harmless here)
+//! - lambdas bound to a name: `let s = fn(x: int) -> int { ... }`
 //!
 //! everything is token-level on purpose, like the rest of the editor support. it
 //! works while the buffer is half-typed, and never needs a full resolve. sturdy.
@@ -55,7 +55,7 @@ fn closing(tokens: &[Token], open: usize) -> Option<usize> {
 }
 
 /// reads one type starting at `i`, returning its text and the index after it.
-/// covers the names, `array<T>`, `map<K, V>` and `function(A, B) -> R`
+/// covers the names, `array<T>`, `map<K, V>` and `fn(A, B) -> R`
 pub fn read_type(tokens: &[Token], i: usize) -> (String, usize) {
     let (base, next) = read_type_base(tokens, i);
     // `T?`: an optional type
@@ -161,12 +161,12 @@ pub fn declared(tokens: &[Token]) -> Vec<Signature> {
     out
 }
 
-/// names bound to a function type or a lambda: `NAME: function(..) -> R` (a
-/// param, a typed let) and `let NAME = function(..) -> R { .. }`
+/// names bound to a function type or a lambda: `NAME: fn(..) -> R` (a
+/// param, a typed let) and `let NAME = fn(..) -> R { .. }`
 pub fn bound_values(tokens: &[Token]) -> Vec<Signature> {
     let mut out = Vec::new();
     for i in 0..tokens.len() {
-        // `NAME: function(A, B) -> R`
+        // `NAME: fn(A, B) -> R`
         if let (Some(T::Ident(name)), Some(T::Colon), Some(T::Function), Some(T::LParen)) =
             (kind(tokens, i), kind(tokens, i + 1), kind(tokens, i + 2), kind(tokens, i + 3))
         {
@@ -175,7 +175,7 @@ pub fn bound_values(tokens: &[Token]) -> Vec<Signature> {
                 out.push(sig);
             }
         }
-        // `let NAME = function(x: T) -> R { .. }`
+        // `let NAME = fn(x: T) -> R { .. }`
         if let (Some(T::Let | T::Const), Some(T::Ident(name)), Some(T::Eq), Some(T::Function), Some(T::LParen)) =
             (kind(tokens, i), kind(tokens, i + 1), kind(tokens, i + 2), kind(tokens, i + 3), kind(tokens, i + 4))
         {
@@ -187,12 +187,12 @@ pub fn bound_values(tokens: &[Token]) -> Vec<Signature> {
     out
 }
 
-/// a function TYPE's text (`function(int, string) -> bool`) as a signature with
+/// a function TYPE's text (`fn(int, string) -> bool`) as a signature with
 /// unnamed params
 fn from_function_type(name: &str, ty: &str) -> Option<Signature> {
     let inner = ty.strip_prefix("fn(")?;
     // the param list ends at the first `) -> ` that isn't inside `<...>` or
-    // another `function(`. a tiny depth scan is enough for what read_type writes
+    // another `fn(`. a tiny depth scan is enough for what read_type writes
     let mut depth: i32 = 0;
     let mut split = None;
     let mut prev = ' ';
@@ -248,7 +248,7 @@ fn split_top(text: &str) -> Vec<String> {
     out
 }
 
-/// every param of every function (named or lambda) in the document, with
+/// every param of every fn (named or lambda) in the document, with
 /// its type text. params are offered as completions inside their bodies
 pub fn all_params(tokens: &[Token]) -> Vec<(String, String)> {
     let mut out = Vec::new();
@@ -337,14 +337,14 @@ mod tests {
 
     #[test]
     fn named_function_label_and_params() {
-        let t = toks("function dobro(x: int) -> int { return x * 2 }");
+        let t = toks("fn dobro(x: int) -> int { return x * 2 }");
         let s = declared(&t);
         assert_eq!(s[0].label(), "dobro(x: int) -> int");
     }
 
     #[test]
     fn function_type_parameter_is_a_callable() {
-        let t = toks("function aplica(f: function(int, string) -> bool, n: int) -> int { return 0 }");
+        let t = toks("fn aplica(f: fn(int, string) -> bool, n: int) -> int { return 0 }");
         let vals = bound_values(&t);
         assert_eq!(vals[0].name, "f");
         assert_eq!(vals[0].label(), "f(int, string) -> bool");
@@ -352,7 +352,7 @@ mod tests {
 
     #[test]
     fn let_bound_lambda_keeps_its_parameter_names() {
-        let t = toks("let s = function(a: int, b: int) -> int { return a + b }");
+        let t = toks("let s = fn(a: int, b: int) -> int { return a + b }");
         assert_eq!(bound_values(&t)[0].label(), "s(a: int, b: int) -> int");
     }
 
@@ -366,13 +366,13 @@ mod tests {
 
     #[test]
     fn lambda_parameters_are_offered_for_completion() {
-        let t = toks("let k = function(value: int) -> int { return value }");
+        let t = toks("let k = fn(value: int) -> int { return value }");
         assert!(all_params(&t).iter().any(|(n, ty)| n == "value" && ty == "int"));
     }
 
     #[test]
     fn call_does_not_leak_out_of_a_block() {
-        let t = toks("function f() -> void { print(1) }\nlet z = 2");
+        let t = toks("fn f() -> void { print(1) }\nlet z = 2");
         let at = t.len();
         assert_eq!(call_at(&t, at), None);
     }
@@ -384,10 +384,10 @@ mod optional_tests {
 
     #[test]
     fn optional_types_are_read_whole() {
-        let t = spg_lexer::Lexer::new("function f(a: int?, b: array<string?>, g: function(int?) -> int?) -> int? { return none }")
+        let t = spg_lexer::Lexer::new("fn f(a: int?, b: array<string?>, g: fn(int?) -> int?) -> int? { return none }")
             .tokenize()
             .unwrap();
         let sigs = declared(&t);
-        assert_eq!(sigs[0].label(), "f(a: int?, b: array<string?>, g: function(int?) -> int?) -> int?");
+        assert_eq!(sigs[0].label(), "f(a: int?, b: array<string?>, g: fn(int?) -> int?) -> int?");
     }
 }

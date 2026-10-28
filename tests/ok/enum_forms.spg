@@ -4,7 +4,7 @@ struct Signal { now: Light, ticks: int }
 
 let current = Light.Yellow
 
-function localLocal(a: Light, b: Light) -> int {
+fn localLocal(a: Light, b: Light) -> int {
     let n = 0
     if (a == b) { n += 1 }
     if (a != b) { n += 10 }
@@ -12,7 +12,7 @@ function localLocal(a: Light, b: Light) -> int {
     return n
 }
 
-function localConst(a: Light) -> int {
+fn localConst(a: Light) -> int {
     let n = 0
     if (a == Light.Green) { n += 1 }
     elif (a != Light.Red) { n += 10 }
@@ -20,23 +20,23 @@ function localConst(a: Light) -> int {
     return n
 }
 
-function constLocal(a: Light) -> bool {
+fn constLocal(a: Light) -> bool {
     return Light.Yellow == a
 }
 
-function pick(flag: bool) -> Light {
+fn pick(flag: bool) -> Light {
     return if (flag) { Light.Green } else { Light.Red }
 }
 
-function viaArray(xs: array<Light>, i: int) -> bool {
+fn viaArray(xs: array<Light>, i: int) -> bool {
     return xs[i] == Light.Yellow
 }
 
-function viaField(s: Signal) -> bool {
+fn viaField(s: Signal) -> bool {
     return s.now == Light.Green
 }
 
-function viaGlobal() -> bool {
+fn viaGlobal() -> bool {
     return current == Light.Yellow
 }
 

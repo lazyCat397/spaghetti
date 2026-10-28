@@ -2,28 +2,28 @@ export struct Vec {
     x: int,
     y: int
 
-    function len2() -> int {
+    fn len2() -> int {
         return me.x * me.x + me.y * me.y
     }
-    function add(o: Vec) -> Vec {
+    fn add(o: Vec) -> Vec {
         return Vec { x: me.x + o.x, y: me.y + o.y }
     }
-    function bump() {
+    fn bump() {
         me.x += 1
         me.y += 1
     }
 }
-export function makeVec(a: int, b: int) -> Vec {
+export fn makeVec(a: int, b: int) -> Vec {
     return Vec { x: a, y: b }
 }
 // a private struct with a method: importers never see the struct, but get its values
 struct Hidden {
     n: int
 
-    function twice() -> int {
+    fn twice() -> int {
         return me.n * 2
     }
 }
-export function hiddenTwice(n: int) -> int {
+export fn hiddenTwice(n: int) -> int {
     return Hidden { n: n }.twice()
 }

@@ -1,5 +1,5 @@
 export let counter: int = 0
-export function inc() -> void { counter += 1 }
-export function read() -> int { return counter }
+export fn inc() -> void { counter += 1 }
+export fn read() -> int { return counter }
 export struct Point { x: int }
-function privada() -> int { return 1 }
+fn privada() -> int { return 1 }

@@ -2,10 +2,10 @@
 export struct Vec {
     tag: string
 
-    function len2() -> string {
+    fn len2() -> string {
         return "other:" + me.tag
     }
 }
-export function makeOther() -> Vec {
+export fn makeOther() -> Vec {
     return Vec { tag: "t" }
 }

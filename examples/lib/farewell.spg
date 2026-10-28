@@ -1,8 +1,8 @@
 // a helper file with two exports; a file can take only one of them
-export function farewell(name: string) -> string {
+export fn farewell(name: string) -> string {
     return "Goodbye, " + name + "."
 }
 
-export function wave() -> string {
+export fn wave() -> string {
     return "(waving)"
 }

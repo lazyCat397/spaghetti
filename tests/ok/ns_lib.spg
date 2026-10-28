@@ -1,12 +1,12 @@
-export function hypotenuse(a: float, b: float) -> float {
+export fn hypotenuse(a: float, b: float) -> float {
     return @math.sqrt(@math.pow(a, 2.0) + @math.pow(b, 2.0))
 }
 
-export function shout(s: string) -> string {
+export fn shout(s: string) -> string {
     return @str.toUpper(@str.trim(s))
 }
 
-export function clockOk() -> bool {
+export fn clockOk() -> bool {
     let t: string = @time.elapsed()
     return len(t) > 0
 }

@@ -1,9 +1,9 @@
-function risky(n: int) -> int {
+fn risky(n: int) -> int {
     if (n < 0) { throw "negative: " + @into.string(n) }
     return n * 2
 }
-function never() -> int { throw "always" }
-function deep(n: int) -> int {
+fn never() -> int { throw "always" }
+fn deep(n: int) -> int {
     if (n == 0) { throw "bottom" }
     return 1 + deep(n - 1)
 }
@@ -44,16 +44,16 @@ try { print(m["zz"]) } catch (e) { print("rt:", e) }
 try { print(@into.int("abc")) } catch (e) { print("rt:", e) }
 try { print(@array.pop(@array.fill(0, 1))) } catch (e: string) { print("rt:", e) }
 
-function safe(n: int) -> int {
+fn safe(n: int) -> int {
     try { return risky(n) } catch (e) { return -1 }
 }
 print(safe(4), safe(-4))
-function f2() -> int {
+fn f2() -> int {
     try { return never() } catch (e) { print("f2", e) }
     return 7
 }
 print(f2())
-function viaCatch() -> int {
+fn viaCatch() -> int {
     try { never() } catch (e) { throw "wrapped(" + e + ")" }
     return 0
 }

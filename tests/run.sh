@@ -225,7 +225,7 @@ err reexport_not_becoming_local.spg "undefined function 'inc'"
 err ns_old_name.spg      "'sqrt' is no longer a global function; use '@math.sqrt'"
 err ns_clock_antigo.spg     "'clock' is no longer a global function" '@time.unix()' '@time.elapsed()'
 err ns_reservado_let.spg    "'@math' is a reserved namespace and cannot be used as a name" '(line 1, column 5)'
-err ns_reservado_fn.spg     "'@time' is a reserved namespace" '(line 1, column 10)'
+err ns_reservado_fn.spg     "'@time' is a reserved namespace" '(line 1, column 4)'
 err ns_reservado_param.spg  "'@array' is a reserved namespace"
 err ns_reservado_struct.spg "'@str' is a reserved namespace" '(line 1, column 8)'
 err ns_no_member.spg       "'@math' is a namespace; use '@math.<name>(...)'"
@@ -277,9 +277,9 @@ diag mangled_func.spg   1 "'two' expects 0 argument(s), got 2"
 diag ns_type.spg        1 "'@math.sqrt' argument #1 expects float, got int"
 
 # the bug that motivated the patch: two DIFFERENT files with an error at the
-# SAME line/column were indistinguishable (just "line 1, column 31" twice
+# SAME line/column were indistinguishable (just "line 1, column 25" twice
 # times) — now each message names its own file
-diag ambiguous.spg 2 "type error in lib/liba.spg at line 1, column 31" "type error in lib/libb.spg at line 1, column 31"
+diag ambiguous.spg 2 "type error in lib/liba.spg at line 1, column 25" "type error in lib/libb.spg at line 1, column 25"
 # the ENTRY file of a multi-file program must also
 # appear by name, not only the imported modules
 diag entry_with_error.spg 2 "type error in lib/liba.spg" "type error in diag/entry_with_error.spg at line 2"
@@ -328,7 +328,7 @@ ok map_basic.spg  '[ana: 31, bia: 26, caio: 41]\n31 3 true false\n-1 26\n[ana, b
 ok map_forms.spg  'g\n[1: [1, 2], 2: [99]]\n6\n4\n2\n3.0\n[5: 2, 10: 7]\ntrue'
 ok map_multi.spg  '3 axe 2\n2\n9'
 ok into_any.spg       '[a, b]\n[1, 2, 3]\n[ana: 1]\nP { x: 1, y: 2 }\nGreen\ntrue 3 2.5\ntext!\n6'
-ok type_builtin.spg       'int float bool string\narray map Point Circle\nColor function none\nstring none\ntrue false true\ntexto hi'
+ok type_builtin.spg       'int float bool string\narray map Point Circle\nColor fn none\nstring none\ntrue false true\ntexto hi'
 ok union_params.spg           'checked string\nchecked float\nhit\nmiss\nhit\nnone\nvalue string\nvalue float\nstring'
 ok array_expected.spg         '3\n3\n0\n2\n2\n2\n2\n2\ntrue'
 ok field_map_expected.spg     '2\n2\n2\n2'
@@ -449,8 +449,8 @@ ok ui_objects.spg '8.5\nfalse\n20\n1052688\n0.0\nkilled'
 err ui_readonly.spg "cannot assign to 'Window.width'"
 err ui_no_method.spg "has no method 'fly'"
 err ui_use_after_kill.spg "this shape was killed"
-err ui_handler_params.spg "expects function() -> void"
-err ui_resize_params.spg "expects function(int, int) -> void"
+err ui_handler_params.spg "expects fn() -> void"
+err ui_resize_params.spg "expects fn(int, int) -> void"
 err ui_native_name.spg "is also the name of a type of install #ui"
 err ui_mouse_readonly.spg "cannot assign to 'Window.mouseX'"
 err ui_mouse_string.spg "expects Mouse"
@@ -494,10 +494,10 @@ exact1 trace_cadeia.spg '6\nruntime error: division by zero\n  at divide (err/tr
 exact1 trace_recursao.spg 'runtime error: stack overflow: more than 100000 nested calls (is a function calling itself forever?)\n  at down (err/trace_recursao.spg:2)\n  ... same line repeated 49 more times\n  ... 99950 more frames'
 exact1 trace_modulo.spg 'error: Oops! index out of bounds: 9 (array has 3 element(s)). The program stopped while running. Check the values involved at that point; a try/catch can handle this kind of error.\n  at risky (err/trace_modulo_lib.spg:3)\n  at outer (err/trace_modulo.spg:5)\n  at <main> (err/trace_modulo.spg:8)'
 ok trace_catch.spg 'caught\nend'
-ok lambdas.spg           '13\n42\n49\n10\n101\n20\niife\n<function>'
+ok lambdas.spg           '13\n42\n49\n10\n101\n20\niife\n<fn>'
 ok lambda_captura.spg    '203\n10'
 err lambda_captura_atribui.spg "a lambda cannot assign 'x'"
-err lambda_type_argument.spg "'ap' argument #1 expects function(int) -> int, got function(string) -> int"
+err lambda_type_argument.spg "'ap' argument #1 expects fn(int) -> int, got fn(string) -> int"
 err lambda_no_return.spg "function '<lambda>' must return int on every path"
 exact1 trace_lambda.spg 'runtime error: division by zero\n  at t (err/trace_lambda.spg:1)\n  at <lambda> (err/trace_lambda.spg:2)\n  at <main> (err/trace_lambda.spg:3)'
 

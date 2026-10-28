@@ -1,5 +1,5 @@
 const c = [1]
-function get() -> array<int> { return c }
+fn get() -> array<int> { return c }
 let y = get()
 y.push(1)
 print("no error")

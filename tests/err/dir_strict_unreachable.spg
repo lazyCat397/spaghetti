@@ -1,5 +1,5 @@
 #> strict
-function f() -> int {
+fn f() -> int {
   return 1
   print(2)
 }

@@ -1,18 +1,18 @@
 // A jump landing in the MIDDLE of a fusable sequence must never be folded
 // into a fused op (the pre-fix peephole did, and miscompiled all of these).
-function lt(c: bool, a: int, b: int, d: int) -> bool {
+fn lt(c: bool, a: int, b: int, d: int) -> bool {
     return (if (c) { a } else { b }) < d
 }
-function plus(c: bool, a: int, b: int) -> int {
+fn plus(c: bool, a: int, b: int) -> int {
     return (if (c) { a } else { b }) + b
 }
-function twice(x: int) -> int {
+fn twice(x: int) -> int {
     return x * 2
 }
-function viaCall(c: bool, a: int, b: int) -> int {
+fn viaCall(c: bool, a: int, b: int) -> int {
     return twice(if (c) { a } else { b })
 }
-function andOr(x: int, y: int) -> int {
+fn andOr(x: int, y: int) -> int {
     if (x < y && y < 10 || x == 99) {
         return 1
     }

@@ -1,2 +1,2 @@
 export enum Color { Cyan, Magenta }
-export function second() -> Color { return Color.Magenta }
+export fn second() -> Color { return Color.Magenta }

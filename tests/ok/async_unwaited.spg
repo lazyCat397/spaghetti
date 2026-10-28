@@ -1,5 +1,5 @@
 // a task that fails and nobody waits on: the program still exits 0, but the error gets a warning
-function bad() -> task<int> {
+fn bad() -> task<int> {
     throw "boom"
 }
 let t = bad()

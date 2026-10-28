@@ -1,2 +1,2 @@
-function f(xs: array<int>) -> void { print(@array.len(xs)) }
+fn f(xs: array<int>) -> void { print(@array.len(xs)) }
 f([1, "x"])

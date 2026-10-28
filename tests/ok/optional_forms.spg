@@ -3,7 +3,7 @@ struct No {
     prox: No?
 }
 
-function acha(xs: array<int>, alvo: int) -> int? {
+fn acha(xs: array<int>, alvo: int) -> int? {
     let i = 0
     while (i < @array.len(xs)) {
         if (xs[i] == alvo) {
@@ -14,14 +14,14 @@ function acha(xs: array<int>, alvo: int) -> int? {
     return none
 }
 
-function double(x: int?) -> int {
+fn double(x: int?) -> int {
     if (x == none) {
         return -1
     }
     return x * 2
 }
 
-function sum(list: No?) -> int {
+fn sum(list: No?) -> int {
     let total = 0
     let atual = list
     while (atual != none) {
@@ -31,18 +31,18 @@ function sum(list: No?) -> int {
     return total
 }
 
-function two(a: int?, b: int?) -> int {
+fn two(a: int?, b: int?) -> int {
     if (a == none || b == none) {
         return 0
     }
     return a + b
 }
 
-function usaLambda(x: int?) -> int {
+fn usaLambda(x: int?) -> int {
     if (x == none) {
         return 0
     }
-    let k = function() -> int { return x + 1 }
+    let k = fn() -> int { return x + 1 }
     return k()
 }
 
@@ -64,7 +64,7 @@ print(xs)
 print(a ?? acha([1, 2], 2) ?? 0)
 print(two(2, 3), two(none, 1), usaLambda(4), usaLambda(none))
 let calls = 0
-function count() -> int {
+fn count() -> int {
     calls += 1
     return 7
 }

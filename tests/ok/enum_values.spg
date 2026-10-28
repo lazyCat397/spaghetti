@@ -13,5 +13,5 @@ print(Neg.A.value, Neg.B.value, Plain.Z.value)
 let l = Level.High
 print(l.value + 1, l, @into.string(l))
 for n in Name { print(n, n.value) }
-function code(s: Ns) -> int { return s.value * 100 }
+fn code(s: Ns) -> int { return s.value * 100 }
 print(code(Ns.two))

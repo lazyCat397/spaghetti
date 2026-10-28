@@ -1,5 +1,5 @@
 // lambdas can be tasks too. `task<void>` falls off the end, just like a void function does
-let say = function(s: string) -> task<void> {
+let say = fn(s: string) -> task<void> {
     print("say: ${s}")
 }
 let t = say("hi")
@@ -7,7 +7,7 @@ print("after")
 t.wait()
 
 let cap = 10
-let addLater = function(n: int) -> task<int> {
+let addLater = fn(n: int) -> task<int> {
     @time.sleep(20)
     return n + cap
 }

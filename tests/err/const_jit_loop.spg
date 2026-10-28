@@ -1,5 +1,5 @@
 const c = [1, 2, 3]
-function bump() {
+fn bump() {
     let i = 0
     while (i < 3) {
         c[i] = c[i] + 1

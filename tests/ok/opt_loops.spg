@@ -1,6 +1,6 @@
 // loop shapes: back-edge inversion, break/continue, zero iterations, all
 // relations, bound as a local or as a constant
-function skipEvens(n: int) -> int {
+fn skipEvens(n: int) -> int {
     let s = 0
     let i = 0
     while (i < n) {
@@ -15,7 +15,7 @@ function skipEvens(n: int) -> int {
     }
     return s
 }
-function countDown(n: int) -> int {
+fn countDown(n: int) -> int {
     let c = 0
     let i = n
     while (i > 0) {
@@ -24,7 +24,7 @@ function countDown(n: int) -> int {
     }
     return c
 }
-function lte(n: int) -> int {
+fn lte(n: int) -> int {
     let c = 0
     let i = 0
     while (i <= n) {
@@ -33,7 +33,7 @@ function lte(n: int) -> int {
     }
     return c
 }
-function ne(n: int) -> int {
+fn ne(n: int) -> int {
     let c = 0
     let i = 0
     while (i != n) {
@@ -42,7 +42,7 @@ function ne(n: int) -> int {
     }
     return c
 }
-function nested(n: int) -> int {
+fn nested(n: int) -> int {
     let t = 0
     let i = 0
     while (i < n) {
@@ -55,7 +55,7 @@ function nested(n: int) -> int {
     }
     return t
 }
-function sumArr(a: array<int>) -> int {
+fn sumArr(a: array<int>) -> int {
     let t = 0
     for v in a {
         if (v == 3) {

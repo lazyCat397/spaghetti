@@ -1,2 +1,2 @@
 import { x } from "./auto_import.spg"
-export function x() -> int { return 1 }
+export fn x() -> int { return 1 }

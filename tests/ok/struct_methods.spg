@@ -2,19 +2,19 @@ struct Point {
     x: int,
     y: int
 
-    function sum() -> int {
+    fn sum() -> int {
         return me.x + me.y
     }
-    function scale(k: int) {
+    fn scale(k: int) {
         me.x *= k
         me.y *= k
     }
-    function dist2(other: Point) -> int {
+    fn dist2(other: Point) -> int {
         let dx = me.x - other.x
         let dy = me.y - other.y
         return dx * dx + dy * dy
     }
-    function describe() -> string {
+    fn describe() -> string {
         return "(" + @into.string(me.x) + ", " + @into.string(me.y) + ")"
     }
 }
@@ -28,24 +28,24 @@ print(Point { x: 1, y: 1 }.sum())
 struct Counter {
     n: int
 
-    function inc() -> Counter {
+    fn inc() -> Counter {
         me.n += 1
         return me
     }
-    function twice() {
+    fn twice() {
         me.inc()
         me.inc()
     }
-    function fact(k: int) -> int {
+    fn fact(k: int) -> int {
         if (k <= 1) {
             return 1
         }
         return k * me.fact(k - 1)
     }
-    function isBig() -> bool {
+    fn isBig() -> bool {
         return me.n > 2
     }
-    function label() {
+    fn label() {
         return "n=" + @into.string(me.n)
     }
 }
@@ -53,7 +53,7 @@ struct Box {
     c: Counter,
     items: array<Counter>
 
-    function total() -> int {
+    fn total() -> int {
         let t = me.c.n
         for it in me.items {
             t += it.n
@@ -81,7 +81,7 @@ for i in 0..3 {
     b.c.inc()
 }
 print(c.n)
-function useIt(k: Counter) -> int {
+fn useIt(k: Counter) -> int {
     k.inc()
     return k.n
 }
@@ -89,7 +89,7 @@ print(useIt(c))
 
 // the receiver is evaluated exactly once, before the arguments
 let made = 0
-function newCounter() -> Counter {
+fn newCounter() -> Counter {
     made += 1
     return Counter { n: 100 }
 }
@@ -102,14 +102,14 @@ print(me + 1)
 
 // a method may be declared before the struct's other members and before use
 struct Late {
-    function hello() -> string {
+    fn hello() -> string {
         return "hi"
     }
 }
 print(Late {}.hello())
 
 // a method named like a global function / a variable does not clash
-function sum() -> int {
+fn sum() -> int {
     return -1
 }
 print(sum())

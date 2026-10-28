@@ -1,11 +1,11 @@
 import { value, g } from "../lib/lib.spg"
 
-function usaParam(value: int) -> int { return value + 1 }
-function usaLocal() -> int {
+fn usaParam(value: int) -> int { return value + 1 }
+fn usaLocal() -> int {
     let g: int = 7
     return g
 }
-function usaAmbos() -> int {
+fn usaAmbos() -> int {
     let r: int = g
     return r
 }

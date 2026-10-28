@@ -30,7 +30,7 @@ pub struct Decl {
     /// 1-based line and column of the name, as the lexer reports them
     pub line: usize,
     pub col: usize,
-    /// type text (`int`, `Point`, `function(int) -> int`), or the signature label
+    /// type text (`int`, `Point`, `fn(int) -> int`), or the signature label
     /// for a callable. empty when nothing is known
     pub ty: String,
     /// the struct a method or field belongs to
@@ -319,7 +319,7 @@ mod tests {
 
     #[test]
     fn struct_fields_and_methods_have_owners() {
-        let t = toks("struct Point {\n  x: int,\n  y: int,\n  function sum(k: int) -> int { return me.x + k }\n}");
+        let t = toks("struct Point {\n  x: int,\n  y: int,\n  fn sum(k: int) -> int { return me.x + k }\n}");
         let d = declarations(&t);
         assert!(d.iter().any(|x| x.name == "x" && x.kind == Kind::Field && x.owner.as_deref() == Some("Point")));
         let m = d.iter().find(|x| x.name == "sum").unwrap();
@@ -329,16 +329,16 @@ mod tests {
 
     #[test]
     fn let_type_comes_from_annotation_or_value() {
-        let t = toks("let a: int = 1\nlet f = function(x: int) -> int { return x }\nlet s = \"hi\"");
+        let t = toks("let a: int = 1\nlet f = fn(x: int) -> int { return x }\nlet s = \"hi\"");
         let d = declarations(&t);
         assert_eq!(d.iter().find(|x| x.name == "a").unwrap().ty, "int");
-        assert_eq!(d.iter().find(|x| x.name == "f").unwrap().ty, "function(int) -> int");
+        assert_eq!(d.iter().find(|x| x.name == "f").unwrap().ty, "fn(int) -> int");
         assert_eq!(d.iter().find(|x| x.name == "s").unwrap().ty, "string");
     }
 
     #[test]
     fn nearest_local_wins_over_a_global_of_the_same_name() {
-        let t = toks("let n = 1\nfunction f(n: string) -> void { print(n) }");
+        let t = toks("let n = 1\nfn f(n: string) -> void { print(n) }");
         let d = declarations(&t);
         let at = t.iter().rposition(|x| x.kind == T::Ident("n".into())).unwrap();
         match target(&t, &d, at) {
@@ -357,7 +357,7 @@ mod tests {
 
     #[test]
     fn method_call_resolves_through_the_receiver_type() {
-        let src = "struct Point {\n  x: int,\n  function sum(k: int) -> int { return me.x + k }\n}\nlet p = Point { x: 1 }\nprint(p.sum(3))";
+        let src = "struct Point {\n  x: int,\n  fn sum(k: int) -> int { return me.x + k }\n}\nlet p = Point { x: 1 }\nprint(p.sum(3))";
         let t = toks(src);
         let d = declarations(&t);
         let call_at = t.iter().position(|x| x.kind == T::Int(3)).unwrap();

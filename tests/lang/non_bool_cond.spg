@@ -1,4 +1,4 @@
-function checa(x: int) -> void {
+fn checa(x: int) -> void {
     if (x) {
         print("oops")
     }

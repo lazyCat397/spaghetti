@@ -1,4 +1,4 @@
-function run() -> int {
+fn run() -> int {
     let s = "naïve"
     print(@str.charAt(s, 5))
     return 0

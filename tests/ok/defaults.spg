@@ -1,4 +1,4 @@
-function this(n: int = 10, s: string = "hi", f: float = -1.5, b: bool = true) {
+fn this(n: int = 10, s: string = "hi", f: float = -1.5, b: bool = true) {
     print(n, s, f, b)
 }
 this()
@@ -8,7 +8,7 @@ this(3, "x", 2.0)
 this(3, "x", 2.0, false)
 struct P {
     v: int
-    function show(k: int = 7) {
+    fn show(k: int = 7) {
         print(me.v + k)
     }
 }

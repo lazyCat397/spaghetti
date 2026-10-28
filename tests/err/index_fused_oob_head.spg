@@ -1,4 +1,4 @@
-function run() -> int {
+fn run() -> int {
     let a = [1, 2, 3]
     let ix = 7
     let x = 5

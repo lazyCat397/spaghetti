@@ -1,6 +1,6 @@
 enum Dir { Up, Down, Left, Right }
 
-function axis(d: Dir) -> string {
+fn axis(d: Dir) -> string {
     when (d) {
         Dir.Up, Dir.Down { return "vertical" }
         Dir.Left, Dir.Right { return "horizontal" }
@@ -8,7 +8,7 @@ function axis(d: Dir) -> string {
     return "never"
 }
 
-function score(n: int) -> string {
+fn score(n: int) -> string {
     when (n) {
         1 { return "one" }
         2, 3 { return "few" }

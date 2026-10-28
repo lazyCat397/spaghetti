@@ -1,8 +1,8 @@
-function divide(a: int, b: int) -> int {
+fn divide(a: int, b: int) -> int {
     return a / b
 }
 
-function compute(x: int) -> int {
+fn compute(x: int) -> int {
     let r = divide(10, x)
     return r + 1
 }

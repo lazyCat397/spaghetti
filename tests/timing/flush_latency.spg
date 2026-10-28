@@ -1,4 +1,4 @@
-function crunch() -> int {
+fn crunch() -> int {
     let i = 0
     let a = 0
     while (i < 1000000000) {

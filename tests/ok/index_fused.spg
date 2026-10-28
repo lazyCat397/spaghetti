@@ -1,4 +1,4 @@
-function run() -> int {
+fn run() -> int {
     let a = [1, 2, 3, 4]
     let f = [1.5, 2.5]
     let b = [true, true, false]
@@ -33,7 +33,7 @@ function run() -> int {
     print(m)
     return a[0] + a[1]
 }
-function alias() -> int {
+fn alias() -> int {
     let row = [1, 2]
     let m = [[0, 0], [0, 0]]
     let r = 0

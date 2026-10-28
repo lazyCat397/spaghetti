@@ -1,5 +1,5 @@
 enum Color { Vermelho, Verde }
-function Color.padrao() -> Color {
+fn Color.padrao() -> Color {
     return Color.Verde
 }
 let c = Color.Verde

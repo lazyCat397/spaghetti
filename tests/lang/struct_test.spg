@@ -69,10 +69,10 @@ path.points[0].x += 1000
 print(path.points[0].x)
 
 // function taking and returning a struct
-function makeOrigin() -> Point {
+fn makeOrigin() -> Point {
     return Point { x: 0, y: 0 }
 }
-function distSq(a: Point, b: Point) -> int {
+fn distSq(a: Point, b: Point) -> int {
     let dx: int = a.x - b.x
     let dy: int = a.y - b.y
     return dx * dx + dy * dy
@@ -82,7 +82,7 @@ print(origin.x)
 print(distSq(Point { x: 0, y: 0 }, Point { x: 3, y: 4 }))
 
 // side effect evaluated only once in a field compound assignment
-function getPoint(pt: Point) -> Point {
+fn getPoint(pt: Point) -> Point {
     print("getPoint chamado")
     return pt
 }
