@@ -6,12 +6,12 @@ struct Terminal {
     _v: int
 
     // the simplest one. ask, receive, done.
-    function askString(prompt: string) -> string {
+    fn askString(prompt: string) -> string {
         return readLine(prompt)
     }
 
     // sometimes having a fallback is all you need
-    function askStringOr(prompt: string, fallback: string) -> string {
+    fn askStringOr(prompt: string, fallback: string) -> string {
         try {
             return readLine(prompt)
         } catch (e: string) {
@@ -20,7 +20,7 @@ struct Terminal {
     }
 
     // numbers are a little trickier, so let's keep asking until we get one
-    function askInt(prompt: string) -> int {
+    fn askInt(prompt: string) -> int {
         while (true) {
             let raw = readLine(prompt)
             try {
@@ -34,7 +34,7 @@ struct Terminal {
 
     // same thing, but with a fallback
     // hopefully the user gets it right before we need one :)
-    function askIntOr(prompt: string, fallback: int) -> int {
+    fn askIntOr(prompt: string, fallback: int) -> int {
         try {
             return me.askInt(prompt)
         } catch (e: string) {
@@ -44,7 +44,7 @@ struct Terminal {
 
     // floats get a little extra attention
     // special values are cool, but not always what we want here
-    function askFloat(prompt: string) -> float {
+    fn askFloat(prompt: string) -> float {
         while (true) {
             let raw = readLine(prompt)
             let low = @str.toLower(@str.trim(raw))
@@ -61,7 +61,7 @@ struct Terminal {
         return 0.0
     }
 
-    function askFloatOr(prompt: string, fallback: float) -> float {
+    fn askFloatOr(prompt: string, fallback: float) -> float {
         try {
             return me.askFloat(prompt)
         } catch (e: string) {
@@ -70,7 +70,7 @@ struct Terminal {
     }
 
     // yes/no questions, now with a few extra ways to say yes, idk why
-    function askYesNo(prompt: string) -> bool {
+    fn askYesNo(prompt: string) -> bool {
         while (true) {
             let low = @str.toLower(@str.trim(readLine(prompt + " [y/n]: ")))
             if (low == "y" || low == "yes" ) { return true }
@@ -80,7 +80,7 @@ struct Terminal {
         return false
     }
 
-    function askYesNoOr(prompt: string, fallback: bool) -> bool {
+    fn askYesNoOr(prompt: string, fallback: bool) -> bool {
         try {
             return me.askYesNo(prompt)
         } catch (e: string) {
@@ -92,13 +92,13 @@ struct Terminal {
     // nothing too fancy, just the basics
 
     // pick a character, pick a width, get a line
-    function rule(width: int, char: string) -> string {
+    fn rule(width: int, char: string) -> string {
         return @str.repeat(char, width)
     }
 
     // center some text, more or less
     // if it doesn't fit, we'll let it be
-    function center(text: string, width: int) -> string {
+    fn center(text: string, width: int) -> string {
         let space = width - @str.len(text)
         if (space <= 0) { return text }
         let left = space / 2
@@ -108,7 +108,7 @@ struct Terminal {
 
     // a tiny box for your text
     // suddenly your terminal output looks like you put in some effort
-    function box(text: string) -> string {
+    fn box(text: string) -> string {
         let width = @str.len(text)
         let edge = "+" + @str.repeat("-", width + 2) + "+"
         return edge + "\n| " + text + " |\n" + edge

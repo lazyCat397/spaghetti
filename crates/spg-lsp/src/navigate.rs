@@ -70,7 +70,7 @@ fn inferred(tokens: &[Token], i: usize) -> String {
                 return String::new();
             };
             let types: Vec<String> = params.into_iter().map(|(_, t)| t).collect();
-            format!("function({}) -> {}", types.join(", "), signature::return_after(tokens, close))
+            format!("fn({}) -> {}", types.join(", "), signature::return_after(tokens, close))
         }
         Some(T::Function) => read_type(tokens, i).0,
         Some(T::Ident(name)) if kind_at(tokens, i + 1) == Some(&T::LBrace) => name.clone(),

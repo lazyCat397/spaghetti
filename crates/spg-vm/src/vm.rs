@@ -724,7 +724,7 @@ impl<'p> Vm<'p> {
                 locals.extend(frame.value_stack.drain(at..));
                 let callee_value = frame.pop()?;
                 let Value::Func(closure) = callee_value else {
-                    return Err(RuntimeError::TypeMismatch { expected: "function", found: callee_value.type_name() });
+                    return Err(RuntimeError::TypeMismatch { expected: "fn", found: callee_value.type_name() });
                 };
                 // captured values go before the args
                 let mut all = Vec::with_capacity(closure.captures.len() + locals.len());

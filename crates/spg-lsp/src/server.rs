@@ -544,7 +544,7 @@ impl<W: Write> Server<W> {
             return items;
         }
         const KEYWORDS: &[&str] = &[
-            "let", "const", "function", "return", "if", "else", "while", "for", "in", "try", "catch", "throw", "break",
+            "let", "const", "fn", "return", "if", "else", "while", "for", "in", "try", "catch", "throw", "break",
             "continue", "when", "elif", "import", "export", "from", "install", "struct", "enum", "true", "false", "none", "then", "and", "or", "not",
         ];
         const TYPES: &[&str] = &["int", "float", "bool", "string", "void", "array", "map", "task"];
@@ -1799,7 +1799,7 @@ fn keyword_doc(word: &str) -> Option<&'static str> {
     Some(match word {
         "let" => "declares a variable",
         "const" => "declares a constant, fixed for the whole program",
-        "function" => "declares a function. `function Type.name()` declares an associated function of a struct or enum",
+        "fn" => "declares a function. `fn Type.name()` declares an associated function of a struct or enum",
         "return" => "leaves the function with a value",
         "if" => "runs a block when the condition holds (the condition goes in parentheses)",
         "elif" | "else" => "the other branches of an `if`",

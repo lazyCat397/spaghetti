@@ -210,7 +210,7 @@ impl Value {
             Value::Map(_) => "map",
             Value::Struct(_) => "struct",
             Value::Enum(..) => "enum",
-            Value::Func(_) => "function",
+            Value::Func(_) => "fn",
             Value::Task(_) => "task",
             Value::Void => "void",
             Value::Nil => "none",
@@ -310,7 +310,7 @@ impl fmt::Display for Value {
             }
             Value::Void => write!(f, "void"),
             Value::Nil => write!(f, "none"),
-            Value::Func(_) => write!(f, "<function>"),
+            Value::Func(_) => write!(f, "<fn>"),
             Value::Task(_) => write!(f, "<task>"),
             Value::Enum(def, variant) => ENUM_DEFS.with(|d| {
                 match d.borrow().get(*def as usize).and_then(|e| e.variants.get(*variant as usize)) {

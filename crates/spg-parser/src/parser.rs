@@ -242,8 +242,8 @@ impl Parser {
                 let value = self.parse_expr()?;
                 Ok(Stmt::Throw { value, pos })
             }
-            // `function (` at statement start is an anonymous function used as an
-            // expression statement (`function() { ... }()`), not a declaration
+            // `fn (` at statement start is an anonymous function used as an
+            // expression statement (`fn() { ... }()`), not a declaration
             TokenKind::Function if !self.next_is(&TokenKind::LParen) => self.parse_function_decl(false),
             TokenKind::Struct => self.parse_struct_decl(false),
             TokenKind::Enum => self.parse_enum_decl(false),
@@ -820,7 +820,7 @@ impl Parser {
             Stmt::FunctionDecl { name, .. } if name.contains('.') => {
                 let pos = self.peek_pos();
                 Err(ParseError::Unexpected {
-                    expected: "a method name inside the struct (associated functions go outside: function Type.name())".to_string(),
+                    expected: "a method name inside the struct (associated functions go outside: fn Type.name())".to_string(),
                     found: TokenKind::Dot,
                     line: pos.line,
                     col: pos.col,
@@ -1011,7 +1011,7 @@ impl Parser {
                 Ok(inner)
             }
             TokenKind::Function => {
-                self.expect(TokenKind::LParen, "'(' (function(T, ...) -> R)")?;
+                self.expect(TokenKind::LParen, "'(' (fn(T, ...) -> R)")?;
                 let mut params = Vec::new();
                 if !self.check(&TokenKind::RParen) {
                     params.push(self.parse_type_expr()?);
@@ -1019,8 +1019,8 @@ impl Parser {
                         params.push(self.parse_type_expr()?);
                     }
                 }
-                self.expect(TokenKind::RParen, "')' (function(T, ...) -> R)")?;
-                self.expect(TokenKind::Arrow, "'->' (function(T, ...) -> R)")?;
+                self.expect(TokenKind::RParen, "')' (fn(T, ...) -> R)")?;
+                self.expect(TokenKind::Arrow, "'->' (fn(T, ...) -> R)")?;
                 let ret = self.parse_type_expr()?;
                 Ok(TypeExpr::Function { params, ret: Box::new(ret) })
             }
@@ -1598,7 +1598,7 @@ fn symbol_text(k: &TokenKind) -> &'static str {
         TokenKind::Semicolon => ";",
         TokenKind::Let => "let",
         TokenKind::Const => "const",
-        TokenKind::Function => "function",
+        TokenKind::Function => "fn",
         TokenKind::Return => "return",
         TokenKind::If => "if",
         TokenKind::Else => "else",

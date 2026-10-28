@@ -89,7 +89,7 @@ fn read_type_base(tokens: &[Token], i: usize) -> (String, usize) {
             } else {
                 ("void".to_string(), close + 1)
             };
-            (format!("function({}) -> {}", params.join(", "), ret), after)
+            (format!("fn({}) -> {}", params.join(", "), ret), after)
         }
         Some(T::TypeArray) if kind(tokens, i + 1) == Some(&T::Lt) => {
             let (inner, after) = read_type(tokens, i + 2);
@@ -190,7 +190,7 @@ pub fn bound_values(tokens: &[Token]) -> Vec<Signature> {
 /// a function TYPE's text (`function(int, string) -> bool`) as a signature with
 /// unnamed params
 fn from_function_type(name: &str, ty: &str) -> Option<Signature> {
-    let inner = ty.strip_prefix("function(")?;
+    let inner = ty.strip_prefix("fn(")?;
     // the param list ends at the first `) -> ` that isn't inside `<...>` or
     // another `function(`. a tiny depth scan is enough for what read_type writes
     let mut depth: i32 = 0;

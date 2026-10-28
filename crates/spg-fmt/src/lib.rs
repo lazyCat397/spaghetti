@@ -38,7 +38,7 @@ enum Piece {
 }
 
 const KEYWORDS: &[&str] = &[
-    "let", "const", "function", "return", "if", "else", "while", "for", "in", "try", "catch", "throw", "break",
+    "let", "const", "fn", "return", "if", "else", "while", "for", "in", "try", "catch", "throw", "break",
     "continue", "when", "elif", "import", "export", "from", "install", "struct", "enum", "true", "false", "int", "float", "step",
     "bool", "string", "void", "array",
 ];

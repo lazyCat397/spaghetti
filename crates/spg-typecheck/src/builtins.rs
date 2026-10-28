@@ -272,7 +272,7 @@ fn parse_ty(text: &str) -> Ty {
         "void" => Ty::Void,
         "any" => Ty::Any,
         _ => {
-            if let Some(rest) = t.strip_prefix("function") {
+            if let Some(rest) = t.strip_prefix("fn") {
                 // `function(a, b) -> ret`: a function value, as a parameter of a library function
                 let open = rest.find('(').expect("a function type in a library signature has `(`");
                 let close = matching_close(rest, open).expect("a function type in a library signature has `)`");

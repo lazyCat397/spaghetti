@@ -144,7 +144,7 @@ impl std::fmt::Display for Ty {
             Ty::NoneLit => write!(f, "none"),
             Ty::Function { params, ret } => {
                 let list: Vec<String> = params.iter().map(|p| p.to_string()).collect();
-                write!(f, "function({}) -> {}", list.join(", "), ret)
+                write!(f, "fn({}) -> {}", list.join(", "), ret)
             }
         }
     }

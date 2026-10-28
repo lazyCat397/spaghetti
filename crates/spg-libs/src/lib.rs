@@ -53,7 +53,7 @@ pub enum LibValue {
     /// a value of an enum the program declares, handed back by a library: the enum's name and the
     /// variant's name (`("Align", "Center")`). the VM finds the enum by name
     Variant(String, String),
-    /// a value a library can not look inside: "function", "task", or "deep" (nested too deeply,
+    /// a value a library can not look inside: "fn", "task", or "deep" (nested too deeply,
     /// does it contain itself?)
     Opaque(&'static str),
 }

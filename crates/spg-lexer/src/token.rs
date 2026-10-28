@@ -115,7 +115,7 @@ pub fn lookup_keyword(word: &str) -> Option<TokenKind> {
     match word {
         "let" => Some(TokenKind::Let),
         "const" => Some(TokenKind::Const),
-        "function" => Some(TokenKind::Function),
+        "fn" => Some(TokenKind::Function),
         "return" => Some(TokenKind::Return),
         "if" => Some(TokenKind::If),
         "else" => Some(TokenKind::Else),

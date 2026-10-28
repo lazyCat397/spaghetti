@@ -1,11 +1,8 @@
 {
   "Function": {
-    "prefix": [
-      "fn",
-      "function"
-    ],
+    "prefix": "fn",
     "body": [
-      "function ${1:name}(${2:a}: ${3:int}) -> ${4:int} {",
+      "fn ${1:name}(${2:a}: ${3:int}) -> ${4:int} {",
       "\t$0",
       "}"
     ],
@@ -14,7 +11,7 @@
   "Exported function": {
     "prefix": "exportfn",
     "body": [
-      "export function ${1:name}(${2:a}: ${3:int}) -> ${4:int} {",
+      "export fn ${1:name}(${2:a}: ${3:int}) -> ${4:int} {",
       "\t$0",
       "}"
     ],

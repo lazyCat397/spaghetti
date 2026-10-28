@@ -71,7 +71,7 @@ fn to_lib(value: Value, depth: usize) -> LibValue {
             }
         }
         Value::Enum(..) => LibValue::Enum(value.to_string()),
-        Value::Func(_) => LibValue::Opaque("function"),
+        Value::Func(_) => LibValue::Opaque("fn"),
         Value::Task(_) => LibValue::Opaque("task"),
     }
 }

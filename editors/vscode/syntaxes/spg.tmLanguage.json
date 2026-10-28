@@ -157,13 +157,13 @@
       ]
     },
     "function-value": {
-      "match": "\\bfunction\\b(?=\\s*\\()",
+      "match": "\\bfn\\b(?=\\s*\\()",
       "name": "storage.type.function.spg"
     },
     "definitions": {
       "patterns": [
         {
-          "match": "\\b(function)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": {
               "name": "storage.type.function.spg"
