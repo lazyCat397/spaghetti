@@ -1,7 +1,7 @@
 #!/bin/bash
 # tick: rewrites the same terminal line after each test (update-spg.bat waits for this line).
 # say: clears that line before any normal message (FAIL, skip, summary) so nothing sticks to it.
-tick() { printf '\r[progress] %d passed out of %d, %d failed' "$pass" "$TOTAL" "$fail"; }
+tick() { if [ "$TOTAL" = 0 ]; then printf '\r[progress] %d passed, %d failed' "$pass" "$fail"; else printf '\r[progress] %d passed out of %d, %d failed' "$pass" "$TOTAL" "$fail"; fi; }
 say()  { printf '\r\033[K%s\n' "$*"; }
 # Multi-file regression. Checks the EXACT OUTPUT (not just the exit code):
 # a renaming bug usually gives a wrong result without crashing.
@@ -27,6 +27,24 @@ count_tests() {
     echo $((n+loopn+avul))
 }
 TOTAL=$(count_tests)
+# NOJIT_ONLY=1 (set by the --no-jit CI step): run only the files in tests/jit-list.txt,
+# the ones where the JIT compiles at least one function. Every other file runs the same
+# VM code path with or without --no-jit, so its second run adds nothing. Regenerate the
+# list with: bash tests/jit-list.sh
+declare -A JIT_LIST=()
+skipped=0
+if [ -n "${NOJIT_ONLY:-}" ]; then
+    TOTAL=0
+    while IFS= read -r line; do [ -n "$line" ] && JIT_LIST[$line]=1; done < jit-list.txt
+    for key in "${!JIT_LIST[@]}"; do   # a listed file that no longer exists is a stale entry
+        [ -e "$key" ] || { echo "WARN jit-list.txt: $key does not exist (run: bash tests/jit-list.sh)"; }
+    done
+fi
+# skip_nojit <file>: true (skip) when NOJIT_ONLY is set and the file is not in the JIT list
+skip_nojit() {
+    if [ -n "${NOJIT_ONLY:-}" ] && [ -z "${JIT_LIST[$1]:-}" ]; then skipped=$((skipped+1)); return 0; fi
+    return 1
+}
 # norm: makes a program's output independent of the platform's path style. Windows
 # prints `err\x.spg` and may add a `\\?\C:\...` prefix; the expectations use `err/x.spg`.
 # Only the directories before `err` or `ok` are touched, so `"a\nb"` printed by a program stays as it is.
@@ -43,12 +61,14 @@ pass=0; fail=0
 tick
 
 ok() {   # ok <file> <expected output, with \n>
+    if skip_nojit "ok/$1"; then return 0; fi
     raw=$(spgrun "ok/$1" 2>&1); code=$?; got=$(printf '%s' "$raw" | norm)
     want=$(printf -- "$2")
     if [ "$code" = 0 ] && [ "$got" = "$want" ]; then pass=$((pass+1)); tick; else
         fail=$((fail+1)); tick; say "FAIL ok/$1 (exit=$code)"; echo "  want: $(echo "$want" | tr '\n' '|')"; echo "  got:  $(echo "$got" | tr '\n' '|')"; fi
 }
 err() {  # err <file> <fragment> [<fragment>...]  — ALL must appear
+    if skip_nojit "err/$1"; then return 0; fi
     f="$1"; shift
     raw=$(spgrun "err/$f" 2>&1); code=$?; got=$(printf '%s' "$raw" | norm)
     miss=""
@@ -80,12 +100,14 @@ ok str_chars.spg         '5\n5\n3\nï\naç\nNAÏVE\n5\ná|é|í\nééé\n3\ntrue
 # buffered stdout (print goes through a 64 KB buffer when stdout is not a terminal).
 # These prove ORDER and COMPLETENESS, which is what buffering could break.
 exact1() {  # exact1 <file> <expected output> — exit code 1 and EXACT output (stdout+stderr), in order
+    if skip_nojit "err/$1"; then return 0; fi
     raw=$(spgrun "err/$1" 2>&1); code=$?; got=$(printf '%s' "$raw" | norm)
     want=$(printf -- "$2")
     if [ "$code" = 1 ] && [ "$got" = "$want" ]; then pass=$((pass+1)); tick; else
         fail=$((fail+1)); tick; say "FAIL err/$1 (exit=$code)"; echo "  want: $(echo "$want" | tr '\n' '|')"; echo "  got:  $(echo "$got" | tr '\n' '|')"; fi
 }
 lines() {  # lines <file> <number of lines> <last line> — nothing may be lost beyond the buffer
+    if skip_nojit "ok/$1"; then return 0; fi
     raw=$(spgrun "ok/$1" 2>&1); code=$?; got=$(printf '%s' "$raw" | norm)
     n=$(echo "$got" | wc -l); last=$(echo "$got" | tail -1)
     if [ "$code" = 0 ] && [ "$n" = "$2" ] && [ "$last" = "$3" ]; then pass=$((pass+1)); tick; else
@@ -255,6 +277,7 @@ err opt_index_oob.spg       'index out of bounds: 7 (array has 3 element(s))'
 # Counts the errors (1 semantic error = 1 diagnostic) and forbids leaking
 # internal format: mangled names ('#'/'::') and Rust Debug output (Named(/Array().
 diag() {  # diag <file> <error count> <fragment> [<fragment>...] — ALL must appear
+    if skip_nojit "diag/$1"; then return 0; fi
     f="$1"; n_esperado="$2"; shift 2
     raw=$(spgrun "diag/$f" 2>&1); code=$?
     got=$(echo "$raw" | tr '\\' '/')   # Windows prints lib\x.spg: compare with /
@@ -424,6 +447,7 @@ for f in ok/*.spg lang/*.spg ../examples/*.spg; do
     # environment-dependent programs: their output depends on the machine (time, PowerShell on the PATH),
     # not on the optimizer. ps_missing is checked on its own below, with PATH controlled.
     case "$f" in *time_test*|*sleep*|*ps_missing*) continue;; esac
+    if skip_nojit "$f"; then continue; fi
     a=$(spgrun "$f" 2>&1); ca=$?
     b=$(spgrun --no-opt "$f" 2>&1); cb=$?
     if [ "$a" = "$b" ] && [ "$ca" = "$cb" ]; then pass=$((pass+1)); tick; else
@@ -433,6 +457,7 @@ done
 
 # ---- file directives (#> strict / #> timeout N / #> friendly-terminal) ----
 exit124() {  # exit124 <file> <expected output before the cut> — the engine ITSELF cuts with exit 124 and the message
+    if skip_nojit "err/$1"; then return 0; fi
     # (the suite's `timeout 30` also gives 124 on a hang: without the engine's message this is a FAIL)
     raw=$(spgrun "err/$1" 2>&1); code=$?; got=$(printf '%s' "$raw" | norm)
     if [ "$code" = 124 ] && echo "$got" | grep -qF "timeout: the program ran for more than 300 ms" && echo "$got" | head -1 | grep -qF -- "$2"; then pass=$((pass+1)); tick; else
@@ -596,5 +621,5 @@ err friendly_parse_eof.spg 'but I found the end of the file'
 err friendly_parse_else.spg 'needs an '"'"'else'"'"' too'
 err friendly_parse_token.spg 'but I found '"'"'='"'"'.'
 
-say "multi-file: $pass ok, $fail failed"
+say "multi-file: $pass ok, $fail failed${NOJIT_ONLY:+, $skipped skipped (VM-only: the JIT run covers them)}"
 [ "$fail" = 0 ]

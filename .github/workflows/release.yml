@@ -53,7 +53,8 @@ jobs:
           esac
           EOF
           chmod +x "$WRAP"
-          SPG="$WRAP" bash tests/run.sh
+          # only the files where the JIT compiles code need this second run (tests/jit-list.txt)
+          NOJIT_ONLY=1 SPG="$WRAP" bash tests/run.sh
 
   # the .vsix is generated here, not committed to the repository
   vsix:
