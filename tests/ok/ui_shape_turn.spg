@@ -1,0 +1,17 @@
+install #ui
+let win = ui.window("turn", 40, 40)
+let box = win.rect(10.0, 10.0, 20.0, 4.0, ui.rgb(0, 0, 0))
+print(box.rotation)
+print(box.pivotX)
+print(box.pivotY)
+print(box.alpha)
+print(box.fill)
+box.rotation = 90.0
+box.pivotX = 0.0
+box.alpha = 0.25
+box.fill = false
+print(box.rotation)
+print(box.pivotX)
+print(box.pivotY)
+print(box.alpha)
+print(box.fill)

@@ -1,0 +1,31 @@
+// `install #ui` with rounded rectangles. radius is in pixels: 0 is square corners, and it is capped
+// at half the smaller side, so a radius of half the height makes a pill.
+install #ui
+
+let win = ui.window("rounded", 360, 200)
+win.background = ui.hex("#1b1f27")
+
+// a card with soft corners
+let card = win.rect(20.0, 20.0, 150.0, 90.0, ui.hex("#2a3442"))
+card.radius = 16.0
+
+// a pill
+let pill = win.rect(200.0, 30.0, 140.0, 36.0, ui.hex("#ff66aa"))
+pill.radius = 18.0
+
+// a rounded tile that turns
+let tile = win.rect(60.0, 130.0, 70.0, 50.0, ui.hex("#ffd23f"))
+tile.radius = 12.0
+
+// a rounded outline
+let outline = win.rect(200.0, 100.0, 120.0, 70.0, ui.hex("#000000"))
+outline.fill = false
+outline.stroke = 3.0
+outline.strokeColor = ui.hex("#33ccff")
+outline.radius = 20.0
+
+while (true) {
+    let dt = win.nextFrame()
+    if (dt < 0.0) { break }
+    tile.rotation = tile.rotation + 40.0 * dt
+}

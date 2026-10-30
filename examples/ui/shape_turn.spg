@@ -1,0 +1,45 @@
+// `install #ui` with turned shapes. rotation is in degrees, clockwise, around the pivot.
+// pivotX and pivotY are fractions of the width and the height (0.5 is the centre).
+// alpha goes from 0 (invisible) to 1 (solid), and fill = false draws only the outline.
+install #ui
+
+let win = ui.window("turned shapes", 360, 200)
+win.background = ui.hex("#1b1f27")
+
+// a square that spins around its centre
+let spin = win.rect(60.0, 60.0, 80.0, 80.0, ui.hex("#ff3300"))
+
+// a bar that hangs from its top-left corner
+let hang = win.rect(180.0, 40.0, 120.0, 12.0, ui.hex("#33ccff"))
+hang.pivotX = 0.0
+hang.pivotY = 0.0
+hang.rotation = 30.0
+
+// two see-through squares, one over the other
+let front = win.rect(260.0, 110.0, 60.0, 60.0, ui.hex("#ffffff"))
+front.alpha = 0.5
+let back = win.rect(290.0, 130.0, 60.0, 60.0, ui.hex("#ffcc00"))
+back.alpha = 0.5
+back.rotation = 15.0
+
+// an ellipse, and a circle (a square box) in the corner
+let oval = win.ellipse(300.0, 10.0, 50.0, 26.0, ui.hex("#b388ff"))
+oval.rotation = -20.0
+let ball = win.ellipse(10.0, 10.0, 40.0, 40.0, ui.hex("#ff66aa"))
+
+// a line with round ends, from one point to another
+let wire = win.line(10.0, 188.0, 150.0, 176.0, 6.0, ui.hex("#ffd23f"))
+
+// an outline only, turning the other way
+let ring = win.rect(170.0, 135.0, 60.0, 30.0, ui.hex("#000000"))
+ring.fill = false
+ring.stroke = 3.0
+ring.strokeColor = ui.hex("#00ff99")
+ring.rotation = 45.0
+
+while (true) {
+    let dt = win.nextFrame()
+    if (dt < 0.0) { break }
+    spin.rotation = spin.rotation + 45.0 * dt
+    ring.rotation = ring.rotation - 30.0 * dt
+}
