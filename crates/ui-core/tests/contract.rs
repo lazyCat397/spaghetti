@@ -1184,3 +1184,367 @@ fn a_negative_stroke_is_refused_and_the_shape_keeps_its_old_value() {
     assert!(s.shape_mut(id).unwrap().set_stroke(-1.0).is_err());
     assert_eq!(s.shape(id).unwrap().stroke(), 0.0);
 }
+
+// --- turned, see-through and unfilled shapes ----------------------------------------
+
+#[test]
+fn a_turned_rect_is_drawn_turned_around_its_centre() {
+    let mut s = running(40, 40);
+    s.scene_mut().unwrap().set_background(BG);
+    let id = s.add_rect(10.0, 10.0, 20.0, 4.0, RED).unwrap();
+    s.shape_mut(id).unwrap().set_rotation(90.0).unwrap();
+    assert_eq!(drawn(&mut s, 0.1, 20, 5), RED, "the bar now goes up from the centre");
+    assert_eq!(drawn(&mut s, 0.2, 20, 1), BG, "past the end of the bar");
+    assert_eq!(drawn(&mut s, 0.3, 12, 12), BG, "the old place of the bar is empty");
+}
+
+#[test]
+fn a_pivot_on_the_corner_turns_the_rect_around_that_corner() {
+    let mut s = running(40, 40);
+    s.scene_mut().unwrap().set_background(BG);
+    let id = s.add_rect(10.0, 10.0, 20.0, 4.0, RED).unwrap();
+    {
+        let shape = s.shape_mut(id).unwrap();
+        shape.set_rotation(90.0).unwrap();
+        shape.set_pivot_x(0.0).unwrap();
+        shape.set_pivot_y(0.0).unwrap();
+    }
+    assert_eq!(drawn(&mut s, 0.1, 8, 20), RED, "the bar hangs down from the corner");
+    assert_eq!(drawn(&mut s, 0.2, 12, 12), BG, "nothing to the right of the corner");
+}
+
+#[test]
+fn a_turned_shape_takes_clicks_where_it_is_drawn() {
+    let mut s = session(40, 40);
+    s.scene_mut().unwrap().set_background(BG);
+    s.begin_frame(0.0).unwrap();
+    let id = s.add_rect(10.0, 10.0, 20.0, 4.0, RED).unwrap();
+    s.shape_mut(id).unwrap().set_rotation(90.0).unwrap();
+    let mouse = s.backend().mouse_handle();
+    mouse.borrow_mut().position = Some((20.0, 4.0));
+    s.begin_frame(0.1).unwrap();
+    assert!(s.shape_hovered(id), "the end of the turned bar");
+    mouse.borrow_mut().position = Some((12.0, 12.0));
+    s.begin_frame(0.2).unwrap();
+    assert!(!s.shape_hovered(id), "the old box of the bar is not the shape any more");
+}
+
+#[test]
+fn alpha_mixes_the_shape_with_what_is_behind_it() {
+    let mut s = running(10, 10);
+    s.scene_mut().unwrap().set_background(BG);
+    let id = s.add_rect(0.0, 0.0, 10.0, 10.0, 0x00FF_FFFF).unwrap();
+    s.shape_mut(id).unwrap().set_alpha(0.5).unwrap();
+    assert_eq!(drawn(&mut s, 0.1, 5, 5), 0x0088_8888, "half white over the background");
+}
+
+#[test]
+fn an_unfilled_shape_draws_only_its_outline() {
+    let mut s = running(10, 10);
+    s.scene_mut().unwrap().set_background(BG);
+    let id = s.add_rect(0.0, 0.0, 10.0, 10.0, RED).unwrap();
+    {
+        let shape = s.shape_mut(id).unwrap();
+        shape.set_fill(false);
+        shape.set_stroke(2.0).unwrap();
+        shape.set_stroke_color(GREEN);
+    }
+    assert_eq!(drawn(&mut s, 0.1, 1, 1), GREEN, "inside the outline");
+    assert_eq!(drawn(&mut s, 0.2, 5, 5), BG, "the middle is not filled");
+    assert_eq!(drawn(&mut s, 0.3, 9, 9), GREEN, "the far corner is part of the outline");
+}
+
+#[test]
+fn a_shape_with_alpha_zero_draws_nothing() {
+    let mut s = running(10, 10);
+    s.scene_mut().unwrap().set_background(BG);
+    let id = s.add_rect(0.0, 0.0, 10.0, 10.0, RED).unwrap();
+    s.shape_mut(id).unwrap().set_alpha(0.0).unwrap();
+    assert_eq!(drawn(&mut s, 0.1, 5, 5), BG);
+}
+
+#[test]
+fn the_new_fields_refuse_bad_values() {
+    let mut s = session(10, 10);
+    s.scene_mut().unwrap().set_background(BG);
+    let id = s.add_rect(0.0, 0.0, 10.0, 10.0, RED).unwrap();
+    let shape = s.shape_mut(id).unwrap();
+    assert!(shape.set_alpha(1.5).is_err());
+    assert!(shape.set_alpha(-0.1).is_err());
+    assert!(shape.set_alpha(f64::NAN).is_err());
+    assert!(shape.set_rotation(f64::INFINITY).is_err());
+    assert!(shape.set_pivot_x(f64::NAN).is_err());
+    assert!(shape.set_pivot_y(f64::NAN).is_err());
+    assert!(shape.set_alpha(0.25).is_ok());
+    assert_eq!(shape.alpha(), 0.25);
+    assert_eq!(shape.rotation(), 0.0, "a refused value changes nothing");
+}
+
+// --- ellipses -----------------------------------------------------------------------
+
+#[test]
+fn an_ellipse_fills_the_oval_inside_its_box() {
+    let mut s = running(20, 20);
+    s.scene_mut().unwrap().set_background(BG);
+    s.add_ellipse(0.0, 0.0, 20.0, 20.0, RED).unwrap();
+    assert_eq!(drawn(&mut s, 0.1, 10, 10), RED, "the middle");
+    assert_eq!(drawn(&mut s, 0.2, 10, 0), RED, "the top edge, near its middle");
+    assert_eq!(drawn(&mut s, 0.3, 1, 1), BG, "the corner of the box is outside the oval");
+}
+
+#[test]
+fn an_ellipse_takes_clicks_only_inside_the_oval() {
+    let mut s = session(20, 20);
+    s.scene_mut().unwrap().set_background(BG);
+    s.begin_frame(0.0).unwrap();
+    let id = s.add_ellipse(0.0, 0.0, 20.0, 20.0, RED).unwrap();
+    let mouse = s.backend().mouse_handle();
+    mouse.borrow_mut().position = Some((1.0, 1.0));
+    s.begin_frame(0.1).unwrap();
+    assert!(!s.shape_hovered(id), "the corner is outside the oval");
+    mouse.borrow_mut().position = Some((10.0, 10.0));
+    s.begin_frame(0.2).unwrap();
+    assert!(s.shape_hovered(id), "the middle is inside");
+}
+
+#[test]
+fn an_ellipse_outline_is_a_ring_inside_the_oval() {
+    let mut s = running(20, 20);
+    s.scene_mut().unwrap().set_background(BG);
+    let id = s.add_ellipse(0.0, 0.0, 20.0, 20.0, RED).unwrap();
+    {
+        let shape = s.shape_mut(id).unwrap();
+        shape.set_fill(false);
+        shape.set_stroke(2.0).unwrap();
+        shape.set_stroke_color(GREEN);
+    }
+    assert_eq!(drawn(&mut s, 0.1, 10, 1), GREEN, "the ring, near the top");
+    assert_eq!(drawn(&mut s, 0.2, 10, 10), BG, "the middle is not filled");
+}
+
+#[test]
+fn a_turned_ellipse_is_turned_with_its_box() {
+    let mut s = running(40, 40);
+    s.scene_mut().unwrap().set_background(BG);
+    let id = s.add_ellipse(0.0, 0.0, 40.0, 10.0, RED).unwrap();
+    s.shape_mut(id).unwrap().set_rotation(90.0).unwrap();
+    assert_eq!(drawn(&mut s, 0.1, 20, 12), RED, "the long axis now runs down");
+    assert_eq!(drawn(&mut s, 0.2, 30, 5), BG, "the old long axis is empty");
+}
+
+// --- lines --------------------------------------------------------------------------
+
+#[test]
+fn a_line_is_a_band_with_round_ends() {
+    let mut s = running(40, 20);
+    s.scene_mut().unwrap().set_background(BG);
+    s.add_line(5.0, 10.0, 35.0, 10.0, 4.0, RED).unwrap();
+    assert_eq!(drawn(&mut s, 0.1, 20, 10), RED, "the middle of the line");
+    assert_eq!(drawn(&mut s, 0.2, 20, 7), BG, "above the band");
+    assert_eq!(drawn(&mut s, 0.3, 3, 10), RED, "the round end reaches past the first point");
+    assert_eq!(drawn(&mut s, 0.4, 3, 8), BG, "the corner of the end is cut round");
+}
+
+#[test]
+fn a_diagonal_line_is_drawn_along_its_direction() {
+    let mut s = running(20, 20);
+    s.scene_mut().unwrap().set_background(BG);
+    s.add_line(0.0, 0.0, 20.0, 20.0, 4.0, RED).unwrap();
+    assert_eq!(drawn(&mut s, 0.1, 10, 10), RED, "on the line");
+    assert_eq!(drawn(&mut s, 0.2, 10, 4), BG, "off the line, across the diagonal");
+}
+
+#[test]
+fn a_line_takes_clicks_on_its_band() {
+    let mut s = session(40, 20);
+    s.scene_mut().unwrap().set_background(BG);
+    s.begin_frame(0.0).unwrap();
+    let id = s.add_line(5.0, 10.0, 35.0, 10.0, 4.0, RED).unwrap();
+    let mouse = s.backend().mouse_handle();
+    mouse.borrow_mut().position = Some((20.0, 10.0));
+    s.begin_frame(0.1).unwrap();
+    assert!(s.shape_hovered(id));
+    mouse.borrow_mut().position = Some((20.0, 2.0));
+    s.begin_frame(0.2).unwrap();
+    assert!(!s.shape_hovered(id));
+}
+
+#[test]
+fn a_zero_length_line_is_a_dot_and_a_zero_thickness_line_is_nothing() {
+    let mut s = running(20, 20);
+    s.scene_mut().unwrap().set_background(BG);
+    s.add_line(10.0, 10.0, 10.0, 10.0, 6.0, RED).unwrap();
+    s.add_line(2.0, 2.0, 18.0, 2.0, 0.0, GREEN).unwrap();
+    assert_eq!(drawn(&mut s, 0.1, 10, 10), RED, "the dot");
+    assert_eq!(drawn(&mut s, 0.2, 5, 2), BG, "a line of no thickness draws nothing");
+}
+
+#[test]
+fn a_line_refuses_a_negative_thickness() {
+    let mut s = session(10, 10);
+    assert!(s.add_line(0.0, 0.0, 5.0, 5.0, -1.0, RED).is_err());
+    assert!(s.add_line(f64::NAN, 0.0, 5.0, 5.0, 1.0, RED).is_err());
+}
+
+// --- polygons -----------------------------------------------------------------------
+
+const TRIANGLE: [f64; 6] = [0.0, 0.0, 20.0, 0.0, 0.0, 20.0];
+
+#[test]
+fn a_polygon_fills_its_points() {
+    let mut s = running(30, 30);
+    s.scene_mut().unwrap().set_background(BG);
+    s.add_polygon(&TRIANGLE, RED).unwrap();
+    assert_eq!(drawn(&mut s, 0.1, 2, 2), RED, "inside the triangle");
+    assert_eq!(drawn(&mut s, 0.2, 18, 18), BG, "beyond the slanted side");
+}
+
+#[test]
+fn a_polygon_is_drawn_where_its_points_are() {
+    let mut s = running(40, 40);
+    s.scene_mut().unwrap().set_background(BG);
+    s.add_polygon(&[10.0, 10.0, 30.0, 10.0, 20.0, 30.0], RED).unwrap();
+    assert_eq!(drawn(&mut s, 0.1, 20, 15), RED, "the middle of the triangle");
+    assert_eq!(drawn(&mut s, 0.2, 11, 28), BG, "the narrow end is not there");
+}
+
+#[test]
+fn a_polygon_outline_is_drawn_along_its_edges() {
+    let mut s = running(30, 30);
+    s.scene_mut().unwrap().set_background(BG);
+    let id = s.add_polygon(&TRIANGLE, RED).unwrap();
+    {
+        let shape = s.shape_mut(id).unwrap();
+        shape.set_fill(false);
+        shape.set_stroke(2.0).unwrap();
+        shape.set_stroke_color(GREEN);
+    }
+    assert_eq!(drawn(&mut s, 0.1, 1, 1), GREEN, "next to the left edge");
+    assert_eq!(drawn(&mut s, 0.2, 5, 5), BG, "the middle is not filled");
+}
+
+#[test]
+fn a_polygon_turns_around_its_centre() {
+    let mut s = running(30, 30);
+    s.scene_mut().unwrap().set_background(BG);
+    let id = s.add_polygon(&TRIANGLE, RED).unwrap();
+    assert_eq!(drawn(&mut s, 0.1, 2, 2), RED);
+    s.shape_mut(id).unwrap().set_rotation(180.0).unwrap();
+    assert_eq!(drawn(&mut s, 0.2, 2, 2), BG, "turned half a turn, the corner is empty");
+}
+
+#[test]
+fn a_polygon_takes_clicks_inside_it() {
+    let mut s = session(30, 30);
+    s.scene_mut().unwrap().set_background(BG);
+    s.begin_frame(0.0).unwrap();
+    let id = s.add_polygon(&TRIANGLE, RED).unwrap();
+    let mouse = s.backend().mouse_handle();
+    mouse.borrow_mut().position = Some((2.0, 2.0));
+    s.begin_frame(0.1).unwrap();
+    assert!(s.shape_hovered(id));
+    mouse.borrow_mut().position = Some((18.0, 18.0));
+    s.begin_frame(0.2).unwrap();
+    assert!(!s.shape_hovered(id));
+}
+
+#[test]
+fn a_polygon_needs_three_points() {
+    let mut s = session(10, 10);
+    assert!(s.add_polygon(&[0.0, 0.0, 5.0, 5.0], RED).is_err(), "two points");
+    assert!(s.add_polygon(&[0.0, 0.0, 5.0, 5.0, 1.0], RED).is_err(), "an odd count");
+    assert!(s.add_polygon(&[0.0, 0.0, f64::NAN, 5.0, 1.0, 1.0], RED).is_err(), "not a number");
+}
+
+// --- rounded rectangles -------------------------------------------------------------
+
+#[test]
+fn a_rounded_rect_cuts_its_corners() {
+    let mut s = running(20, 20);
+    s.scene_mut().unwrap().set_background(BG);
+    let id = s.add_rect(0.0, 0.0, 20.0, 20.0, RED).unwrap();
+    s.shape_mut(id).unwrap().set_radius(6.0).unwrap();
+    assert_eq!(drawn(&mut s, 0.1, 0, 0), BG, "the corner is cut");
+    assert_eq!(drawn(&mut s, 0.2, 2, 2), RED, "inside the round corner");
+    assert_eq!(drawn(&mut s, 0.3, 10, 0), RED, "the middle of the top side");
+    assert_eq!(drawn(&mut s, 0.4, 10, 10), RED, "the middle");
+}
+
+#[test]
+fn a_radius_is_capped_at_half_the_smaller_side() {
+    let mut s = running(20, 20);
+    s.scene_mut().unwrap().set_background(BG);
+    let id = s.add_rect(0.0, 0.0, 20.0, 20.0, RED).unwrap();
+    s.shape_mut(id).unwrap().set_radius(100.0).unwrap();
+    assert_eq!(drawn(&mut s, 0.1, 0, 10), RED, "the middle of the left side");
+    assert_eq!(drawn(&mut s, 0.2, 0, 0), BG, "the corner of the box is out");
+}
+
+#[test]
+fn a_rounded_rect_takes_clicks_inside_its_round() {
+    let mut s = session(20, 20);
+    s.scene_mut().unwrap().set_background(BG);
+    s.begin_frame(0.0).unwrap();
+    let id = s.add_rect(0.0, 0.0, 20.0, 20.0, RED).unwrap();
+    s.shape_mut(id).unwrap().set_radius(6.0).unwrap();
+    let mouse = s.backend().mouse_handle();
+    mouse.borrow_mut().position = Some((0.0, 0.0));
+    s.begin_frame(0.1).unwrap();
+    assert!(!s.shape_hovered(id), "the cut corner");
+    mouse.borrow_mut().position = Some((2.0, 2.0));
+    s.begin_frame(0.2).unwrap();
+    assert!(s.shape_hovered(id), "inside the round corner");
+}
+
+#[test]
+fn a_negative_radius_is_refused() {
+    let mut s = session(10, 10);
+    let id = s.add_rect(0.0, 0.0, 10.0, 10.0, RED).unwrap();
+    let shape = s.shape_mut(id).unwrap();
+    assert!(shape.set_radius(-1.0).is_err());
+    assert!(shape.set_radius(f64::NAN).is_err());
+    assert_eq!(shape.radius(), 0.0);
+}
+
+// --- each corner on its own ---------------------------------------------------------
+
+#[test]
+fn a_single_rounded_corner_leaves_the_others_square() {
+    let mut s = running(20, 20);
+    s.scene_mut().unwrap().set_background(BG);
+    let id = s.add_rect(0.0, 0.0, 20.0, 20.0, RED).unwrap();
+    s.shape_mut(id).unwrap().set_top_left_radius(10.0).unwrap();
+    assert_eq!(drawn(&mut s, 0.1, 0, 0), BG, "the rounded corner is cut");
+    assert_eq!(drawn(&mut s, 0.2, 19, 0), RED, "the top-right corner is square");
+    assert_eq!(drawn(&mut s, 0.3, 0, 19), RED, "the bottom-left corner is square");
+    assert_eq!(drawn(&mut s, 0.4, 19, 19), RED, "the bottom-right corner is square");
+}
+
+#[test]
+fn corners_that_do_not_fit_on_a_side_are_scaled_together() {
+    let mut s = running(20, 20);
+    s.scene_mut().unwrap().set_background(BG);
+    let id = s.add_rect(0.0, 0.0, 20.0, 20.0, RED).unwrap();
+    {
+        let shape = s.shape_mut(id).unwrap();
+        shape.set_top_left_radius(30.0).unwrap();
+        shape.set_top_right_radius(30.0).unwrap();
+        assert_eq!(shape.top_left_radius(), 30.0, "the value as set is kept");
+    }
+    assert_eq!(drawn(&mut s, 0.1, 0, 0), BG, "scaled to 10, the corner is still round");
+    assert_eq!(drawn(&mut s, 0.2, 10, 0), RED, "the two rounded corners meet at the middle of the top side");
+}
+
+#[test]
+fn radius_sets_all_four_corners() {
+    let mut s = session(20, 20);
+    let id = s.add_rect(0.0, 0.0, 20.0, 20.0, RED).unwrap();
+    let shape = s.shape_mut(id).unwrap();
+    shape.set_radius(4.0).unwrap();
+    assert_eq!(shape.top_left_radius(), 4.0);
+    assert_eq!(shape.top_right_radius(), 4.0);
+    assert_eq!(shape.bottom_right_radius(), 4.0);
+    assert_eq!(shape.bottom_left_radius(), 4.0);
+    assert!(shape.set_bottom_left_radius(-1.0).is_err());
+    assert_eq!(shape.bottom_left_radius(), 4.0, "a refused value changes nothing");
+}

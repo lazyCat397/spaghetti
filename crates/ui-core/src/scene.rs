@@ -27,9 +27,65 @@ fn size(name: &str, value: f64) -> Result<f64, String> {
     }
 }
 
-/// a filled rectangle. every setter checks its value, so a shape never holds a bad one
+/// what a shape is drawn as inside its box: a rectangle fills the box, an ellipse fills the oval
+/// inscribed in it (a circle when the box is square)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Kind {
+    Rect,
+    Ellipse,
+    /// a line with round ends: a band of the height's thickness, whose ends are half-discs
+    Capsule,
+    /// a closed shape through the vertices of `Shape::vertices`, filled by the even-odd rule
+    Polygon,
+}
+
+/// a checked corner radius: finite and not negative
+fn corner_value(name: &str, value: f64) -> Result<f64, String> {
+    let value = finite(name, value)?;
+    if value < 0.0 {
+        return Err(format!("the {name} must not be negative, got {value}"));
+    }
+    Ok(value)
+}
+
+/// whether `p` is inside the polygon `vertices` (even-odd rule: a ray from `p` crosses it an odd number of times)
+fn inside_polygon(vertices: &[(f64, f64)], (px, py): (f64, f64)) -> bool {
+    let mut inside = false;
+    let n = vertices.len();
+    let mut j = n - 1;
+    for i in 0..n {
+        let (xi, yi) = vertices[i];
+        let (xj, yj) = vertices[j];
+        if (yi > py) != (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
+/// the squared distance from `p` to the closest edge of the polygon
+fn edge_distance_squared(vertices: &[(f64, f64)], p: (f64, f64)) -> f64 {
+    let n = vertices.len();
+    let mut best = f64::MAX;
+    for i in 0..n {
+        let (ax, ay) = vertices[i];
+        let (bx, by) = vertices[(i + 1) % n];
+        let (dx, dy) = (bx - ax, by - ay);
+        let length2 = dx * dx + dy * dy;
+        let t = if length2 == 0.0 { 0.0 } else { (((p.0 - ax) * dx + (p.1 - ay) * dy) / length2).clamp(0.0, 1.0) };
+        let (cx, cy) = (ax + t * dx, ay + t * dy);
+        best = best.min((p.0 - cx).powi(2) + (p.1 - cy).powi(2));
+    }
+    best
+}
+
+/// a filled rectangle or ellipse. every setter checks its value, so a shape never holds a bad one
 #[derive(Debug, Clone, PartialEq)]
 pub struct Shape {
+    kind: Kind,
+    /// the corners of a polygon, measured from the top-left corner of its box. empty for the others
+    vertices: Vec<(f64, f64)>,
     x: f64,
     y: f64,
     w: f64,
@@ -44,12 +100,70 @@ pub struct Shape {
     stroke: f64,
     /// the color of the outline, black until the program sets another
     stroke_color: u32,
+    /// the turn of the shape in degrees around its pivot, clockwise on screen. `0` is no turn
+    rotation: f64,
+    /// the pivot as a fraction of the width and of the height: `0.5, 0.5` is the centre
+    pivot_x: f64,
+    pivot_y: f64,
+    /// how solid the shape is, from `0` (invisible) to `1` (solid)
+    alpha: f64,
+    /// the corner radii of a rectangle, in pixels, clockwise from the top-left: top-left, top-right,
+    /// bottom-right, bottom-left. `0` is a square corner. an ellipse or a line ignores them
+    radii: [f64; 4],
+    /// whether the inside is painted. without fill and without stroke the shape draws nothing
+    fill: bool,
 }
 
 impl Shape {
     /// a visible rectangle on layer 0. `w` and `h` of zero are fine: nothing is drawn
     pub fn rect(x: f64, y: f64, w: f64, h: f64, color: u32) -> Result<Shape, String> {
+        Shape::of(Kind::Rect, x, y, w, h, color)
+    }
+
+    /// a visible ellipse inside the box `x, y, w, h`, on layer 0. a square box makes a circle
+    pub fn ellipse(x: f64, y: f64, w: f64, h: f64, color: u32) -> Result<Shape, String> {
+        Shape::of(Kind::Ellipse, x, y, w, h, color)
+    }
+
+    /// a visible line of `thickness` pixels from `(x1, y1)` to `(x2, y2)`, with round ends, on layer 0.
+    /// it is a capsule: its width is the length plus the thickness, its height is the thickness, and
+    /// it is turned to point from the first end to the second. a zero-length line is a dot
+    pub fn line(x1: f64, y1: f64, x2: f64, y2: f64, thickness: f64, color: u32) -> Result<Shape, String> {
+        let (x1, y1) = (finite("x1", x1)?, finite("y1", y1)?);
+        let (x2, y2) = (finite("x2", x2)?, finite("y2", y2)?);
+        let thickness = size("thickness", thickness)?;
+        let (dx, dy) = (x2 - x1, y2 - y1);
+        let length = (dx * dx + dy * dy).sqrt();
+        let (w, h) = (length + thickness, thickness);
+        let (cx, cy) = ((x1 + x2) / 2.0, (y1 + y2) / 2.0);
+        let mut shape = Shape::of(Kind::Capsule, cx - w / 2.0, cy - h / 2.0, w, h, color)?;
+        shape.rotation = dy.atan2(dx).to_degrees();
+        Ok(shape)
+    }
+
+    /// a visible polygon on layer 0. `points` is a flat list of x, y pairs, at least three of them. the
+    /// box of the shape is the smallest one that holds the points, and the points are measured from it
+    pub fn polygon(points: &[f64], color: u32) -> Result<Shape, String> {
+        if points.len() < 6 || points.len() % 2 != 0 {
+            return Err(format!("a polygon needs at least 3 points, as x, y pairs, got {} numbers", points.len()));
+        }
+        let mut corners = Vec::with_capacity(points.len() / 2);
+        for pair in points.chunks(2) {
+            corners.push((finite("x", pair[0])?, finite("y", pair[1])?));
+        }
+        let left = corners.iter().map(|c| c.0).fold(f64::MAX, f64::min);
+        let top = corners.iter().map(|c| c.1).fold(f64::MAX, f64::min);
+        let right = corners.iter().map(|c| c.0).fold(f64::MIN, f64::max);
+        let bottom = corners.iter().map(|c| c.1).fold(f64::MIN, f64::max);
+        let mut shape = Shape::of(Kind::Polygon, left, top, right - left, bottom - top, color)?;
+        shape.vertices = corners.into_iter().map(|(x, y)| (x - left, y - top)).collect();
+        Ok(shape)
+    }
+
+    fn of(kind: Kind, x: f64, y: f64, w: f64, h: f64, color: u32) -> Result<Shape, String> {
         Ok(Shape {
+            kind,
+            vertices: Vec::new(),
             x: finite("x", x)?,
             y: finite("y", y)?,
             w: size("w", w)?,
@@ -60,6 +174,12 @@ impl Shape {
             click_through: false,
             stroke: 0.0,
             stroke_color: 0x000000,
+            rotation: 0.0,
+            pivot_x: 0.5,
+            pivot_y: 0.5,
+            alpha: 1.0,
+            radii: [0.0; 4],
+            fill: true,
         })
     }
 
@@ -82,6 +202,236 @@ impl Shape {
 
     pub fn set_stroke_color(&mut self, value: u32) {
         self.stroke_color = value;
+    }
+
+    pub fn rotation(&self) -> f64 {
+        self.rotation
+    }
+
+    pub fn set_rotation(&mut self, value: f64) -> Result<(), String> {
+        self.rotation = finite("rotation", value)?;
+        Ok(())
+    }
+
+    pub fn pivot_x(&self) -> f64 {
+        self.pivot_x
+    }
+
+    pub fn set_pivot_x(&mut self, value: f64) -> Result<(), String> {
+        self.pivot_x = finite("pivotX", value)?;
+        Ok(())
+    }
+
+    pub fn pivot_y(&self) -> f64 {
+        self.pivot_y
+    }
+
+    pub fn set_pivot_y(&mut self, value: f64) -> Result<(), String> {
+        self.pivot_y = finite("pivotY", value)?;
+        Ok(())
+    }
+
+    pub fn alpha(&self) -> f64 {
+        self.alpha
+    }
+
+    pub fn set_alpha(&mut self, value: f64) -> Result<(), String> {
+        let value = finite("alpha", value)?;
+        if !(0.0..=1.0).contains(&value) {
+            return Err(format!("the alpha must be between 0 and 1, got {value}"));
+        }
+        self.alpha = value;
+        Ok(())
+    }
+
+    /// the top-left corner radius as set (the others are in `top_right_radius` and so on)
+    pub fn radius(&self) -> f64 {
+        self.radii[0]
+    }
+
+    /// sets the radius of all four corners at once
+    pub fn set_radius(&mut self, value: f64) -> Result<(), String> {
+        let value = corner_value("radius", value)?;
+        self.radii = [value; 4];
+        Ok(())
+    }
+
+    pub fn top_left_radius(&self) -> f64 {
+        self.radii[0]
+    }
+
+    pub fn set_top_left_radius(&mut self, value: f64) -> Result<(), String> {
+        self.radii[0] = corner_value("topLeftRadius", value)?;
+        Ok(())
+    }
+
+    pub fn top_right_radius(&self) -> f64 {
+        self.radii[1]
+    }
+
+    pub fn set_top_right_radius(&mut self, value: f64) -> Result<(), String> {
+        self.radii[1] = corner_value("topRightRadius", value)?;
+        Ok(())
+    }
+
+    pub fn bottom_right_radius(&self) -> f64 {
+        self.radii[2]
+    }
+
+    pub fn set_bottom_right_radius(&mut self, value: f64) -> Result<(), String> {
+        self.radii[2] = corner_value("bottomRightRadius", value)?;
+        Ok(())
+    }
+
+    pub fn bottom_left_radius(&self) -> f64 {
+        self.radii[3]
+    }
+
+    pub fn set_bottom_left_radius(&mut self, value: f64) -> Result<(), String> {
+        self.radii[3] = corner_value("bottomLeftRadius", value)?;
+        Ok(())
+    }
+
+    pub fn fill(&self) -> bool {
+        self.fill
+    }
+
+    pub fn set_fill(&mut self, value: bool) {
+        self.fill = value;
+    }
+
+    /// true when the shape is drawn the plain way: not turned, solid and filled. the plain way is
+    /// the fast path of the window; every other shape is tested pixel by pixel
+    pub fn is_plain(&self) -> bool {
+        self.kind == Kind::Rect && !self.has_corners() && self.rotation == 0.0 && self.alpha == 1.0 && self.fill
+    }
+
+    fn has_corners(&self) -> bool {
+        self.radii.iter().any(|r| *r > 0.0)
+    }
+
+    /// the corner radii in use, clockwise from the top-left. when the two corners of one side do not
+    /// fit in it (their radii add up to more than the side), all four are scaled down by the same factor
+    fn corner_radii(&self) -> [f64; 4] {
+        let [tl, tr, br, bl] = self.radii.map(|r| r.max(0.0));
+        let (w, h) = (self.w, self.h);
+        let mut factor: f64 = 1.0;
+        for (sum, side) in [(tl + tr, w), (bl + br, w), (tl + bl, h), (tr + br, h)] {
+            if sum > side {
+                factor = factor.min(side / sum);
+            }
+        }
+        [tl * factor, tr * factor, br * factor, bl * factor]
+    }
+
+    pub fn kind(&self) -> Kind {
+        self.kind
+    }
+
+    /// whether the point `local` (measured in the unturned box, from its top-left corner) is inside
+    /// the shape pulled in by `inset` on every side. `0` is the whole shape; the outline is what lies
+    /// inside the whole shape but outside the shape pulled in by the stroke
+    pub fn covers(&self, local: (f64, f64), inset: f64) -> bool {
+        let (lx, ly) = local;
+        match self.kind {
+            Kind::Rect => {
+                if !(lx >= inset && lx < self.w - inset && ly >= inset && ly < self.h - inset) {
+                    return false;
+                }
+                // a corner's circle decides the points in its square; the shape pulled in by `inset`
+                // has corners of radius `r - inset`, and a sharp corner when that is not positive
+                let (w, h) = (self.w, self.h);
+                let [tl, tr, br, bl] = self.corner_radii();
+                let corners = [
+                    (tl, lx < tl && ly < tl, (tl, tl)),
+                    (tr, lx > w - tr && ly < tr, (w - tr, tr)),
+                    (br, lx > w - br && ly > h - br, (w - br, h - br)),
+                    (bl, lx < bl && ly > h - bl, (bl, h - bl)),
+                ];
+                for (r, in_square, (cx, cy)) in corners {
+                    if in_square {
+                        let rr = r - inset;
+                        if rr <= 0.0 {
+                            return true;
+                        }
+                        let (dx, dy) = (lx - cx, ly - cy);
+                        return dx * dx + dy * dy < rr * rr;
+                    }
+                }
+                true
+            }
+            Kind::Polygon => {
+                if !inside_polygon(&self.vertices, local) {
+                    return false;
+                }
+                // the shape pulled in by `inset` keeps the points at least `inset` away from every edge
+                inset <= 0.0 || edge_distance_squared(&self.vertices, local) >= inset * inset
+            }
+            Kind::Capsule => {
+                // the middle line runs between the centres of the two end discs, whose radius is half
+                // the thickness; `inset` only shrinks the radius, so the outline lies inside the band
+                let radius = self.h / 2.0;
+                let cx = lx.clamp(radius, (self.w - radius).max(radius));
+                let r = radius - inset;
+                if r <= 0.0 {
+                    return false;
+                }
+                let (dx, dy) = (lx - cx, ly - self.h / 2.0);
+                dx * dx + dy * dy < r * r
+            }
+            Kind::Ellipse => {
+                let (rx, ry) = (self.w / 2.0 - inset, self.h / 2.0 - inset);
+                if rx <= 0.0 || ry <= 0.0 {
+                    return false;
+                }
+                let (dx, dy) = ((lx - self.w / 2.0) / rx, (ly - self.h / 2.0) / ry);
+                dx * dx + dy * dy < 1.0
+            }
+        }
+    }
+
+    /// the sine and cosine of the turn, computed once per shape rather than once per pixel
+    pub fn turn(&self) -> (f64, f64) {
+        self.rotation.to_radians().sin_cos()
+    }
+
+    /// the point of the window `(px, py)` seen in the shape's own unturned box, measured from its
+    /// top-left corner. `turn` is the result of `Shape::turn`. the point is inside the box when
+    /// both coordinates are at least 0 and below the width and the height
+    pub fn to_local(&self, turn: (f64, f64), px: f64, py: f64) -> (f64, f64) {
+        let (sin, cos) = turn;
+        let (pivot_x, pivot_y) = (self.pivot_x * self.w, self.pivot_y * self.h);
+        let (dx, dy) = (px - self.x - pivot_x, py - self.y - pivot_y);
+        // undo the turn: a point turned by `rotation` clockwise comes back by the opposite turn
+        let ux = dx * cos + dy * sin;
+        let uy = -dx * sin + dy * cos;
+        (pivot_x + ux, pivot_y + uy)
+    }
+
+    /// whether the window point `(px, py)` is inside the shape, turned with it. the click test
+    /// and the drawing both use this, so a turned shape is hit where it is seen
+    pub fn contains(&self, px: f64, py: f64) -> bool {
+        if self.kind == Kind::Rect && !self.has_corners() && self.rotation == 0.0 {
+            return px >= self.x && px < self.x + self.w && py >= self.y && py < self.y + self.h;
+        }
+        self.covers(self.to_local(self.turn(), px, py), 0.0)
+    }
+
+    /// the box that holds the shape in the window, turned: left, top, right and bottom in pixels
+    pub fn bounds(&self) -> (f64, f64, f64, f64) {
+        let (sin, cos) = self.turn();
+        let (pivot_x, pivot_y) = (self.pivot_x * self.w, self.pivot_y * self.h);
+        let (mut left, mut top, mut right, mut bottom) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+        for (cx, cy) in [(0.0, 0.0), (self.w, 0.0), (0.0, self.h), (self.w, self.h)] {
+            let (dx, dy) = (cx - pivot_x, cy - pivot_y);
+            let x = self.x + pivot_x + dx * cos - dy * sin;
+            let y = self.y + pivot_y + dx * sin + dy * cos;
+            left = left.min(x);
+            top = top.min(y);
+            right = right.max(x);
+            bottom = bottom.max(y);
+        }
+        (left, top, right, bottom)
     }
 
     pub fn x(&self) -> f64 {

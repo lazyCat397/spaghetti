@@ -199,6 +199,24 @@ impl<B: Backend> Session<B> {
         Ok(self.scene_mut()?.add(shape))
     }
 
+    /// a new visible line of `thickness` pixels between two points, on layer 0, drawn from the next frame on
+    pub fn add_line(&mut self, x1: f64, y1: f64, x2: f64, y2: f64, thickness: f64, color: u32) -> Result<ShapeId, String> {
+        let shape = Shape::line(x1, y1, x2, y2, thickness, color)?;
+        Ok(self.scene_mut()?.add(shape))
+    }
+
+    /// a new visible polygon through the points `points` (x, y pairs), on layer 0, drawn from the next frame on
+    pub fn add_polygon(&mut self, points: &[f64], color: u32) -> Result<ShapeId, String> {
+        let shape = Shape::polygon(points, color)?;
+        Ok(self.scene_mut()?.add(shape))
+    }
+
+    /// a new visible ellipse in the box `x, y, w, h`, on layer 0, drawn from the next frame on
+    pub fn add_ellipse(&mut self, x: f64, y: f64, w: f64, h: f64, color: u32) -> Result<ShapeId, String> {
+        let shape = Shape::ellipse(x, y, w, h, color)?;
+        Ok(self.scene_mut()?.add(shape))
+    }
+
     pub fn shape(&self, id: ShapeId) -> Result<&Shape, String> {
         self.scene()?.get(id)
     }
@@ -360,10 +378,14 @@ impl<B: Backend> Session<B> {
         for drawn in scene.draw_list() {
             match drawn {
                 Drawn::Shape(shape) => {
-                    fill_box(pixels, *width, *height, shape.x(), shape.y(), shape.w(), shape.h(), shape.color());
-                    let stroke = shape.stroke().round();
-                    if stroke > 0.0 {
-                        draw_outline(pixels, *width, *height, shape, stroke);
+                    if shape.is_plain() {
+                        fill_box(pixels, *width, *height, shape.x(), shape.y(), shape.w(), shape.h(), shape.color());
+                        let stroke = shape.stroke().round();
+                        if stroke > 0.0 {
+                            draw_outline(pixels, *width, *height, shape, stroke);
+                        }
+                    } else {
+                        draw_turned_shape(pixels, *width, *height, shape);
                     }
                 }
                 Drawn::Label(label) => draw_label(pixels, *width, *height, label),
@@ -436,7 +458,7 @@ impl<B: Backend> Session<B> {
             .draw_order_ids()
             .into_iter()
             .rev()
-            .find(|(_, s)| !s.click_through() && x >= s.x() && x < s.x() + s.w() && y >= s.y() && y < s.y() + s.h())
+            .find(|(_, s)| !s.click_through() && s.contains(x, y))
             .map(|(id, _)| id)
     }
 
@@ -487,6 +509,38 @@ fn draw_outline(pixels: &mut [u32], width: usize, height: usize, shape: &Shape, 
     fill_box(pixels, width, height, x, y + h - stroke, w, stroke, c);
     fill_box(pixels, width, height, x, y, stroke, h, c);
     fill_box(pixels, width, height, x + w - stroke, y, stroke, h, c);
+}
+
+/// draws a shape that is turned, see-through, without fill or an ellipse. every pixel of its box is
+/// tested against the shape's own geometry at the pixel's center, then the pixel takes the fill or
+/// the outline, mixed by the shape's alpha
+fn draw_turned_shape(pixels: &mut [u32], width: usize, height: usize, shape: &Shape) {
+    let alpha = (shape.alpha() * 255.0).round() as u8;
+    if alpha == 0 {
+        return;
+    }
+    let (left, top, right, bottom) = shape.bounds();
+    let x0 = left.floor().clamp(0.0, width as f64) as usize;
+    let y0 = top.floor().clamp(0.0, height as f64) as usize;
+    let x1 = right.ceil().clamp(0.0, width as f64) as usize;
+    let y1 = bottom.ceil().clamp(0.0, height as f64) as usize;
+    let turn = shape.turn();
+    let stroke = shape.stroke().round();
+    for py in y0..y1 {
+        for px in x0..x1 {
+            let local = shape.to_local(turn, px as f64 + 0.5, py as f64 + 0.5);
+            if !shape.covers(local, 0.0) {
+                continue;
+            }
+            if shape.covers(local, stroke) {
+                if shape.fill() {
+                    blend(pixels, width, height, px as i64, py as i64, shape.color(), alpha);
+                }
+            } else {
+                blend(pixels, width, height, px as i64, py as i64, shape.stroke_color(), alpha);
+            }
+        }
+    }
 }
 
 /// draws an image into its `width` x `height` pixels, nearest neighbor: each screen pixel takes the

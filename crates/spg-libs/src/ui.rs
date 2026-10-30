@@ -64,7 +64,7 @@ pub static MODULE: NativeModule = NativeModule {
                 NativeField { name: "mouseInside", get: "_getMouseInside", set: None },
                 NativeField { name: "typed", get: "_getTyped", set: None },
             ],
-            methods: &[("rect", "rect"), ("nextFrame", "nextFrame"), ("isDown", "isDown"), ("wasPressed", "wasPressed"), ("wasReleased", "wasReleased"), ("close", "close"), ("onClose", "onClose"), ("onFocus", "onFocus"), ("onBlur", "onBlur"), ("onResize", "onResize"), ("mouseDown", "mouseDown"), ("mousePressed", "mousePressed"), ("mouseReleased", "mouseReleased"), ("text", "text"), ("image", "image")],
+            methods: &[("rect", "rect"), ("ellipse", "ellipse"), ("line", "line"), ("polygon", "polygon"), ("nextFrame", "nextFrame"), ("isDown", "isDown"), ("wasPressed", "wasPressed"), ("wasReleased", "wasReleased"), ("close", "close"), ("onClose", "onClose"), ("onFocus", "onFocus"), ("onBlur", "onBlur"), ("onResize", "onResize"), ("mouseDown", "mouseDown"), ("mousePressed", "mousePressed"), ("mouseReleased", "mouseReleased"), ("text", "text"), ("image", "image")],
         },
         NativeObject {
             name: "Label",
@@ -100,6 +100,16 @@ pub static MODULE: NativeModule = NativeModule {
                 NativeField { name: "color", get: "_getColor", set: Some("_setColor") },
                 NativeField { name: "stroke", get: "_getStroke", set: Some("_setStroke") },
                 NativeField { name: "strokeColor", get: "_getStrokeColor", set: Some("_setStrokeColor") },
+                NativeField { name: "rotation", get: "_getRotation", set: Some("_setRotation") },
+                NativeField { name: "pivotX", get: "_getPivotX", set: Some("_setPivotX") },
+                NativeField { name: "pivotY", get: "_getPivotY", set: Some("_setPivotY") },
+                NativeField { name: "alpha", get: "_getAlpha", set: Some("_setAlpha") },
+                NativeField { name: "radius", get: "_getRadius", set: Some("_setRadius") },
+                NativeField { name: "topLeftRadius", get: "_getTopLeftRadius", set: Some("_setTopLeftRadius") },
+                NativeField { name: "topRightRadius", get: "_getTopRightRadius", set: Some("_setTopRightRadius") },
+                NativeField { name: "bottomRightRadius", get: "_getBottomRightRadius", set: Some("_setBottomRightRadius") },
+                NativeField { name: "bottomLeftRadius", get: "_getBottomLeftRadius", set: Some("_setBottomLeftRadius") },
+                NativeField { name: "fill", get: "_getFill", set: Some("_setFill") },
                 NativeField { name: "visible", get: "_getVisible", set: Some("_setVisible") },
                 NativeField { name: "layer", get: "_getLayer", set: Some("_setLayer") },
                 NativeField { name: "clickThrough", get: "_getClickThrough", set: Some("_setClickThrough") },
@@ -179,7 +189,10 @@ pub static MODULE: NativeModule = NativeModule {
         NativeFn { name: "_setLabelLayer", sig: "(Label, int) -> void", doc: "internal: label.layer = value", call: set_label_layer },
         NativeFn { name: "window", sig: "(string, int, int) -> Window", doc: "opens a window of the given size, in pixels. it shows when the loop starts", call: window },
         NativeFn { name: "nextFrame", sig: "(Window) -> float", doc: "draws the scene and shows it, reads the keys and gives the seconds since the last frame (at most 0.1). gives -1.0 when the window is closing, which ends the loop", call: next_frame },
-        NativeFn { name: "rect", sig: "(Window, float, float, float, float, int) -> Shape", doc: "adds a filled rectangle to the scene: x, y, width, height in pixels, then a color. its outline (shape.stroke, in pixels, inside the edges) and its color (shape.strokeColor) are set on the shape. the window draws it on every frame until it is killed", call: rect },
+        NativeFn { name: "rect", sig: "(Window, float, float, float, float, int) -> Shape", doc: "adds a filled rectangle to the scene: x, y, width, height in pixels, then a color. on the shape: its corner radii in pixels, 0 is square: radius sets all four corners, and topLeftRadius, topRightRadius, bottomRightRadius and bottomLeftRadius set one each (when the two corners of a side do not fit in it, they are scaled down together; ellipses and lines ignore them), its outline (stroke, in pixels, inside the edges, and strokeColor), its turn (rotation, in degrees, clockwise, around the pivot), the pivot (pivotX and pivotY, as fractions of the width and height, 0.5 is the centre), its alpha (0 to 1) and fill (false draws only the outline). the window draws it on every frame until it is killed", call: rect },
+        NativeFn { name: "ellipse", sig: "(Window, float, float, float, float, int) -> Shape", doc: "adds a filled ellipse to the scene, inside the box x, y, width, height in pixels, then a color. a square box makes a circle. the same fields as rect apply: stroke, strokeColor, rotation, pivotX, pivotY, alpha and fill. the window draws it on every frame until it is killed", call: ellipse },
+        NativeFn { name: "line", sig: "(Window, float, float, float, float, float, int) -> Shape", doc: "adds a line from x1, y1 to x2, y2 in pixels, thick pixels wide, with round ends, then a color. its width is the length plus the thickness and its height is the thickness; it is turned to point from the first end to the second (rotation, in degrees). the same fields as rect apply, and the fill is the line itself. the window draws it on every frame until it is killed", call: line },
+        NativeFn { name: "polygon", sig: "(Window, array<float>, int) -> Shape", doc: "adds a filled polygon to the scene: a flat list of x, y pairs in pixels (at least three points, so six numbers), then a color. the shape's box is the smallest that holds the points: its x and y are the top-left corner, and its vertices are measured from it. the same fields as rect apply. the window draws it on every frame until it is killed", call: polygon },
         NativeFn { name: "kill", sig: "(Shape) -> void", doc: "removes the shape from the scene. killing it again does nothing; using it afterwards is an error", call: kill },
         NativeFn { name: "isDown", sig: "(Window, Key) -> bool", doc: "true on every frame the key is held", call: is_down },
         NativeFn { name: "wasPressed", sig: "(Window, Key) -> bool", doc: "true on the one frame the key went down. a tap shorter than one frame can be missed", call: was_pressed },
@@ -223,6 +236,26 @@ pub static MODULE: NativeModule = NativeModule {
         NativeFn { name: "_setStroke", sig: "(Shape, float) -> void", doc: "internal: shape.stroke = value", call: set_shape_stroke },
         NativeFn { name: "_getStrokeColor", sig: "(Shape) -> int", doc: "internal: shape.strokeColor", call: get_shape_stroke_color },
         NativeFn { name: "_setStrokeColor", sig: "(Shape, int) -> void", doc: "internal: shape.strokeColor = value", call: set_shape_stroke_color },
+        NativeFn { name: "_getRotation", sig: "(Shape) -> float", doc: "internal: shape.rotation", call: get_rotation },
+        NativeFn { name: "_setRotation", sig: "(Shape, float) -> void", doc: "internal: shape.rotation = value", call: set_rotation },
+        NativeFn { name: "_getPivotX", sig: "(Shape) -> float", doc: "internal: shape.pivotX", call: get_pivot_x },
+        NativeFn { name: "_setPivotX", sig: "(Shape, float) -> void", doc: "internal: shape.pivotX = value", call: set_pivot_x },
+        NativeFn { name: "_getPivotY", sig: "(Shape) -> float", doc: "internal: shape.pivotY", call: get_pivot_y },
+        NativeFn { name: "_setPivotY", sig: "(Shape, float) -> void", doc: "internal: shape.pivotY = value", call: set_pivot_y },
+        NativeFn { name: "_getAlpha", sig: "(Shape) -> float", doc: "internal: shape.alpha", call: get_alpha },
+        NativeFn { name: "_setAlpha", sig: "(Shape, float) -> void", doc: "internal: shape.alpha = value", call: set_alpha },
+        NativeFn { name: "_getRadius", sig: "(Shape) -> float", doc: "internal: shape.radius", call: get_radius },
+        NativeFn { name: "_setRadius", sig: "(Shape, float) -> void", doc: "internal: shape.radius = value", call: set_radius },
+        NativeFn { name: "_getTopLeftRadius", sig: "(Shape) -> float", doc: "internal: shape.topLeftRadius", call: get_top_left_radius },
+        NativeFn { name: "_setTopLeftRadius", sig: "(Shape, float) -> void", doc: "internal: shape.topLeftRadius = value", call: set_top_left_radius },
+        NativeFn { name: "_getTopRightRadius", sig: "(Shape) -> float", doc: "internal: shape.topRightRadius", call: get_top_right_radius },
+        NativeFn { name: "_setTopRightRadius", sig: "(Shape, float) -> void", doc: "internal: shape.topRightRadius = value", call: set_top_right_radius },
+        NativeFn { name: "_getBottomRightRadius", sig: "(Shape) -> float", doc: "internal: shape.bottomRightRadius", call: get_bottom_right_radius },
+        NativeFn { name: "_setBottomRightRadius", sig: "(Shape, float) -> void", doc: "internal: shape.bottomRightRadius = value", call: set_bottom_right_radius },
+        NativeFn { name: "_getBottomLeftRadius", sig: "(Shape) -> float", doc: "internal: shape.bottomLeftRadius", call: get_bottom_left_radius },
+        NativeFn { name: "_setBottomLeftRadius", sig: "(Shape, float) -> void", doc: "internal: shape.bottomLeftRadius = value", call: set_bottom_left_radius },
+        NativeFn { name: "_getFill", sig: "(Shape) -> bool", doc: "internal: shape.fill", call: get_fill },
+        NativeFn { name: "_setFill", sig: "(Shape, bool) -> void", doc: "internal: shape.fill = value", call: set_fill },
         NativeFn { name: "_setColor", sig: "(Shape, int) -> void", doc: "internal: shape.color = color", call: set_color },
         NativeFn { name: "_getVisible", sig: "(Shape) -> bool", doc: "internal: shape.visible", call: get_visible },
         NativeFn { name: "_setVisible", sig: "(Shape, bool) -> void", doc: "internal: shape.visible = value", call: set_visible },
@@ -1013,6 +1046,49 @@ fn rect(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
     Ok(LibValue::record("Shape", vec![("id", LibValue::Int(shape as i64)), ("win", LibValue::Int(win))]))
 }
 
+fn ellipse(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "ui.ellipse";
+    let win = window_id(F, &args)?;
+    let x = float(F, &args, 1)?;
+    let y = float(F, &args, 2)?;
+    let w = float(F, &args, 3)?;
+    let h = float(F, &args, 4)?;
+    let color = color_arg(F, &args, 5)?;
+    let shape = with_window(F, win, |window| window.add_ellipse(x, y, w, h, color))?;
+    Ok(LibValue::record("Shape", vec![("id", LibValue::Int(shape as i64)), ("win", LibValue::Int(win))]))
+}
+
+fn line(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "ui.line";
+    let win = window_id(F, &args)?;
+    let x1 = float(F, &args, 1)?;
+    let y1 = float(F, &args, 2)?;
+    let x2 = float(F, &args, 3)?;
+    let y2 = float(F, &args, 4)?;
+    let thickness = float(F, &args, 5)?;
+    let color = color_arg(F, &args, 6)?;
+    let shape = with_window(F, win, |window| window.add_line(x1, y1, x2, y2, thickness, color))?;
+    Ok(LibValue::record("Shape", vec![("id", LibValue::Int(shape as i64)), ("win", LibValue::Int(win))]))
+}
+
+fn polygon(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "ui.polygon";
+    let win = window_id(F, &args)?;
+    let points = match args.get(1) {
+        Some(LibValue::Array(items)) => items
+            .iter()
+            .map(|v| match v {
+                LibValue::Float(f) => Ok(*f),
+                _ => Err(LibError::new(F, "argument 2 must be an array of floats")),
+            })
+            .collect::<Result<Vec<f64>, LibError>>()?,
+        _ => return Err(LibError::new(F, "argument 2 must be an array of floats")),
+    };
+    let color = color_arg(F, &args, 2)?;
+    let shape = with_window(F, win, |window| window.add_polygon(&points, color))?;
+    Ok(LibValue::record("Shape", vec![("id", LibValue::Int(shape as i64)), ("win", LibValue::Int(win))]))
+}
+
 fn kill(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
     const F: &str = "ui.kill";
     let (win, id) = shape_handle(F, &args)?;
@@ -1050,6 +1126,37 @@ shape_get!(get_y, "Shape.y", |s| LibValue::Float(s.y()));
 shape_get!(get_shape_stroke, "Shape.stroke", |s| LibValue::Float(s.stroke()));
 shape_set_float!(set_shape_stroke, "Shape.stroke", set_stroke);
 shape_get!(get_shape_stroke_color, "Shape.strokeColor", |s| LibValue::Int(s.stroke_color() as i64));
+shape_get!(get_rotation, "Shape.rotation", |s| LibValue::Float(s.rotation()));
+shape_set_float!(set_rotation, "Shape.rotation", set_rotation);
+shape_get!(get_pivot_x, "Shape.pivotX", |s| LibValue::Float(s.pivot_x()));
+shape_set_float!(set_pivot_x, "Shape.pivotX", set_pivot_x);
+shape_get!(get_pivot_y, "Shape.pivotY", |s| LibValue::Float(s.pivot_y()));
+shape_set_float!(set_pivot_y, "Shape.pivotY", set_pivot_y);
+shape_get!(get_alpha, "Shape.alpha", |s| LibValue::Float(s.alpha()));
+shape_set_float!(set_alpha, "Shape.alpha", set_alpha);
+shape_get!(get_radius, "Shape.radius", |s| LibValue::Float(s.radius()));
+shape_set_float!(set_radius, "Shape.radius", set_radius);
+shape_get!(get_top_left_radius, "Shape.topLeftRadius", |s| LibValue::Float(s.top_left_radius()));
+shape_set_float!(set_top_left_radius, "Shape.topLeftRadius", set_top_left_radius);
+shape_get!(get_top_right_radius, "Shape.topRightRadius", |s| LibValue::Float(s.top_right_radius()));
+shape_set_float!(set_top_right_radius, "Shape.topRightRadius", set_top_right_radius);
+shape_get!(get_bottom_right_radius, "Shape.bottomRightRadius", |s| LibValue::Float(s.bottom_right_radius()));
+shape_set_float!(set_bottom_right_radius, "Shape.bottomRightRadius", set_bottom_right_radius);
+shape_get!(get_bottom_left_radius, "Shape.bottomLeftRadius", |s| LibValue::Float(s.bottom_left_radius()));
+shape_set_float!(set_bottom_left_radius, "Shape.bottomLeftRadius", set_bottom_left_radius);
+shape_get!(get_fill, "Shape.fill", |s| LibValue::Bool(s.fill()));
+
+/// the setter of the `fill` flag of a `Shape`
+fn set_fill(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+    const F: &str = "Shape.fill";
+    let value = boolean(F, &args, 1)?;
+    with_shape(F, &args, |s| {
+        s.set_fill(value);
+        Ok(())
+    })?;
+    Ok(LibValue::Void)
+}
+
 shape_get!(get_w, "Shape.w", |s| LibValue::Float(s.w()));
 shape_get!(get_h, "Shape.h", |s| LibValue::Float(s.h()));
 shape_get!(get_color, "Shape.color", |s| LibValue::Int(s.color() as i64));
