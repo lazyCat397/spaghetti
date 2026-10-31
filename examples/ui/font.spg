@@ -4,10 +4,10 @@ install #ui
 let win = ui.window("font", 360, 200)
 win.background = ui.hex("#1b1f27")
 
-let plain = win.text(16.0, 16.0, "Proportional: iiii mmmm WWWW", ui.hex("#ffffff"), 16)
+let plain = win.label(16.0, 16.0, "Proportional: iiii mmmm WWWW", ui.hex("#ffffff"), 16)
 plain.font = "../assets/fonts/LiberationSans-Regular.ttf"
 
-let block = win.text(
+let block = win.label(
     16.0,
     70.0,
     "Wrapped and centered: %{#ffcc00}outline%{/} text, one font file",

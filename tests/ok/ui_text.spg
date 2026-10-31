@@ -1,6 +1,6 @@
 install #ui
 let win = ui.window("t", 50, 50)
-let note = win.text(1.0, 2.0, "Olá", ui.hex("#ffffff"), 16)
+let note = win.label(1.0, 2.0, "Olá", ui.hex("#ffffff"), 16)
 print(note.text)
 print(note.size)
 note.text = "Oi"

@@ -6,8 +6,8 @@ install #ui
 let win = ui.window("window icon", 320, 180)
 win.background = ui.hex("#202636")
 
-win.text(16.0, 16.0, "space: change the window icon", ui.hex("#ffffff"), 16)
-let name = win.text(16.0, 44.0, "icon: tomato", ui.hex("#ffd23f"), 16)
+win.label(16.0, 16.0, "space: change the window icon", ui.hex("#ffffff"), 16)
+let name = win.label(16.0, 44.0, "icon: tomato", ui.hex("#ffd23f"), 16)
 
 let tomato = "../assets/icons/tomato.ico"
 let basil = "../assets/icons/basil.ico"

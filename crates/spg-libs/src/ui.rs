@@ -66,7 +66,7 @@ pub static MODULE: NativeModule = NativeModule {
                 NativeField { name: "antialias", get: "_getAntialias", set: Some("_setAntialias") },
                 NativeField { name: "windowIcon", get: "_getWindowIcon", set: Some("_setWindowIcon") },
             ],
-            methods: &[("rect", "rect"), ("ellipse", "ellipse"), ("line", "line"), ("polygon", "polygon"), ("nextFrame", "nextFrame"), ("isDown", "isDown"), ("wasPressed", "wasPressed"), ("wasReleased", "wasReleased"), ("close", "close"), ("onClose", "onClose"), ("onFocus", "onFocus"), ("onBlur", "onBlur"), ("onResize", "onResize"), ("mouseDown", "mouseDown"), ("mousePressed", "mousePressed"), ("mouseReleased", "mouseReleased"), ("text", "text"), ("image", "image")],
+            methods: &[("rect", "rect"), ("ellipse", "ellipse"), ("line", "line"), ("polygon", "polygon"), ("nextFrame", "nextFrame"), ("isDown", "isDown"), ("wasPressed", "wasPressed"), ("wasReleased", "wasReleased"), ("close", "close"), ("onClose", "onClose"), ("onFocus", "onFocus"), ("onBlur", "onBlur"), ("onResize", "onResize"), ("mouseDown", "mouseDown"), ("mousePressed", "mousePressed"), ("mouseReleased", "mouseReleased"), ("label", "label"), ("image", "image")],
         },
         NativeObject {
             name: "Label",
@@ -97,8 +97,8 @@ pub static MODULE: NativeModule = NativeModule {
             fields: &[
                 NativeField { name: "x", get: "_getX", set: Some("_setX") },
                 NativeField { name: "y", get: "_getY", set: Some("_setY") },
-                NativeField { name: "w", get: "_getW", set: Some("_setW") },
-                NativeField { name: "h", get: "_getH", set: Some("_setH") },
+                NativeField { name: "width", get: "_getShapeWidth", set: Some("_setShapeWidth") },
+                NativeField { name: "height", get: "_getShapeHeight", set: Some("_setShapeHeight") },
                 NativeField { name: "color", get: "_getColor", set: Some("_setColor") },
                 NativeField { name: "stroke", get: "_getStroke", set: Some("_setStroke") },
                 NativeField { name: "strokeColor", get: "_getStrokeColor", set: Some("_setStrokeColor") },
@@ -138,7 +138,7 @@ pub static MODULE: NativeModule = NativeModule {
         },
     ],
     functions: &[
-        NativeFn { name: "text", sig: "(Window, float, float, string, int, int) -> Label", doc: "adds a line of text to the scene: x, y, the text, a color, and a size in pixels from 1 to 512. for a font file the size is the em (a 16 size is 16 pixels tall); for the bitmap font the 8x8 glyphs are stretched to the size. tags %{#rrggbb} and %{/} color parts of the text. the text is drawn on every frame until it is killed", call: add_text },
+        NativeFn { name: "label", sig: "(Window, float, float, string, int, int) -> Label", doc: "adds a label to the scene, a line of text: x, y, the text, a color, and a size in pixels from 1 to 512. for a font file the size is the em (a 16 size is 16 pixels tall); for the bitmap font the 8x8 glyphs are stretched to the size. tags %{#rrggbb} and %{/} color parts of the text. the text is drawn on every frame until it is killed", call: add_label },
         NativeFn { name: "image", sig: "(Window, float, float, string, int, int) -> Image", doc: "shows a PNG file in the scene: x, y, the path (relative to the script, like a font), and the width and height in pixels (0 keeps the picture's own size on that side). the picture is stretched nearest-neighbor, with no smoothing. the file is read once, now. transparent pixels show what is behind. drawn on every frame until it is killed", call: add_image },
         NativeFn { name: "imageKill", sig: "(Image) -> void", doc: "removes the image from the scene. killing it again does nothing", call: image_kill },
         NativeFn { name: "_getImageX", sig: "(Image) -> float", doc: "internal: image.x", call: get_image_x },
@@ -233,10 +233,10 @@ pub static MODULE: NativeModule = NativeModule {
         NativeFn { name: "_setX", sig: "(Shape, float) -> void", doc: "internal: shape.x = value", call: set_x },
         NativeFn { name: "_getY", sig: "(Shape) -> float", doc: "internal: shape.y", call: get_y },
         NativeFn { name: "_setY", sig: "(Shape, float) -> void", doc: "internal: shape.y = value", call: set_y },
-        NativeFn { name: "_getW", sig: "(Shape) -> float", doc: "internal: shape.w", call: get_w },
-        NativeFn { name: "_setW", sig: "(Shape, float) -> void", doc: "internal: shape.w = value", call: set_w },
-        NativeFn { name: "_getH", sig: "(Shape) -> float", doc: "internal: shape.h", call: get_h },
-        NativeFn { name: "_setH", sig: "(Shape, float) -> void", doc: "internal: shape.h = value", call: set_h },
+        NativeFn { name: "_getShapeWidth", sig: "(Shape) -> float", doc: "internal: shape.width", call: get_shape_width },
+        NativeFn { name: "_setShapeWidth", sig: "(Shape, float) -> void", doc: "internal: shape.width = value", call: set_shape_width },
+        NativeFn { name: "_getShapeHeight", sig: "(Shape) -> float", doc: "internal: shape.height", call: get_shape_height },
+        NativeFn { name: "_setShapeHeight", sig: "(Shape, float) -> void", doc: "internal: shape.height = value", call: set_shape_height },
         NativeFn { name: "_getColor", sig: "(Shape) -> int", doc: "internal: shape.color", call: get_color },
         NativeFn { name: "_getStroke", sig: "(Shape) -> float", doc: "internal: shape.stroke", call: get_shape_stroke },
         NativeFn { name: "_setStroke", sig: "(Shape, float) -> void", doc: "internal: shape.stroke = value", call: set_shape_stroke },
@@ -496,7 +496,7 @@ fn with_label<T>(
     with_window(function, win, |w| f(w.label_mut(id)?))
 }
 
-fn add_text(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
+fn add_label(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
     const F: &str = "ui.text";
     let win = window_id(F, &args)?;
     let x = float(F, &args, 1)?;
@@ -1216,16 +1216,16 @@ fn set_fill(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
     Ok(LibValue::Void)
 }
 
-shape_get!(get_w, "Shape.w", |s| LibValue::Float(s.w()));
-shape_get!(get_h, "Shape.h", |s| LibValue::Float(s.h()));
+shape_get!(get_shape_width, "Shape.width", |s| LibValue::Float(s.w()));
+shape_get!(get_shape_height, "Shape.height", |s| LibValue::Float(s.h()));
 shape_get!(get_color, "Shape.color", |s| LibValue::Int(s.color() as i64));
 shape_get!(get_visible, "Shape.visible", |s| LibValue::Bool(s.visible()));
 shape_get!(get_layer, "Shape.layer", |s| LibValue::Int(s.layer()));
 
 shape_set_float!(set_x, "Shape.x", set_x);
 shape_set_float!(set_y, "Shape.y", set_y);
-shape_set_float!(set_w, "Shape.w", set_w);
-shape_set_float!(set_h, "Shape.h", set_h);
+shape_set_float!(set_shape_width, "Shape.width", set_w);
+shape_set_float!(set_shape_height, "Shape.height", set_h);
 
 fn set_color(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
     const F: &str = "Shape.color";
@@ -1534,8 +1534,8 @@ mod tests {
         let shape = shape_in(&win);
         assert_eq!(get_x(&ctx(), vec![shape.clone()]).unwrap(), f(2.0));
         assert_eq!(get_y(&ctx(), vec![shape.clone()]).unwrap(), f(3.0));
-        assert_eq!(get_w(&ctx(), vec![shape.clone()]).unwrap(), f(4.0));
-        assert_eq!(get_h(&ctx(), vec![shape.clone()]).unwrap(), f(5.0));
+        assert_eq!(get_shape_width(&ctx(), vec![shape.clone()]).unwrap(), f(4.0));
+        assert_eq!(get_shape_height(&ctx(), vec![shape.clone()]).unwrap(), f(5.0));
         assert_eq!(get_color(&ctx(), vec![shape.clone()]).unwrap(), i(0xff3300));
         assert_eq!(get_visible(&ctx(), vec![shape.clone()]).unwrap(), LibValue::Bool(true));
         assert_eq!(get_layer(&ctx(), vec![shape.clone()]).unwrap(), i(0));
@@ -1547,15 +1547,15 @@ mod tests {
         let shape = shape_in(&win);
         set_x(&ctx(), vec![shape.clone(), f(7.5)]).unwrap();
         set_y(&ctx(), vec![shape.clone(), f(-1.0)]).unwrap();
-        set_w(&ctx(), vec![shape.clone(), f(9.0)]).unwrap();
-        set_h(&ctx(), vec![shape.clone(), f(0.0)]).unwrap();
+        set_shape_width(&ctx(), vec![shape.clone(), f(9.0)]).unwrap();
+        set_shape_height(&ctx(), vec![shape.clone(), f(0.0)]).unwrap();
         set_color(&ctx(), vec![shape.clone(), i(0x00ff00)]).unwrap();
         set_visible(&ctx(), vec![shape.clone(), LibValue::Bool(false)]).unwrap();
         set_layer(&ctx(), vec![shape.clone(), i(-3)]).unwrap();
         assert_eq!(get_x(&ctx(), vec![shape.clone()]).unwrap(), f(7.5));
         assert_eq!(get_y(&ctx(), vec![shape.clone()]).unwrap(), f(-1.0));
-        assert_eq!(get_w(&ctx(), vec![shape.clone()]).unwrap(), f(9.0));
-        assert_eq!(get_h(&ctx(), vec![shape.clone()]).unwrap(), f(0.0));
+        assert_eq!(get_shape_width(&ctx(), vec![shape.clone()]).unwrap(), f(9.0));
+        assert_eq!(get_shape_height(&ctx(), vec![shape.clone()]).unwrap(), f(0.0));
         assert_eq!(get_color(&ctx(), vec![shape.clone()]).unwrap(), i(0x00ff00));
         assert_eq!(get_visible(&ctx(), vec![shape.clone()]).unwrap(), LibValue::Bool(false));
         assert_eq!(get_layer(&ctx(), vec![shape.clone()]).unwrap(), i(-3));
@@ -1566,11 +1566,11 @@ mod tests {
         let win = open("bad", 20, 20);
         let shape = shape_in(&win);
         assert_eq!(message(set_x(&ctx(), vec![shape.clone(), f(f64::NAN)])), "x must be a finite number");
-        assert!(set_w(&ctx(), vec![shape.clone(), f(-1.0)]).is_err());
+        assert!(set_shape_width(&ctx(), vec![shape.clone(), f(-1.0)]).is_err());
         assert!(set_color(&ctx(), vec![shape.clone(), i(-5)]).is_err());
         assert!(rect(&ctx(), vec![win.clone(), f(0.0), f(0.0), f(-2.0), f(1.0), i(0)]).is_err());
         assert_eq!(get_x(&ctx(), vec![shape.clone()]).unwrap(), f(2.0));
-        assert_eq!(get_w(&ctx(), vec![shape.clone()]).unwrap(), f(4.0));
+        assert_eq!(get_shape_width(&ctx(), vec![shape.clone()]).unwrap(), f(4.0));
         assert_eq!(get_color(&ctx(), vec![shape.clone()]).unwrap(), i(0xff3300));
     }
 

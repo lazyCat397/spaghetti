@@ -9,12 +9,12 @@ let size = 24
 
 let x = (@into.float(win.width) - ui.textWidth(title, size, 0.0)) / 2.0
 let y = (@into.float(win.height) - ui.textHeight(title, size, 0.0)) / 2.0
-win.text(x, y, title, ui.hex("#ffcc00"), size)
+win.label(x, y, title, ui.hex("#ffcc00"), size)
 
 let phrase = "A long text that wraps over several lines and stays centered in its block"
 let width = 260.0
 
-let block = win.text(
+let block = win.label(
     (@into.float(win.width) - width) / 2.0,
     12.0,
     phrase,

@@ -825,6 +825,12 @@ impl<W: Write> Server<W> {
                                     if seen.insert(lib.clone()) {
                                         items.push(item(lib, 9, Some("installed library".to_string()), None));
                                     }
+                                    // its types and enums (`Align`, `Key`, `Window`) are names of the program too
+                                    for (n, kind) in native_type_names(lib) {
+                                        if seen.insert(n.clone()) {
+                                            items.push(with_sort(item(&n, kind, Some(format!("from install #{}", lib)), None), SORT_IMPORTED));
+                                        }
+                                    }
                                 } else if let Ok(file) = spg_modules::standard_module(lib) {
                                     for (n, kind) in self.exports_of(&file) {
                                         if seen.insert(n.clone()) {
@@ -1142,6 +1148,28 @@ enum DotContext {
 }
 
 /// the variants of `enum <name> { .. }` in a token stream (`None` when it isn't declared there)
+/// the types a native library declares in its text (`struct Window`, `enum Key`, `enum Align`),
+/// with their completion kinds: 22 for a struct, 13 for an enum
+fn native_type_names(lib: &str) -> Vec<(String, i64)> {
+    use spg_lexer::TokenKind as T;
+    let mut out = Vec::new();
+    let Some(module) = spg_libs::module(lib) else { return out };
+    for source in module.structs {
+        let Ok(tokens) = spg_lexer::Lexer::new(source).tokenize() else { continue };
+        for w in tokens.windows(2) {
+            let kind = match w[0].kind {
+                T::Struct => 22,
+                T::Enum => 13,
+                _ => continue,
+            };
+            if let T::Ident(name) = &w[1].kind {
+                out.push((name.clone(), kind));
+            }
+        }
+    }
+    out
+}
+
 fn variants_in(tokens: &[spg_lexer::Token], name: &str) -> Option<Vec<String>> {
     use spg_lexer::TokenKind as T;
     for (i, w) in tokens.windows(3).enumerate() {
@@ -1566,6 +1594,18 @@ mod tests {
     }
 
     #[test]
+    fn a_native_library_offers_its_enums_and_types_as_plain_names() {
+        // `Align` is typed as a name (not after a dot) once the document installs `ui`
+        let labels = labels_of(&complete_at("compl_native_type_name", "install #ui\nAl\n", 1, 2));
+        for want in ["Align", "Key", "Window", "Label"] {
+            assert!(labels.iter().any(|l| l == want), "missing {} in {:?}", want, labels);
+        }
+        // without the install line those names do not exist for the program
+        let off = labels_of(&complete_at("compl_native_type_name_off", "Al\n", 0, 2));
+        assert!(!off.iter().any(|l| l == "Align"), "offered without install: {:?}", off);
+    }
+
+    #[test]
     fn the_members_of_a_native_library_hide_the_internals() {
         // `ui.` offers the functions, but not the `_get`/`_set` ones that serve the object fields
         let labels = labels_of(&complete_at("compl_ui_members", "install #ui\nui.\n", 1, 3));
@@ -1589,7 +1629,7 @@ mod tests {
         // `win.rect(...)` gives a Shape: its members come from the Shape's descriptor
         let text = "install #ui\nlet win = ui.window(\"a\", 1, 1)\nlet red = win.rect(1.0, 1.0, 2.0, 2.0, 5)\nred.\n";
         let labels = labels_of(&complete_at("compl_native_shape", text, 3, 4));
-        for want in ["x", "y", "w", "h", "color", "visible", "layer", "kill"] {
+        for want in ["x", "y", "width", "height", "color", "visible", "layer", "kill"] {
             assert!(labels.iter().any(|l| l == want), "missing {} in {:?}", want, labels);
         }
         assert!(!labels.iter().any(|l| l == "id" || l == "win"), "the handle leaks: {:?}", labels);

@@ -208,6 +208,36 @@ function toDiagnostic(d) {
   return diag;
 }
 
+// ui snippets: read from snippets/ui.json at activation. They are not contributed in package.json,
+// because VS Code would offer them in every .spg file; here they only appear once `install #ui` is in the document.
+const UI_INSTALL = /^\s*install\s*#ui\b/m;
+let uiSnippets = [];
+
+function loadUiSnippets(ctx) {
+  try {
+    const file = path.join(ctx.extensionPath, 'snippets', 'ui.json');
+    const all = JSON.parse(fs.readFileSync(file, 'utf8'));
+    uiSnippets = Object.entries(all).map(([name, s]) => ({ name, ...s }));
+  } catch (e) {
+    log(`ui snippets not loaded: ${e.message}`);
+  }
+}
+
+/** the ui snippets for this document; none after `.`, `@`, `#` or `>` (those open other lists) */
+function uiSnippetItems(doc, trigger) {
+  if (!uiSnippets.length || ['.', '@', '#', '>'].includes(trigger)) return [];
+  if (!UI_INSTALL.test(doc.getText())) return [];
+  return uiSnippets.map((s) => {
+    const prefixes = Array.isArray(s.prefix) ? s.prefix : [s.prefix];
+    const item = new vscode.CompletionItem(prefixes[0], vscode.CompletionItemKind.Snippet);
+    item.insertText = new vscode.SnippetString(Array.isArray(s.body) ? s.body.join('\n') : s.body);
+    item.filterText = prefixes.join(' ');
+    item.detail = s.name;
+    item.documentation = s.description;
+    return item;
+  });
+}
+
 /** LSP CompletionItem -> vscode.CompletionItem */
 function toCompletionItem(i) {
   const item = new vscode.CompletionItem(i.label, i.kind ? i.kind - 1 : undefined); // LSP kinds start at 1
@@ -327,6 +357,7 @@ async function runSpg(sub, arg) {
 // ───────────────────────── activation ─────────────────────────
 
 async function activate(ctx) {
+  loadUiSnippets(ctx);
   context = ctx;
   output = vscode.window.createOutputChannel('Spaghetti');
   diagnostics = vscode.languages.createDiagnosticCollection('spg');
@@ -371,7 +402,9 @@ async function activate(ctx) {
 
     vscode.languages.registerCompletionItemProvider(LANG, {
       async provideCompletionItems(doc, position, _token, context) {
-        if (!client || !client.alive) return undefined;
+        // the ui snippets are only for documents that install ui (they are not in the global snippet list)
+        const snippetItems = uiSnippetItems(doc, context && context.triggerCharacter);
+        if (!client || !client.alive) return snippetItems.length ? snippetItems : undefined;
         // '#' opens the list only right after `install #` (the libraries); anywhere else
         // (a comment, a string, a `#>` directive) it stays quiet
         // '#' opens the libraries only right after `install #`; '>' opens the directives only
@@ -387,10 +420,10 @@ async function activate(ctx) {
             textDocument: { uri: doc.uri.toString() },
             position: { line: position.line, character: position.character },
           });
-          return (res || []).map(toCompletionItem);
+          return [...(res || []).map(toCompletionItem), ...snippetItems];
         } catch (e) {
           log(`completion failed: ${e.message}`);
-          return undefined;
+          return snippetItems.length ? snippetItems : undefined;
         }
       },
     }, '.', '@', '#', '>'), // '.' opens the member list as soon as it is typed; '@' opens the namespace list; '#' and '>' open the libraries (after `install #`) and the directives (after `#>`)

@@ -29,9 +29,9 @@ while (i < 4) {
 // Clear button, with its text on top
 // (text does not take clicks: the click goes to the rectangle)
 let clear = win.rect(300.0, 10.0, 90.0, 28.0, ui.hex("#55556a"))
-let clearLabel = win.text(316.0, 18.0, "Clear", ui.hex("#ffffff"), 8)
+let clearLabel = win.label(316.0, 18.0, "Clear", ui.hex("#ffffff"), 8)
 
-let counter = win.text(10.0, 270.0, "Strokes: 0", ui.hex("#aaaacc"), 16)
+let counter = win.label(10.0, 270.0, "Strokes: 0", ui.hex("#aaaacc"), 16)
 
 let brush = 0
 let strokes: array<Shape> = []

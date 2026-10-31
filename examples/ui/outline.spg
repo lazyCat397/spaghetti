@@ -5,14 +5,14 @@ let win = ui.window("stroke", 360, 180)
 win.background = ui.hex("#1b1f27")
 let font = "../assets/fonts/LiberationSans-Regular.ttf"
 
-let plain = win.text(16.0, 12.0, "No outline", ui.hex("#ffffff"), 32)
+let plain = win.label(16.0, 12.0, "No outline", ui.hex("#ffffff"), 32)
 plain.font = font
 
-let outlined = win.text(16.0, 60.0, "Black outline", ui.hex("#ffcc00"), 32)
+let outlined = win.label(16.0, 60.0, "Black outline", ui.hex("#ffcc00"), 32)
 outlined.font = font
 outlined.stroke = 2.0
 
-let colored = win.text(16.0, 120.0, "Colored outline", ui.hex("#ffffff"), 32)
+let colored = win.label(16.0, 120.0, "Colored outline", ui.hex("#ffffff"), 32)
 colored.font = font
 colored.stroke = 3.0
 colored.strokeColor = ui.hex("#33ccff")

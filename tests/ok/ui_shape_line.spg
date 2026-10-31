@@ -1,8 +1,8 @@
 install #ui
 let win = ui.window("line", 40, 40)
 let l = win.line(0.0, 0.0, 30.0, 0.0, 4.0, ui.rgb(0, 0, 0))
-print(l.w)
-print(l.h)
+print(l.width)
+print(l.height)
 print(l.rotation)
 let d = win.line(5.0, 5.0, 5.0, 5.0, 6.0, ui.rgb(255, 0, 0))
-print(d.w)
+print(d.width)

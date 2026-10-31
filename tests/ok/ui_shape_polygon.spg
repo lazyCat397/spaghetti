@@ -1,7 +1,7 @@
 install #ui
 let win = ui.window("poly", 40, 40)
 let tri = win.polygon([0.0, 0.0, 30.0, 0.0, 0.0, 20.0], ui.rgb(0, 0, 0))
-print(tri.w)
-print(tri.h)
+print(tri.width)
+print(tri.height)
 print(tri.x)
 print(tri.rotation)

@@ -5,22 +5,22 @@ let win = ui.window("spacing", 380, 260)
 win.background = ui.hex("#1b1f27")
 let font = "../assets/fonts/LiberationSans-Regular.ttf"
 
-let normal = win.text(16.0, 12.0, "Normal spacing", ui.hex("#ffffff"), 32)
+let normal = win.label(16.0, 12.0, "Normal spacing", ui.hex("#ffffff"), 32)
 normal.font = font
 
-let loose = win.text(16.0, 56.0, "Loose letters", ui.hex("#ffcc00"), 32)
+let loose = win.label(16.0, 56.0, "Loose letters", ui.hex("#ffcc00"), 32)
 loose.font = font
 loose.letterSpacing = 4.0
 
-let tight = win.text(16.0, 100.0, "Squeezed letters", ui.hex("#33ccff"), 32)
+let tight = win.label(16.0, 100.0, "Squeezed letters", ui.hex("#33ccff"), 32)
 tight.font = font
 tight.letterSpacing = -1.0
 
-let words = win.text(16.0, 144.0, "Wide word gaps here", ui.hex("#ffffff"), 32)
+let words = win.label(16.0, 144.0, "Wide word gaps here", ui.hex("#ffffff"), 32)
 words.font = font
 words.wordSpacing = 12.0
 
-let lines = win.text(16.0, 190.0, "Two lines,\nwith air between", ui.hex("#aaaaaa"), 32)
+let lines = win.label(16.0, 190.0, "Two lines,\nwith air between", ui.hex("#aaaaaa"), 32)
 lines.font = font
 lines.lineSpacing = 10.0
 

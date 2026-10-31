@@ -3,7 +3,7 @@ install #ui
 let win = ui.window("wrap-e2e", 260, 200)
 win.background = ui.hex("#202830")
 
-let a = win.text(
+let a = win.label(
     10.0,
     10.0,
     "A long text that wraps by itself over several lines, centered in its block",
@@ -13,7 +13,7 @@ let a = win.text(
 a.wrap = 240.0
 a.align = Align.Center
 
-let b = win.text(
+let b = win.label(
     10.0,
     110.0,
     "Aligned\nright",
