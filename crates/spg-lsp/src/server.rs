@@ -633,6 +633,12 @@ impl<W: Write> Server<W> {
                 (name, detail)
             })
             .collect();
+        // the builtins the checker handles by name are not in the table, but they exist
+        builtins.extend(
+            spg_typecheck::builtins::checker_builtins()
+                .into_iter()
+                .map(|(name, detail)| (name.to_string(), detail.to_string())),
+        );
         builtins.sort();
 
         // right after a `.`: only namespace members make sense. after
@@ -1626,10 +1632,10 @@ mod tests {
     fn at_map_dot_offers_the_map_members() {
         let items = complete_at("compl_map", "let a = @map.\n", 0, 13);
         let labels = labels_of(&items);
-        for member in ["has", "get", "remove", "len", "keys", "values", "keysOf"] {
+        for member in ["has", "get", "remove", "len", "keys", "values", "keysOf", "map", "filter"] {
             assert!(labels.iter().any(|l| l == member), "missing {} in {:?}", member, labels);
         }
-        assert_eq!(items.len(), 7, "{:?}", labels);
+        assert_eq!(items.len(), 9, "{:?}", labels);
     }
 
     #[test]
@@ -1728,6 +1734,18 @@ mod tests {
         assert!(!labels.iter().any(|l| l.starts_with('_')), "private member offered: {:?}", labels);
         // a name that isn't a standard module offers nothing (and doesn't crash)
         assert!(complete_at("compl_std_none", "install #nope\nterminal.\n", 1, 9).is_empty());
+    }
+
+    #[test]
+    fn completion_offers_the_array_and_map_loops() {
+        let labels = labels_of(&complete_at("compl_array_fns", "let a = @array.\n", 0, 15));
+        for want in ["map", "filter", "reduce", "first", "last"] {
+            assert!(labels.iter().any(|l| l == want), "missing @array.{} in {:?}", want, labels);
+        }
+        let labels = labels_of(&complete_at("compl_map_fns", "let a = @map.\n", 0, 13));
+        for want in ["map", "filter"] {
+            assert!(labels.iter().any(|l| l == want), "missing @map.{} in {:?}", want, labels);
+        }
     }
 
     #[test]

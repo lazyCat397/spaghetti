@@ -318,6 +318,21 @@ fn split_top_level(text: &str) -> Vec<&str> {
     parts
 }
 
+/// builtins the checker handles by name, before the signature table: their result type
+/// depends on the arguments, so the table can't express them. listed here so the LSP
+/// offers them in completion; (name, signature as shown to the user)
+pub fn checker_builtins() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("@array.map", "@array.map(arr, fn(x: T) -> U) -> U[]"),
+        ("@array.filter", "@array.filter(arr, fn(x: T) -> bool) -> T[]"),
+        ("@array.reduce", "@array.reduce(arr, fn(acc: A, x: T) -> A, init) -> A"),
+        ("@array.first", "@array.first(arr) -> T?"),
+        ("@array.last", "@array.last(arr) -> T?"),
+        ("@map.map", "@map.map(m, fn(k: K, v: V) -> U) -> map<K, U>"),
+        ("@map.filter", "@map.filter(m, fn(k: K, v: V) -> bool) -> map<K, V>"),
+    ]
+}
+
 pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>> {
     let mut m: std::collections::HashMap<String, Vec<BuiltinSig>> = std::collections::HashMap::new();
 
