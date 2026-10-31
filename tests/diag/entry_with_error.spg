@@ -1,2 +1,2 @@
-import { fa } from "../lib/liba.spg"
+import (fa) from "../lib/liba.spg"
 let x: int = "oops"

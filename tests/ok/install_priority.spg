@@ -1,4 +1,4 @@
-import { helper } from "../lib/in_b.spg"
+import (helper) from "../lib/in_b.spg"
 install "../lib/in_a.spg"
 install "../lib/in_b.spg"
 fn onlyA() -> int { return 77 }

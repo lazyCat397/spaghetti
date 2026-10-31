@@ -1,2 +1,2 @@
-import { fa } from "../lib/liba.spg"
-import { fb } from "../lib/libb.spg"
+import (fa) from "../lib/liba.spg"
+import (fb) from "../lib/libb.spg"

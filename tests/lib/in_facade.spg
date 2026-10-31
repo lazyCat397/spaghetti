@@ -1,2 +1,2 @@
-export { onlyA } from "./in_a.spg"
+export (onlyA) from "./in_a.spg"
 export fn own() -> int { return 5 }

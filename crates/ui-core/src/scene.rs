@@ -796,6 +796,9 @@ pub enum Drawn<'a> {
 #[derive(Debug)]
 pub struct Scene {
     background: u32,
+    /// whether the turned and see-through shapes are drawn smooth (their edges blended over
+    /// several samples per pixel) or stepped. the plain shapes are always pixel-exact
+    antialias: bool,
     shapes: HashMap<ShapeId, Shape>,
     labels: HashMap<ShapeId, Label>,
     images: HashMap<ShapeId, Image>,
@@ -806,6 +809,7 @@ impl Default for Scene {
     fn default() -> Self {
         Scene {
             background: 0,
+            antialias: false,
             shapes: HashMap::new(),
             labels: HashMap::new(),
             images: HashMap::new(),
@@ -821,6 +825,14 @@ impl Scene {
 
     pub fn set_background(&mut self, color: u32) {
         self.background = color;
+    }
+
+    pub fn antialias(&self) -> bool {
+        self.antialias
+    }
+
+    pub fn set_antialias(&mut self, value: bool) {
+        self.antialias = value;
     }
 
     pub fn add(&mut self, shape: Shape) -> ShapeId {

@@ -5,5 +5,5 @@ print(shout("Spaghetti"))
 
 // import is the selective form: it brings only the names you list
 // wave() is exported by farewell.spg, but it is not imported here
-import { farewell } from "/lib/farewell.spg"
+import (farewell) from "lib/farewell.spg"
 print(farewell("Spaghetti"))

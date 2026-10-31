@@ -594,10 +594,13 @@ impl<W: Write> Server<W> {
         };
 
         let member_item = |m: &crate::members::Member| {
+            // fields first, then methods: the editor orders by this, then by name
+            let group = if m.kind == crate::members::KIND_FIELD { "0" } else { "1" };
             let mut f = vec![
                 ("label", Json::Str(m.name.clone())),
                 ("kind", Json::int(m.kind)),
                 ("detail", Json::Str(m.detail.clone())),
+                ("sortText", Json::str(group)),
             ];
             if let Some(ins) = &m.insert {
                 f.push(("insertText", Json::Str(ins.clone())));
@@ -772,7 +775,7 @@ impl<W: Write> Server<W> {
                     }
                 }
 
-                // names that come from OTHER files: `import { a, b } from "x"`
+                // names that come from OTHER files: `import (a, b) from "x"`
                 // offers exactly a and b. `install "x"` offers every export of x.
                 // read from the files' own tokens, so it works while the buffer
                 // is half-typed (no full resolve needed).
@@ -1081,7 +1084,7 @@ impl<W: Write> Server<W> {
     }
 
     /// every name `path` exports, with its completion kind: `export function/
-    /// struct/enum/let/const NAME` and `export { a, b } from ".."` (kind
+    /// struct/enum/let/const NAME` and `export (a, b) from ".."` (kind
     /// unknown there, so function). an open buffer wins over the disk.
     fn exports_of(&self, path: &std::path::Path) -> Vec<(String, i64)> {
         use spg_lexer::TokenKind as T;
@@ -1098,9 +1101,10 @@ impl<W: Write> Server<W> {
                 Some(T::Enum) => 13,
                 Some(T::Let) => 6,
                 Some(T::Const) => 21,
-                Some(T::LBrace) => {
+                // `export (a, b) from "x"`: a re-export list, in parentheses
+                Some(T::LParen) => {
                     let mut j = i + 2;
-                    while j < tokens.len() && tokens[j].kind != T::RBrace {
+                    while j < tokens.len() && tokens[j].kind != T::RParen {
                         if let T::Ident(n) = &tokens[j].kind {
                             out.push((n.clone(), 3));
                         }
@@ -1513,6 +1517,24 @@ mod tests {
     }
 
     #[test]
+    fn after_a_dot_fields_come_before_methods() {
+        let items = complete_at("compl_win_groups", "install #ui\nlet win = ui.window(\"t\", 8, 8)\nwin.\n", 2, 4);
+        let sort_of = |label: &str| -> String {
+            items
+                .iter()
+                .find(|i| i.get("label").and_then(Json::as_str) == Some(label))
+                .and_then(|i| i.get("sortText"))
+                .and_then(Json::as_str)
+                .map(String::from)
+                .unwrap_or_else(|| panic!("no sortText for {}", label))
+        };
+        assert_eq!(sort_of("background"), "0", "a field goes in the first group");
+        assert_eq!(sort_of("height"), "0", "a field goes in the first group");
+        assert_eq!(sort_of("ellipse"), "1", "a method goes in the second group");
+        assert_eq!(sort_of("close"), "1", "a method goes in the second group");
+    }
+
+    #[test]
     fn the_new_builtin_type_and_the_image_object_are_suggested() {
         // `type` is a global builtin: it comes from the typechecker's table, like `print`
         let globals = labels_of(&complete_at("compl_type_builtin", "let y = ty\n", 0, 11));
@@ -1712,9 +1734,9 @@ mod tests {
     fn completion_offers_names_from_import_and_install() {
         let (main, uri) = tmp_file("compl_imports", "let x = 1\n");
         let dir = main.parent().unwrap().to_path_buf();
-        std::fs::write(dir.join("lib.spg"), "export fn libFn() -> int { return 1 }\nexport struct Pt { x: int }\nexport { viaFacade } from \"./o.spg\"\nfn hidden() -> int { return 2 }\n").unwrap();
+        std::fs::write(dir.join("lib.spg"), "export fn libFn() -> int { return 1 }\nexport struct Pt { x: int }\nexport (viaFacade) from \"./o.spg\"\nfn hidden() -> int { return 2 }\n").unwrap();
         std::fs::write(dir.join("o.spg"), "export fn viaFacade() -> int { return 3 }\n").unwrap();
-        let text = "import { other } from \"./o.spg\"\ninstall \"./lib.spg\"\n";
+        let text = "import (other) from \"./o.spg\"\ninstall \"./lib.spg\"\n";
         let (_, out) = session(vec![
             note("textDocument/didOpen", Json::obj(vec![(
                 "textDocument", Json::obj(vec![("uri", Json::str(&uri)), ("text", Json::str(text)), ("version", Json::int(1))]))])),
@@ -1742,7 +1764,7 @@ mod tests {
             "export struct Item {\n    name: string,\n    qty: int\n    fn total(n: int) -> int { return me.qty * n }\n}\n",
         )
         .unwrap();
-        let text = "import { Item } from \"./items.spg\"\nlet it = Item { name: \"x\", qty: 1 }\nit.\nlet z = Item { name: \"y\", \n";
+        let text = "import (Item) from \"./items.spg\"\nlet it = Item { name: \"x\", qty: 1 }\nit.\nlet z = Item { name: \"y\", \n";
         let at = |line: i64, col: i64| -> Vec<Json> {
             let (_, out) = session(vec![
                 note("textDocument/didOpen", Json::obj(vec![(

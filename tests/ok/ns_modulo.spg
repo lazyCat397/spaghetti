@@ -1,4 +1,4 @@
-import { hypotenuse, shout, clockOk } from "./ns_lib.spg"
+import (hypotenuse, shout, clockOk) from "./ns_lib.spg"
 print(hypotenuse(3.0, 4.0))
 print(shout("  hi  "))
 print(clockOk())

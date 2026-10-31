@@ -64,6 +64,8 @@ pub enum BuiltinId {
     ArrayPush,
     ArrayPop,
     ArrayContains,
+    ArrayFirst,
+    ArrayLast,
     ArrayIndexOf,
     ArraySlice,
     ArrayReverse,

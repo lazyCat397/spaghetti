@@ -223,6 +223,7 @@ impl Parser {
             TokenKind::If => self.parse_if_stmt(),
             TokenKind::When => self.parse_match_stmt(),
             TokenKind::While => self.parse_while(),
+            TokenKind::Do => self.parse_do_while(),
             TokenKind::For => self.parse_for_in(),
             TokenKind::Return => self.parse_return(),
             TokenKind::Break => {
@@ -269,9 +270,16 @@ impl Parser {
                     return self.assign_stmt_from_target(expr, value, pos);
                 }
 
+                // `x++;` / `arr[i]--;` as a statement: the value is thrown away, so
+                // it's the prefix form (no extra read). the checker picks 1 or 1.0
+                // from the target's type, so the parser can't do it
+                if let Expr::IncDec { target, delta, pos, .. } = expr {
+                    return Ok(Stmt::ExprStmt(Expr::IncDec { target, delta, prefix: true, pos }));
+                }
+
                 if let Some(op) = self.peek_compound_op() {
                     let pos = self.peek_pos();
-                    self.advance(); // +=/-=/*=//=
+                    self.advance(); // +=/-=/*=//=/%=
                     let rhs = self.parse_expr()?;
                     return match expr {
                         // plain `x OP= rhs` desugars to `x = x OP rhs`
@@ -314,16 +322,15 @@ impl Parser {
     }
 
     /// true when the current token is one of the compound-assignment
-    /// operators (+=, -=, *=, /=), mapped to the `BinaryOp` it desugars
-    /// to. no %= by design. an accumulating modulo has no real use case
-    /// here, so it was left out on purpose, not forgotten
-    /// completeness. the minimalist's choice.
+    /// operators (+=, -=, *=, /=, %=), mapped to the `BinaryOp` it desugars
+    /// to.
     fn peek_compound_op(&self) -> Option<BinaryOp> {
         match &self.peek().kind {
             TokenKind::PlusEq => Some(BinaryOp::Add),
             TokenKind::MinusEq => Some(BinaryOp::Sub),
             TokenKind::StarEq => Some(BinaryOp::Mul),
             TokenKind::SlashEq => Some(BinaryOp::Div),
+            TokenKind::PercentEq => Some(BinaryOp::Mod),
             _ => None,
         }
     }
@@ -358,14 +365,43 @@ impl Parser {
             None
         };
 
-        self.expect(TokenKind::Eq, "'='")?;
-        let value = self.parse_expr()?;
+        // `let x;` / `let x: T;` (no '=') takes the zero value of its type.
+        // const always needs its value: a frozen nothing is useless.
+        let value = if !is_const && !self.check(&TokenKind::Eq) {
+            self.zero_value(type_ann.as_ref(), &pos)?
+        } else {
+            self.expect(TokenKind::Eq, "'='")?;
+            self.parse_expr()?
+        };
 
         if is_const {
             Ok(Stmt::Const { name, type_ann, value, exported, pos })
         } else {
             Ok(Stmt::Let { name, type_ann, value, exported, pos })
         }
+    }
+
+    /// the zero value a `let` without `=` starts with. no annotation means
+    /// int 0. struct, enum, union and function types have no zero, so they
+    /// refuse: a struct is an empty shell, nothing to default to.
+    fn zero_value(&self, type_ann: Option<&TypeExpr>, pos: &Pos) -> Result<Expr, ParseError> {
+        let p = pos.clone();
+        let zero = match type_ann {
+            None | Some(TypeExpr::Int) => Some(Expr::IntLit(0, p.clone())),
+            Some(TypeExpr::Float) => Some(Expr::FloatLit(0.0, p.clone())),
+            Some(TypeExpr::Bool) => Some(Expr::BoolLit(false, p.clone())),
+            Some(TypeExpr::String) => Some(Expr::StringLit(String::new(), p.clone())),
+            Some(TypeExpr::Optional(_)) => Some(Expr::NoneLit(p.clone())),
+            Some(TypeExpr::Array(_)) => Some(Expr::ArrayLit(Vec::new(), p.clone())),
+            Some(TypeExpr::Map(_, _)) => Some(Expr::MapLit(Vec::new(), p.clone())),
+            Some(_) => None,
+        };
+        zero.ok_or_else(|| ParseError::Unexpected {
+            expected: "'=' with a value (only int, float, bool, string, arrays, maps and optionals default to a zero value)".to_string(),
+            found: self.peek().kind.clone(),
+            line: pos.line,
+            col: pos.col,
+        })
     }
 
     /// `if (cond) { } elif (cond2) { } elif (cond3) { } else { }`. `elif`
@@ -445,6 +481,17 @@ impl Parser {
         }
     }
 
+    fn parse_do_while(&mut self) -> Result<Stmt, ParseError> {
+        let pos = self.peek_pos();
+        self.advance(); // do
+        let body = self.parse_block()?;
+        self.expect(TokenKind::While, "'while'")?;
+        self.expect(TokenKind::LParen, "'('")?;
+        let cond = self.parse_expr()?;
+        self.expect(TokenKind::RParen, "')'")?;
+        Ok(Stmt::DoWhile { body, cond, pos })
+    }
+
     fn parse_while(&mut self) -> Result<Stmt, ParseError> {
         let pos = self.peek_pos();
         self.advance(); // while
@@ -461,12 +508,28 @@ impl Parser {
         let pos = self.peek_pos();
         self.advance(); // for
 
-        let var_name = self.parse_binding_name()?;
+        // `for v in arr` or `for i, v in arr`: with two names, the first is the
+        // position and the second the element
+        let first = self.parse_binding_name()?;
+        let (index_var, var_name) = if self.match_kind(&TokenKind::Comma) {
+            let second = self.parse_binding_name()?;
+            (Some(first), second)
+        } else {
+            (None, first)
+        };
         self.expect(TokenKind::In, "'in'")?;
         let iterable = self.parse_expr_no_struct_literal()?;
 
         // `a..b` / `a..b step s`: the first expression was the START
         if self.match_kind(&TokenKind::DotDot) {
+            if index_var.is_some() {
+                return Err(ParseError::Unexpected {
+                    expected: "a single loop variable for a range (`for i in a..b`); the `i, v` form is for arrays".to_string(),
+                    found: self.peek().kind.clone(),
+                    line: pos.line,
+                    col: pos.col,
+                });
+            }
             let end = self.parse_expr_no_struct_literal()?;
             let step = if matches!(&self.peek().kind, TokenKind::Ident(w) if w == "step") {
                 self.advance(); // step
@@ -480,7 +543,7 @@ impl Parser {
 
         let body = self.parse_block()?;
 
-        Ok(Stmt::ForIn { var_name, iterable, body, pos })
+        Ok(Stmt::ForIn { var_name, index_var, iterable, body, pos })
     }
 
     fn parse_return(&mut self) -> Result<Stmt, ParseError> {
@@ -531,11 +594,11 @@ impl Parser {
             TokenKind::Enum => self.parse_enum_decl(true),
             TokenKind::Let => self.parse_let(false, true),
             TokenKind::Const => self.parse_let(true, true),
-            TokenKind::LBrace => self.parse_re_export(export_pos),
+            TokenKind::LParen => self.parse_re_export(export_pos),
             _ => {
                 let t = self.peek();
                 Err(ParseError::Unexpected {
-                    expected: "'function', 'struct', 'enum', 'let', 'const' or '{' after 'export'".to_string(),
+                    expected: "'function', 'struct', 'enum', 'let', 'const' or '(' after 'export'".to_string(),
                     found: t.kind.clone(),
                     line: t.line,
                     col: t.col,
@@ -547,7 +610,7 @@ impl Parser {
     fn parse_import(&mut self) -> Result<Stmt, ParseError> {
         let pos = self.peek_pos();
         self.advance(); // import
-        let (names, from) = self.parse_name_list_from(&pos)?;
+        let (names, from) = self.parse_name_list_from(&pos, TokenKind::LParen, TokenKind::RParen)?;
         Ok(Stmt::Import { names, from, pos })
     }
 
@@ -571,27 +634,29 @@ impl Parser {
         Ok(Stmt::Install { from, pos, std: false })
     }
 
-    /// `export { a, b } from "./y.spg"`. the `export` keyword is already
+    /// `export (a, b) from "./y.spg"`. the `export` keyword is already
     /// consumed, the cursor sits on `{`.
     fn parse_re_export(&mut self, pos: Pos) -> Result<Stmt, ParseError> {
-        let (names, from) = self.parse_name_list_from(&pos)?;
+        let (names, from) = self.parse_name_list_from(&pos, TokenKind::LParen, TokenKind::RParen)?;
         Ok(Stmt::ReExport { names, from, pos })
     }
 
     /// the `{ a, b } from "path"` tail that `import` and `export ... from`
     /// have in common. twins.
-    fn parse_name_list_from(&mut self, pos: &Pos) -> Result<(Vec<String>, String), ParseError> {
-        self.expect(TokenKind::LBrace, "'{'")?;
+    fn parse_name_list_from(&mut self, pos: &Pos, open: TokenKind, close: TokenKind) -> Result<(Vec<String>, String), ParseError> {
+        let open_text = if open == TokenKind::LParen { "'('" } else { "'{'" };
+        let close_text = if close == TokenKind::RParen { "')'" } else { "'}'" };
+        self.expect(open.clone(), open_text)?;
 
         let mut names = Vec::new();
-        if !self.check(&TokenKind::RBrace) {
+        if !self.check(&close) {
             names.push(self.parse_binding_name()?);
             while self.match_kind(&TokenKind::Comma) {
                 names.push(self.parse_binding_name()?);
             }
         }
 
-        self.expect(TokenKind::RBrace, "'}'")?;
+        self.expect(close.clone(), close_text)?;
         self.expect(TokenKind::From, "'from'")?;
 
         let from = match self.advance().kind {
@@ -1229,6 +1294,7 @@ impl Parser {
                 TokenKind::Gt => BinaryOp::Gt,
                 TokenKind::LtEq => BinaryOp::LtEq,
                 TokenKind::GtEq => BinaryOp::GtEq,
+                TokenKind::In => BinaryOp::In,
                 _ => break,
             };
             let pos = self.peek_pos();
@@ -1286,6 +1352,14 @@ impl Parser {
                 self.advance();
                 let expr = self.parse_unary()?;
                 Ok(Expr::Unary { op: UnaryOp::Not, expr: Box::new(expr), pos })
+            }
+            // `++x` / `--x`: prefix increment/decrement, an expression that
+            // yields the NEW value. the target is checked later (see IncDec)
+            TokenKind::PlusPlus | TokenKind::MinusMinus => {
+                let delta = if self.check(&TokenKind::PlusPlus) { 1 } else { -1 };
+                self.advance();
+                let target = self.parse_call()?;
+                Ok(Expr::IncDec { target: Box::new(target), delta, prefix: true, pos })
             }
             _ => self.parse_power(),
         }
@@ -1350,6 +1424,14 @@ impl Parser {
                 };
 
                 expr = Expr::Field { object: Box::new(expr), field, pos };
+            } else if (self.check(&TokenKind::PlusPlus) || self.check(&TokenKind::MinusMinus)) && !breaks_line {
+                // `i++` / `i--`: postfix, yields the OLD value. same line only,
+                // so a `++` starting the next line is a prefix of the next statement
+                let delta = if self.check(&TokenKind::PlusPlus) { 1 } else { -1 };
+                let pos = self.peek_pos();
+                self.advance();
+                expr = Expr::IncDec { target: Box::new(expr), delta, prefix: false, pos };
+                break;
             } else {
                 break;
             }
@@ -1572,6 +1654,9 @@ fn symbol_text(k: &TokenKind) -> &'static str {
         TokenKind::MinusEq => "-=",
         TokenKind::StarEq => "*=",
         TokenKind::SlashEq => "/=",
+        TokenKind::PercentEq => "%=",
+        TokenKind::PlusPlus => "++",
+        TokenKind::MinusMinus => "--",
         TokenKind::Lt => "<",
         TokenKind::Gt => ">",
         TokenKind::LtEq => "<=",
@@ -1603,6 +1688,7 @@ fn symbol_text(k: &TokenKind) -> &'static str {
         TokenKind::If => "if",
         TokenKind::Else => "else",
         TokenKind::While => "while",
+        TokenKind::Do => "do",
         TokenKind::For => "for",
         TokenKind::In => "in",
         TokenKind::Try => "try",

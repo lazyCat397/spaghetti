@@ -1,0 +1,30 @@
+// `win.windowIcon` sets the small picture in the corner of the window: an .ico file, relative to
+// this script. press Space to switch between the two icons in examples/assets/icons/.
+// on Windows the icon shows in the title bar and the taskbar; other systems keep their own icon.
+install #ui
+
+let win = ui.window("window icon", 320, 180)
+win.background = ui.hex("#202636")
+
+win.text(16.0, 16.0, "space: change the window icon", ui.hex("#ffffff"), 16)
+let name = win.text(16.0, 44.0, "icon: tomato", ui.hex("#ffd23f"), 16)
+
+let tomato = "../assets/icons/tomato.ico"
+let basil = "../assets/icons/basil.ico"
+win.windowIcon = tomato
+let on_tomato = true
+
+while (true) {
+    let dt = win.nextFrame()
+    if (dt < 0.0) { break }
+    if (win.wasPressed(Key.Space)) {
+        on_tomato = !on_tomato
+        if (on_tomato) {
+            win.windowIcon = tomato
+            name.text = "icon: tomato"
+        } else {
+            win.windowIcon = basil
+            name.text = "icon: basil"
+        }
+    }
+}

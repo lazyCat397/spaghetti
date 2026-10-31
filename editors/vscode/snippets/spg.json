@@ -22,7 +22,7 @@
     "body": [
       "install \"${1:./file.spg}\""
     ],
-    "description": "Bring in every exported name of a file (import { x } wins on a clash)"
+    "description": "Bring in every exported name of a file (import (x) wins on a clash)"
   },
   "Enum": {
     "prefix": "enum",
@@ -154,12 +154,12 @@
   },
   "import": {
     "prefix": "import",
-    "body": "import { ${1:name} } from \"${2:./file}.spg\"",
+    "body": "import (${1:name}) from \"${2:./file}.spg\"",
     "description": "Named import (the .spg extension is mandatory)"
   },
   "re-export": {
     "prefix": "reexport",
-    "body": "export { ${1:name} } from \"${2:./file}.spg\"",
+    "body": "export (${1:name}) from \"${2:./file}.spg\"",
     "description": "Re-export from another file"
   },
   "print": {

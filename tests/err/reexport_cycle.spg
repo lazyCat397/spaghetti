@@ -1,1 +1,1 @@
-import { fa } from "../lib/reexport_cycle_a.spg"
+import (fa) from "../lib/reexport_cycle_a.spg"

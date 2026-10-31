@@ -1,0 +1,16 @@
+let nums = [1, 2, 3, 4]
+let doubled = @array.map(nums, fn(x: int) -> int { return x * 2 })
+print(@array.join(@array.map(doubled, fn(x: int) -> string { return @into.string(x) }), ","))
+let evens = @array.filter(nums, fn(x: int) -> bool { return x % 2 == 0 })
+print(@array.len(evens), evens[0], evens[1])
+let total = @array.reduce(nums, fn(acc: int, x: int) -> int { return acc + x }, 100)
+print(total)
+let words = ["ana", "bo", "carla"]
+let lens = @array.map(words, fn(w: string) -> int { return @str.len(w) })
+print(lens[2])
+let nothing = @array.filter(nums, fn(x: int) -> bool { return x > 99 })
+print(@array.len(nothing))
+let empty: array<int> = []
+print(@array.len(@array.map(empty, fn(x: int) -> int { return x })))
+let big = @array.filter(@array.map(nums, fn(x: int) -> int { return x * 10 }), fn(x: int) -> bool { return x > 15 })
+print(@array.join(@array.map(big, fn(x: int) -> string { return @into.string(x) }), " "))

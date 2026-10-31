@@ -184,7 +184,7 @@ pub fn word_at(tokens: &[Token], line: usize, character: usize) -> Option<usize>
 pub enum Target {
     /// declared in this file
     Local(Decl),
-    /// imported by name from another file (`import { name } from "file"`)
+    /// imported by name from another file (`import (name) from "file"`)
     Imported { name: String, file: String },
 }
 
@@ -349,7 +349,7 @@ mod tests {
 
     #[test]
     fn imported_name_is_found_in_its_file() {
-        let t = toks("import { dobro } from \"util.spg\"\nprint(dobro(2))");
+        let t = toks("import (dobro) from \"util.spg\"\nprint(dobro(2))");
         let d = declarations(&t);
         let at = t.iter().rposition(|x| x.kind == T::Ident("dobro".into())).unwrap();
         assert_eq!(target(&t, &d, at), Some(Target::Imported { name: "dobro".into(), file: "util.spg".into() }));

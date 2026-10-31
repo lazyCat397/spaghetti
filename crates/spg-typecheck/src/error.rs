@@ -85,6 +85,9 @@ pub enum TypeError {
     /// `x = value` where `x` was declared `const`. read the keyword, friend.
     AssignToConst { name: String, pos: Pos },
 
+    /// `++`/`--` on something that is not a variable, an array element or a struct field
+    IncDecTarget { pos: Pos },
+
     /// `x = value` where the value's type disagrees with `x`'s type
     AssignTypeMismatch { name: String, expected: Ty, found: Ty, pos: Pos },
 
@@ -153,10 +156,6 @@ pub enum TypeError {
 
     /// `obj.field = value` on a field a native object only lets the program read (`win.width`)
     ReadOnlyField { struct_name: String, field: String, pos: Pos },
-
-    /// `expr.field += v` on a native object, where `expr` is not a plain name path: the object
-    /// would be evaluated twice, once to read and once to write
-    CompoundOnNativeNeedsName { struct_name: String, field: String, pos: Pos },
 
     /// `expr.field` where `expr` isn't a struct at all. fields need structs.
     NotAStruct { found: Ty, pos: Pos },
@@ -231,6 +230,7 @@ impl TypeError {
             | TypeError::UnreachableCode { pos, .. }
             | TypeError::NonBoolCondition { pos, .. }
             | TypeError::AssignToConst { pos, .. }
+            | TypeError::IncDecTarget { pos }
             | TypeError::AssignTypeMismatch { pos, .. }
             | TypeError::LoopControlOutsideLoop { pos, .. }
             | TypeError::CannotInferReturnType { pos, .. }
@@ -252,7 +252,6 @@ impl TypeError {
             | TypeError::UnknownField { pos, .. }
             | TypeError::StructFieldTypeMismatch { pos, .. }
             | TypeError::ReadOnlyField { pos, .. }
-            | TypeError::CompoundOnNativeNeedsName { pos, .. }
             | TypeError::NotAStruct { pos, .. }
             | TypeError::NoSuchVariant { pos, .. }
             | TypeError::EnumAsValue { pos, .. }
@@ -437,6 +436,10 @@ impl TypeError {
                 f, "{}condition must be bool, found {}",
                 self.location(), found
             ),
+            TypeError::IncDecTarget { .. } => write!(
+                f, "{}'++' and '--' work on a variable, an array element or a struct field (like `i++` or `a[i]++`)",
+                self.location()
+            ),
             TypeError::AssignToConst { name, .. } => write!(
                 f, "{}cannot assign to '{}' — it's declared as const",
                 self.location(), shown(name)
@@ -517,10 +520,6 @@ impl TypeError {
             TypeError::UnknownField { struct_name, field, .. } => write!(
                 f, "{}struct '{}' has no field '{}'",
                 self.location(), shown(struct_name), field
-            ),
-            TypeError::CompoundOnNativeNeedsName { struct_name, field, .. } => write!(
-                f, "{}'{}.{}' can not be changed with a compound operator here: the object is used twice. put it in a name first, like `let o = ...` and then `o.{} += ...`",
-                self.location(), struct_name, field, field
             ),
             TypeError::ReadOnlyField { struct_name, field, .. } => write!(
                 f, "{}cannot assign to '{}.{}' — it is read-only, the program can only read it",

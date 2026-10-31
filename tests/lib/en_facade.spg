@@ -1,1 +1,1 @@
-export { Color, next } from "./en_color.spg"
+export (Color, next) from "./en_color.spg"

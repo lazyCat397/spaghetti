@@ -1,0 +1,38 @@
+let i = 5
+let a = ++i
+print(a)
+print(i)
+let b = i++
+print(b)
+print(i)
+i--
+print(i)
+print(--i)
+let x;
+print(x)
+let f: float;
+print(f)
+let s: string;
+print("[${s}]")
+let m: map<string, int>;
+print(m.len())
+let arr = [10, 20, 30]
+let k = 0
+print(arr[k++])
+print(k)
+arr[1]++
+print(arr[1])
+print(arr[2]--)
+print(arr[2])
+print(++arr[0])
+let v = 1.5
+v++
+print(v)
+let cnt: map<string, int> = ["a": 1]
+cnt["a"]++
+print(cnt["a"])
+print(cnt["a"]++)
+print(cnt["a"])
+let t = 7
+t %= 4
+print(t)

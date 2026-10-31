@@ -1,3 +1,3 @@
-import { inc, viaLocal } from "../lib/reexport_private_homonym.spg"
+import (inc, viaLocal) from "../lib/reexport_private_homonym.spg"
 print(viaLocal())
 inc()

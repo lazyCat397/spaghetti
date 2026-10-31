@@ -13,6 +13,7 @@ use std::collections::HashMap;
 
 use spg_parser::ast::{self as p, BinaryOp, Expr, Param, Stmt, TypeExpr, UnaryOp};
 
+use crate::typed_ast::{ArrayFnKind, MapFnKind};
 use crate::builtins::{builtin_signatures, method_namespace, BuiltinId};
 use crate::error::TypeError;
 use crate::typed_ast::{RangeStep, SrcLoc, Ty, TypedBlock, TypedExpr, TypedProgram, TypedStmt};
@@ -333,6 +334,7 @@ impl Checker {
                     }
                 }
                 Stmt::While { body, .. } => self.collect_return_types_in_stmts(&body.stmts, found),
+                Stmt::DoWhile { body, .. } => self.collect_return_types_in_stmts(&body.stmts, found),
                 Stmt::Match { arms, else_branch, .. } => {
                     for arm in arms {
                         self.collect_return_types_in_stmts(&arm.body.stmts, found);
@@ -1107,6 +1109,21 @@ impl Checker {
                 Some(TypedStmt::IfStmt { cond: typed_cond, then_branch: typed_then, else_branch: typed_else })
             }
 
+            // the body is checked before the condition, but it can't see the body's
+            // names: the condition is outside the body's scope, like in most languages
+            Stmt::DoWhile { body, cond, pos } => {
+                self.loop_depth += 1;
+                self.push_scope();
+                let typed_body = self.check_block(body);
+                self.pop_scope();
+                self.loop_depth -= 1;
+                let typed_cond = self.check_expr(cond)?;
+                if typed_cond.ty() != &Ty::Bool {
+                    self.errors.push(TypeError::NonBoolCondition { found: typed_cond.ty().clone(), pos: pos.clone() });
+                }
+                Some(TypedStmt::DoWhile { body: typed_body, cond: typed_cond })
+            }
+
             Stmt::While { cond, body, pos } => {
                 let typed_cond = self.check_expr(cond)?;
                 if typed_cond.ty() != &Ty::Bool {
@@ -1122,7 +1139,7 @@ impl Checker {
                 Some(TypedStmt::While { cond: typed_cond, body: typed_body })
             }
 
-            Stmt::ForIn { var_name, iterable, body, pos } => {
+            Stmt::ForIn { var_name, index_var, iterable, body, pos } => {
                 // `for c in Color { }`: the enum's name (not a variable) iterates
                 // its variants in declaration order. lowered to a loop over an
                 // array literal of the variants. nothing downstream notices. good.
@@ -1139,6 +1156,40 @@ impl Checker {
                     }
                     _ => self.check_expr(iterable)?,
                 };
+                // `for k, v in map`: loops over the keys in insertion order, and reads each
+                // value from the map. both names are needed, so a map is never a single-name loop
+                if let Ty::Map(key_ty, val_ty) = typed_iterable.ty() {
+                    let (key_ty, val_ty) = ((**key_ty).clone(), (**val_ty).clone());
+                    let index = match index_var {
+                        Some(index) => index.clone(),
+                        None => {
+                            self.errors.push(TypeError::NotIterable { found: typed_iterable.ty().clone(), pos: pos.clone() });
+                            return None;
+                        }
+                    };
+                    let keys = TypedExpr::Call {
+                        callee: Box::new(TypedExpr::Ident { name: "@map.keys".to_string(), ty: Ty::Void }),
+                        args: vec![typed_iterable.clone()],
+                        ty: Ty::Array(Box::new(key_ty.clone())),
+                        builtin: Some(BuiltinId::MapKeys),
+                    };
+                    self.push_scope();
+                    self.declare(&index, key_ty.clone(), true, pos);
+                    self.declare(var_name, val_ty, true, pos);
+                    self.loop_depth += 1;
+                    let typed_body = self.check_block(body);
+                    self.loop_depth -= 1;
+                    self.pop_scope();
+                    return Some(TypedStmt::ForIn {
+                        var_name: var_name.clone(),
+                        index_var: Some(index),
+                        elem_ty: key_ty,
+                        iterable: keys,
+                        body: typed_body,
+                        map_source: Some(Box::new(typed_iterable)),
+                    });
+                }
+
                 let elem_ty = match typed_iterable.ty() {
                     Ty::Array(inner) => (**inner).clone(),
                     other => {
@@ -1148,6 +1199,9 @@ impl Checker {
                 };
 
                 self.push_scope();
+                if let Some(index) = index_var {
+                    self.declare(index, Ty::Int, true, pos);
+                }
                 self.declare(var_name, elem_ty.clone(), true, pos);
                 self.loop_depth += 1;
                 let typed_body = self.check_block(body);
@@ -1156,9 +1210,11 @@ impl Checker {
 
                 Some(TypedStmt::ForIn {
                     var_name: var_name.clone(),
+                    index_var: index_var.clone(),
                     elem_ty,
                     iterable: typed_iterable,
                     body: typed_body,
+                    map_source: None,
                 })
             }
 
@@ -1365,7 +1421,7 @@ impl Checker {
             // consumed by spg-modules along with every `Import`. one
             // reaching the checker means the resolver skipped it. resolver, explain yourself.
             Stmt::ReExport { .. } => {
-                unreachable!("compiler bug: `export {{ .. }} from` reached the typechecker (spg-modules should have consumed it)")
+                unreachable!("compiler bug: `export (..) from` reached the typechecker (spg-modules should have consumed it)")
             }
             Stmt::Install { .. } => {
                 unreachable!("compiler bug: `install` reached the typechecker (spg-modules should have consumed it)")
@@ -1530,15 +1586,25 @@ impl Checker {
                         self.errors.push(TypeError::ReadOnlyField { struct_name, field: field.clone(), pos: pos.clone() });
                         return None;
                     };
-                    if !is_name_path(object) {
-                        self.errors.push(TypeError::CompoundOnNativeNeedsName {
-                            struct_name: native.name.to_string(),
-                            field: field.clone(),
-                            pos: pos.clone(),
-                        });
-                        return None;
-                    }
-                    let current = self.lib_call(module, def.get, vec![typed_object.clone()], pos)?;
+                    // the getter and the setter both take the object, but the object must be
+                    // evaluated only once (it may have side effects, like `make().x += 1`).
+                    // a plain name is read twice harmlessly; any other object goes through a
+                    // hidden local, the same trick `when` uses for its subject.
+                    let loc = SrcLoc { file: pos.file.clone(), line: pos.line };
+                    let object_ty = typed_object.ty().clone();
+                    let (bind, target) = if is_name_path(object) {
+                        (None, typed_object)
+                    } else {
+                        let hidden = "$compound".to_string();
+                        let bind = TypedStmt::Let {
+                            name: hidden.clone(),
+                            ty: object_ty.clone(),
+                            value: typed_object,
+                            exported: false,
+                        };
+                        (Some(bind), TypedExpr::Ident { name: hidden, ty: object_ty })
+                    };
+                    let current = self.lib_call(module, def.get, vec![target.clone()], pos)?;
                     let result_ty = self.binary_result_type(op, current.ty(), typed_value.ty(), pos)?;
                     let next = TypedExpr::Binary {
                         left: Box::new(current),
@@ -1546,8 +1612,14 @@ impl Checker {
                         right: Box::new(typed_value),
                         ty: result_ty,
                     };
-                    let call = self.lib_call(module, setter, vec![typed_object, next], pos)?;
-                    return Some(TypedStmt::ExprStmt(call));
+                    let call = self.lib_call(module, setter, vec![target, next], pos)?;
+                    let stmt = TypedStmt::ExprStmt(call);
+                    return Some(match bind {
+                        None => stmt,
+                        Some(bind) => TypedStmt::Block {
+                            body: TypedBlock { stmts: vec![bind, stmt], locs: vec![loc.clone(), loc], ty: Ty::Void },
+                        },
+                    });
                 }
 
                 let (struct_name, field_ty) = self.resolve_field(typed_object.ty(), field, pos)?;
@@ -1592,6 +1664,34 @@ impl Checker {
                     return None;
                 }
                 Some(TypedStmt::Continue)
+            }
+
+            // `x++;` as a statement is `x += 1`: the same typed node, so the VM and the JIT
+            // keep their fused paths. the `1` is int or float, following the target's type
+            Stmt::ExprStmt(Expr::IncDec { target, delta, pos, .. }) => {
+                let typed_target = self.check_incdec_target(target, pos)?;
+                let ty = typed_target.ty().clone();
+                self.check_incdec_numeric(&ty, *delta, pos)?;
+                let op = if *delta > 0 { p::BinaryOp::Add } else { p::BinaryOp::Sub };
+                let one = if ty == Ty::Float { TypedExpr::FloatLit(1.0) } else { TypedExpr::IntLit(1) };
+                match typed_target {
+                    TypedExpr::Ident { name, ty } => {
+                        let value = TypedExpr::Binary {
+                            left: Box::new(TypedExpr::Ident { name: name.clone(), ty: ty.clone() }),
+                            op,
+                            right: Box::new(one),
+                            ty,
+                        };
+                        Some(TypedStmt::Assign { name, value })
+                    }
+                    TypedExpr::Index { array, index, .. } => {
+                        Some(TypedStmt::IndexCompoundAssign { array: *array, index: *index, op, value: one })
+                    }
+                    TypedExpr::Field { object, field, .. } => {
+                        Some(TypedStmt::FieldCompoundAssign { object: *object, field, op, value: one })
+                    }
+                    _ => None,
+                }
             }
 
             Stmt::ExprStmt(expr) => {
@@ -1931,6 +2031,268 @@ impl Checker {
         }
     }
 
+    /// `x in arr` / `k in map`: lowered to the builtin that answers membership
+    fn check_membership(&mut self, left: &Expr, right: &Expr, pos: &p::Pos) -> Option<TypedExpr> {
+        let typed_left = self.check_expr(left)?;
+        let typed_right = self.check_expr(right)?;
+        let (builtin, key_ty, name) = match typed_right.ty() {
+            Ty::Array(elem) => (BuiltinId::ArrayContains, (**elem).clone(), "@array.contains"),
+            Ty::Map(key, _) => (BuiltinId::MapHas, (**key).clone(), "@map.has"),
+            other => {
+                let right_ty = other.clone();
+                self.errors.push(TypeError::InvalidOperandTypes {
+                    op: "in".to_string(),
+                    left: typed_left.ty().clone(),
+                    right: right_ty,
+                    pos: pos.clone(),
+                });
+                return None;
+            }
+        };
+        if !key_ty.accepts(typed_left.ty()) {
+            self.errors.push(TypeError::InvalidOperandTypes {
+                op: "in".to_string(),
+                left: typed_left.ty().clone(),
+                right: typed_right.ty().clone(),
+                pos: pos.clone(),
+            });
+            return None;
+        }
+        Some(TypedExpr::Call {
+            callee: Box::new(TypedExpr::Ident { name: name.to_string(), ty: Ty::Void }),
+            args: vec![typed_right, typed_left],
+            ty: Ty::Bool,
+            builtin: Some(builtin),
+        })
+    }
+
+    /// `@array.first(arr)` / `@array.last(arr)`: the element, or `none` for an empty array
+    fn check_first_last(&mut self, name: &str, typed_args: Vec<TypedExpr>, pos: &p::Pos) -> Option<TypedExpr> {
+        if typed_args.len() != 1 {
+            self.errors.push(TypeError::ArityMismatch {
+                function_name: name.to_string(),
+                expected: 1,
+                found: typed_args.len(),
+                pos: pos.clone(),
+            });
+            return None;
+        }
+        let array = typed_args.into_iter().next()?;
+        let elem = match array.ty() {
+            Ty::Array(inner) => (**inner).clone(),
+            other => {
+                let found = other.clone();
+                self.arg_mismatch(name, 0, Ty::AnyArray, found, pos);
+                return None;
+            }
+        };
+        let builtin = if name == "@array.first" { BuiltinId::ArrayFirst } else { BuiltinId::ArrayLast };
+        Some(TypedExpr::Call {
+            callee: Box::new(TypedExpr::Ident { name: name.to_string(), ty: Ty::Void }),
+            args: vec![array],
+            ty: Ty::Optional(Box::new(elem)),
+            builtin: Some(builtin),
+        })
+    }
+
+    /// `@map.map(m, fn(k: K, v: V) -> U)` gives `map<K, U>`. `@map.filter(m, fn(k: K, v: V) -> bool)`
+    /// keeps the entries where `f` gives true. both go in insertion order
+    fn check_map_fn(&mut self, name: &str, typed_args: Vec<TypedExpr>, pos: &p::Pos) -> Option<TypedExpr> {
+        let kind = if name == "@map.map" { MapFnKind::Map } else { MapFnKind::Filter };
+        if typed_args.len() != 2 {
+            self.errors.push(TypeError::ArityMismatch {
+                function_name: name.to_string(),
+                expected: 2,
+                found: typed_args.len(),
+                pos: pos.clone(),
+            });
+            return None;
+        }
+        let mut args = typed_args.into_iter();
+        let map = args.next()?;
+        let func = args.next()?;
+        let (key_ty, val_ty) = match map.ty() {
+            Ty::Map(k, v) => ((**k).clone(), (**v).clone()),
+            other => {
+                let found = other.clone();
+                self.arg_mismatch(name, 0, Ty::AnyMap, found, pos);
+                return None;
+            }
+        };
+        let (params, ret) = match func.ty() {
+            Ty::Function { params, ret } => (params.clone(), (**ret).clone()),
+            other => {
+                let found = other.clone();
+                let expected = Ty::Function { params: vec![key_ty.clone(), val_ty.clone()], ret: Box::new(Ty::Any) };
+                self.arg_mismatch(name, 1, expected, found, pos);
+                return None;
+            }
+        };
+        let entry_params = vec![key_ty.clone(), val_ty.clone()];
+        let out_ty = match kind {
+            MapFnKind::Map => {
+                if params != entry_params {
+                    let expected = Ty::Function { params: entry_params, ret: Box::new(ret.clone()) };
+                    self.arg_mismatch(name, 1, expected, func.ty().clone(), pos);
+                    return None;
+                }
+                Ty::Map(Box::new(key_ty), Box::new(ret))
+            }
+            MapFnKind::Filter => {
+                if params != entry_params || ret != Ty::Bool {
+                    let expected = Ty::Function { params: entry_params, ret: Box::new(Ty::Bool) };
+                    self.arg_mismatch(name, 1, expected, func.ty().clone(), pos);
+                    return None;
+                }
+                Ty::Map(Box::new(key_ty), Box::new(val_ty))
+            }
+        };
+        Some(TypedExpr::MapFn { kind, map: Box::new(map), func: Box::new(func), ty: out_ty })
+    }
+
+    /// `@array.map(arr, f)` gives `U[]` when `f: (T) -> U`. `@array.filter(arr, f)`
+    /// keeps the elements where `f` gives true. `@array.reduce(arr, f, init)` folds
+    /// with `f: (A, T) -> A`, starting from `init`
+    fn check_array_fn(&mut self, name: &str, typed_args: Vec<TypedExpr>, pos: &p::Pos) -> Option<TypedExpr> {
+        let (kind, arity) = match name {
+            "@array.map" => (ArrayFnKind::Map, 2),
+            "@array.filter" => (ArrayFnKind::Filter, 2),
+            _ => (ArrayFnKind::Reduce, 3),
+        };
+        if typed_args.len() != arity {
+            self.errors.push(TypeError::ArityMismatch {
+                function_name: name.to_string(),
+                expected: arity,
+                found: typed_args.len(),
+                pos: pos.clone(),
+            });
+            return None;
+        }
+        let mut args = typed_args.into_iter();
+        let array = args.next()?;
+        let func = args.next()?;
+        let init = if kind == ArrayFnKind::Reduce { args.next() } else { None };
+
+        let elem = match array.ty() {
+            Ty::Array(inner) => (**inner).clone(),
+            other => {
+                let found = other.clone();
+                self.arg_mismatch(name, 0, Ty::AnyArray, found, pos);
+                return None;
+            }
+        };
+        let (params, ret) = match func.ty() {
+            Ty::Function { params, ret } => (params.clone(), (**ret).clone()),
+            other => {
+                let found = other.clone();
+                let expected = Ty::Function { params: vec![elem.clone()], ret: Box::new(Ty::Any) };
+                self.arg_mismatch(name, 1, expected, found, pos);
+                return None;
+            }
+        };
+
+        let (ty, init) = match kind {
+            ArrayFnKind::Map => {
+                if params != vec![elem.clone()] {
+                    let expected = Ty::Function { params: vec![elem.clone()], ret: Box::new(ret.clone()) };
+                    self.arg_mismatch(name, 1, expected, func.ty().clone(), pos);
+                    return None;
+                }
+                (Ty::Array(Box::new(ret)), None)
+            }
+            ArrayFnKind::Filter => {
+                if params != vec![elem.clone()] || ret != Ty::Bool {
+                    let expected = Ty::Function { params: vec![elem.clone()], ret: Box::new(Ty::Bool) };
+                    self.arg_mismatch(name, 1, expected, func.ty().clone(), pos);
+                    return None;
+                }
+                (Ty::Array(Box::new(elem)), None)
+            }
+            ArrayFnKind::Reduce => {
+                let init = init?;
+                let acc = init.ty().clone();
+                if params != vec![acc.clone(), elem.clone()] || ret != acc {
+                    let expected = Ty::Function { params: vec![acc.clone(), elem.clone()], ret: Box::new(acc.clone()) };
+                    self.arg_mismatch(name, 1, expected, func.ty().clone(), pos);
+                    return None;
+                }
+                (acc, Some(Box::new(init)))
+            }
+        };
+        Some(TypedExpr::ArrayFn { kind, array: Box::new(array), func: Box::new(func), init, ty })
+    }
+
+    fn arg_mismatch(&mut self, name: &str, param_index: usize, expected: Ty, found: Ty, pos: &p::Pos) {
+        self.errors.push(TypeError::ArgTypeMismatch {
+            function_name: name.to_string(),
+            param_index,
+            expected,
+            found,
+            pos: pos.clone(),
+        });
+    }
+
+    /// the typed place a `++`/`--` works on: a variable, an array element or a
+    /// struct field. same rules as the plain assignment to that place
+    fn check_incdec_target(&mut self, target: &Expr, pos: &p::Pos) -> Option<TypedExpr> {
+        match target {
+            Expr::Ident(name, npos) => {
+                let found = self.lookup_var(name).map(|info| (info.mutable, info.ty.clone()));
+                let (mutable, ty) = match found {
+                    Some(found) => found,
+                    None => {
+                        self.errors.push(TypeError::UndefinedVariable { name: name.clone(), pos: npos.clone() });
+                        return None;
+                    }
+                };
+                if self.assigns_capture(name) {
+                    self.errors.push(TypeError::CaptureAssign { name: name.clone(), pos: npos.clone() });
+                    return None;
+                }
+                if !mutable {
+                    self.errors.push(TypeError::AssignToConst { name: name.clone(), pos: npos.clone() });
+                    return None;
+                }
+                self.mark_assigned(name);
+                Some(TypedExpr::Ident { name: name.clone(), ty })
+            }
+            Expr::Index { array, index, pos: ipos } => {
+                let typed_array = self.check_expr(array)?;
+                let typed_index = self.check_expr(index)?;
+                let elem_ty = self.index_target(typed_array.ty(), typed_index.ty(), ipos)?;
+                Some(TypedExpr::Index { array: Box::new(typed_array), index: Box::new(typed_index), ty: elem_ty })
+            }
+            Expr::Field { object, field, pos: fpos } => {
+                let typed_object = self.check_expr(object)?;
+                if self.native_object_of(typed_object.ty()).is_some() {
+                    self.errors.push(TypeError::IncDecTarget { pos: pos.clone() });
+                    return None;
+                }
+                let (_, field_ty) = self.resolve_field(typed_object.ty(), field, fpos)?;
+                Some(TypedExpr::Field { object: Box::new(typed_object), field: field.clone(), ty: field_ty })
+            }
+            _ => {
+                self.errors.push(TypeError::IncDecTarget { pos: pos.clone() });
+                None
+            }
+        }
+    }
+
+    /// `++`/`--` only count int and float
+    fn check_incdec_numeric(&mut self, ty: &Ty, delta: i64, pos: &p::Pos) -> Option<()> {
+        if matches!(ty, Ty::Int | Ty::Float) {
+            return Some(());
+        }
+        let op_text = if delta > 0 { "++" } else { "--" };
+        self.errors.push(TypeError::InvalidOperandTypes {
+            op: op_text.to_string(),
+            left: ty.clone(),
+            right: ty.clone(),
+            pos: pos.clone(),
+        });
+        None
+    }
+
     fn check_expr(&mut self, expr: &Expr) -> Option<TypedExpr> {
         match expr {
             Expr::IntLit(n, _) => Some(TypedExpr::IntLit(*n)),
@@ -2028,6 +2390,8 @@ impl Checker {
                 }
             }
 
+            Expr::Binary { left, op: BinaryOp::In, right, pos } => self.check_membership(left, right, pos),
+
             Expr::Binary { left, op, right, pos } => {
                 let mut typed_left = self.check_expr(left)?;
                 // `a != none && a.x > 0`: the right side sees what the left side proved
@@ -2062,6 +2426,13 @@ impl Checker {
                     right: Box::new(typed_right),
                     ty: result_ty,
                 })
+            }
+
+            Expr::IncDec { target, delta, prefix, pos } => {
+                let typed_target = self.check_incdec_target(target, pos)?;
+                let ty = typed_target.ty().clone();
+                self.check_incdec_numeric(&ty, *delta, pos)?;
+                Some(TypedExpr::IncDec { target: Box::new(typed_target), delta: *delta, prefix: *prefix, ty })
             }
 
             Expr::Unary { op, expr, pos } => {
@@ -2157,6 +2528,18 @@ impl Checker {
                 let mut typed_args = Vec::new();
                 for (i, arg) in args.iter().enumerate() {
                     typed_args.push(self.check_expr_expecting(arg, user_params.get(i))?);
+                }
+
+                // the array loops: their result type depends on the function argument,
+                // so the signature table can't express them (see `check_array_fn`)
+                if matches!(name.as_str(), "@array.map" | "@array.filter" | "@array.reduce") {
+                    return self.check_array_fn(&name, typed_args, pos);
+                }
+                if matches!(name.as_str(), "@array.first" | "@array.last") {
+                    return self.check_first_last(&name, typed_args, pos);
+                }
+                if matches!(name.as_str(), "@map.map" | "@map.filter") {
+                    return self.check_map_fn(&name, typed_args, pos);
                 }
 
                 // builtins have their own signature table (see `check_builtin_call`)

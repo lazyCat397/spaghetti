@@ -1548,3 +1548,45 @@ fn radius_sets_all_four_corners() {
     assert!(shape.set_bottom_left_radius(-1.0).is_err());
     assert_eq!(shape.bottom_left_radius(), 4.0, "a refused value changes nothing");
 }
+
+// --- antialias and the window icon ----------------------------------------------------
+
+fn last_frame(s: &mut Session<NullBackend>, now: f64) -> Vec<u32> {
+    s.begin_frame(now).unwrap();
+    s.backend().last_frame.clone()
+}
+
+#[test]
+fn a_turned_edge_is_stepped_without_antialias_and_blended_with_it() {
+    let mut s = running(30, 30);
+    s.scene_mut().unwrap().set_background(BG);
+    let id = s.add_rect(5.0, 5.0, 20.0, 20.0, RED).unwrap();
+    s.shape_mut(id).unwrap().set_rotation(45.0).unwrap();
+
+    let stepped = last_frame(&mut s, 0.1);
+    assert!(stepped.iter().all(|p| *p == BG || *p == RED), "stepped edges take only the two colors");
+
+    s.scene_mut().unwrap().set_antialias(true);
+    let smooth = last_frame(&mut s, 0.2);
+    assert!(smooth.iter().any(|p| *p != BG && *p != RED), "smooth edges take in-between colors");
+    assert_eq!(smooth[15 * 30 + 15], RED, "the inside of the shape is still solid");
+}
+
+#[test]
+fn antialias_is_off_by_default_and_keeps_plain_shapes_exact() {
+    let mut s = running(20, 20);
+    assert!(!s.scene().unwrap().antialias());
+    s.scene_mut().unwrap().set_background(BG);
+    s.scene_mut().unwrap().set_antialias(true);
+    s.add_rect(2.0, 2.0, 10.0, 10.0, RED).unwrap();
+    let frame = last_frame(&mut s, 0.1);
+    assert!(frame.iter().all(|p| *p == BG || *p == RED), "a plain rect has square edges either way");
+}
+
+#[test]
+fn the_window_icon_is_handed_to_the_backend_and_remembered() {
+    let mut s = session(10, 10);
+    assert_eq!(s.icon(), "", "no icon until the program sets one");
+    s.set_icon("icons/app.ico").unwrap();
+    assert_eq!(s.icon(), "icons/app.ico");
+}

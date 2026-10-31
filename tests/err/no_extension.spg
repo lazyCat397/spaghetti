@@ -1,1 +1,1 @@
-import { publica } from "../lib/a"
+import (publica) from "../lib/a"

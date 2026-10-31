@@ -1,1 +1,1 @@
-export { privada } from "../lib/reexport_origin.spg"
+export (privada) from "../lib/reexport_origin.spg"

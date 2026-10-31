@@ -1,0 +1,40 @@
+// do-while: the body runs once, even when the condition is false from the start
+let n = 0
+do {
+    n++
+} while (n < 3)
+print(n)
+
+let never = 10
+do {
+    never++
+} while (never < 5)
+print(never)
+
+// continue goes to the condition check; break leaves the loop
+let k = 0
+let seen = 0
+do {
+    k++
+    if (k == 2) {
+        continue
+    }
+    seen++
+    if (k == 4) {
+        break
+    }
+} while (k < 10)
+print(seen, k)
+
+// x in arr / k in map
+let names = ["ana", "bia"]
+print("ana" in names, "caio" in names)
+let ages: map<string, int> = ["ana": 31]
+print("ana" in ages, "bob" in ages)
+print(3 in [1, 2, 3], 9 in [1, 2, 3])
+
+// first / last: none for an empty array
+let nums = [4, 5, 6]
+print(@array.first(nums), @array.last(nums))
+let empty: array<int> = []
+print(@array.first(empty) == none, @array.last(empty) == none)

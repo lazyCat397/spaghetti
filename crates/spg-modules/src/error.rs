@@ -51,7 +51,7 @@ pub enum ModuleError {
     /// first module repeated at the end (a -> b -> a). a loop, a loop.
     Cycle { chain: Vec<PathBuf> },
 
-    /// `import { x } from "m.spg"` but `m.spg` declares no `x` at all
+    /// `import (x) from "m.spg"` but `m.spg` declares no `x` at all
     UnknownExport { importer: PathBuf, module: String, name: String, pos: Pos },
 
     /// `x` is in that module's scope only because IT imported it, and
@@ -67,7 +67,7 @@ pub enum ModuleError {
     Collision { file: PathBuf, name: String, kind: CollisionKind, second: Pos, first: Pos },
 
     /// a name two different `install`s both provide, and the file USES it.
-    /// importing it by name (`import { x } from "..."`) picks one. pick wisely.
+    /// importing it by name (`import (x) from "..."`) picks one. pick wisely.
     AmbiguousInstall { file: PathBuf, name: String, first: (Pos, String), second: (Pos, String) },
 }
 
@@ -78,11 +78,11 @@ pub enum ModuleError {
 pub enum CollisionKind {
     /// `function a` declared twice (or a `let a` next to a `function a`)
     LocalVsLocal,
-    /// an `import { a }` whose `a` is also declared in this file
+    /// an `import (a)` whose `a` is also declared in this file
     ImportVsLocal,
     /// the same name imported twice (from the same or different modules)
     ImportVsImport,
-    /// `export { a } from ...` next to a `export function a` in the same
+    /// `export (a) from ...` next to a `export function a` in the same
     /// file. two different things would both be importable as `a`
     ReExportVsLocal,
     /// the same name re-exported twice. again. stop it.
@@ -111,6 +111,13 @@ impl fmt::Display for ModuleError {
                 "'{}' is also the name of a type of install #{} (line {}, column {}): rename it here",
                 name, library, pos.line, pos.col
             ),
+            ModuleError::MissingExtension { importer, path, pos } if path.is_empty() => write!(
+                f,
+                "the path is empty: give the file to load, e.g. \"./lib.spg\" (in '{}' at line {}, column {})",
+                friendly(importer),
+                pos.line,
+                pos.col
+            ),
             ModuleError::MissingExtension { importer, path, pos } => write!(
                 f,
                 "module path \"{}\" must end in '.spg' (in '{}' at line {}, column {})",
@@ -134,7 +141,7 @@ impl fmt::Display for ModuleError {
             ),
             ModuleError::ImportedNotReExported { importer, module, name, pos, imported_at, origin } => write!(
                 f,
-                "'{}' is only imported by module \"{}\" (line {}), not exported from it — importing doesn't re-export; add `export {{ {} }} from \"{}\"` there (in '{}' at line {}, column {})",
+                "'{}' is only imported by module \"{}\" (line {}), not exported from it — importing doesn't re-export; add `export ({}) from \"{}\"` there (in '{}' at line {}, column {})",
                 name,
                 module,
                 imported_at.line,
@@ -167,7 +174,7 @@ impl fmt::Display for ModuleError {
                     CollisionKind::ReExportVsLocal => "is re-exported here, but this file also exports its own",
                     CollisionKind::ReExportVsReExport => "is re-exported more than once",
                 };
-                // `import { a, a }`: both sides are the same statement, so
+                // `import (a, a)`: both sides are the same statement, so
                 // "first imported here -> the line we already pointed at"
                 // would say nothing. say what actually happened instead.
                 let same_line = second.line == first.line;

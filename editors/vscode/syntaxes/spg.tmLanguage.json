@@ -365,7 +365,7 @@
           "name": "keyword.operator.logical.spg"
         },
         {
-          "match": "\\+=|-=|\\*=|/=",
+          "match": "\\+\\+|--|\\+=|-=|\\*=|/=|%=",
           "name": "keyword.operator.assignment.compound.spg"
         },
         {

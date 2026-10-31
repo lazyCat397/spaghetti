@@ -34,6 +34,13 @@ pub fn builtin_doc(name: &str) -> Option<&'static str> {
         // ---- @array: lists ----
         "@array.len" => "number of elements",
         "@array.push" => "add an element at the end",
+        "@map.map" => "a new map with f applied to each entry: @map.map(m, fn(k: K, v: V) -> U) gives map<K, U>",
+        "@map.filter" => "a new map with the entries where f gives true: @map.filter(m, fn(k: K, v: V) -> bool)",
+        "@array.first" => "the first element, or none for an empty array: @array.first(arr) gives T?",
+        "@array.last" => "the last element, or none for an empty array: @array.last(arr) gives T?",
+        "@array.map" => "a new array with f applied to each element: @array.map(arr, fn(x: T) -> U) gives U[]",
+        "@array.filter" => "a new array with the elements where f gives true: @array.filter(arr, fn(x: T) -> bool)",
+        "@array.reduce" => "folds the array into one value: @array.reduce(arr, fn(acc: A, x: T) -> A, init)",
         "@array.pop" => "remove and return the last element",
         "@array.insert" => "insert an element at an index",
         "@array.remove" => "remove and return the element at an index",

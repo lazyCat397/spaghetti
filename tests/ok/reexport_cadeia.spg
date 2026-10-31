@@ -1,4 +1,4 @@
-import { inc, read } from "../lib/reexport_top.spg"
+import (inc, read) from "../lib/reexport_top.spg"
 inc()
 inc()
 print(read())

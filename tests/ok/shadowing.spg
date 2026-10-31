@@ -1,4 +1,4 @@
-import { value, g } from "../lib/lib.spg"
+import (value, g) from "../lib/lib.spg"
 
 fn usaParam(value: int) -> int { return value + 1 }
 fn usaLocal() -> int {

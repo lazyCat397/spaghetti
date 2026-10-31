@@ -18,6 +18,7 @@
 use std::collections::HashMap;
 
 use spg_parser::ast::{BinaryOp, UnaryOp};
+use spg_typecheck::typed_ast::{ArrayFnKind, MapFnKind};
 use spg_typecheck::typed_ast::{RangeStep, Ty, TypedBlock, TypedExpr, TypedProgram, TypedStmt};
 use spg_vm::chunk::{Chunk, OpCode, Program};
 use spg_vm::value::Value;
@@ -354,6 +355,298 @@ impl<'a> FunctionCompiler<'a> {
         // few extra locals-array entries for simplicity. worth it.
     }
 
+    /// a hidden local for a value the compiler needs once and read back
+    /// (the array and index of `a[i]++`). its name can't come from user
+    /// code: the lexer never produces the \u{1} prefix.
+    fn hidden_local(&mut self) -> usize {
+        let name = format!("\u{1}tmp{}", self.next_slot);
+        self.declare_local(&name)
+    }
+
+    /// `@array.map`, `@array.filter`, `@array.reduce`: one loop. the array, the
+    /// function and the index live in hidden locals, so each is evaluated once.
+    /// the function is called through its value (CallValue), the way `f(x)` is
+    fn compile_array_fn(
+        &mut self,
+        kind: &ArrayFnKind,
+        array: &TypedExpr,
+        func: &TypedExpr,
+        init: Option<&TypedExpr>,
+        ty: &Ty,
+    ) -> Result<(), CompileError> {
+        let src = self.hidden_local();
+        self.compile_expr(array)?;
+        self.chunk.emit(OpCode::SetLocal(src));
+        self.chunk.emit(OpCode::Pop);
+
+        let fn_slot = self.hidden_local();
+        self.compile_expr(func)?;
+        self.chunk.emit(OpCode::SetLocal(fn_slot));
+        self.chunk.emit(OpCode::Pop);
+
+        let idx = self.hidden_local();
+        let zero = self.const_int(0);
+        self.chunk.emit(OpCode::Const(zero));
+        self.chunk.emit(OpCode::SetLocal(idx));
+        self.chunk.emit(OpCode::Pop);
+
+        // the result: a new array (map, filter) or the running accumulator (reduce)
+        let out = self.hidden_local();
+        match init {
+            Some(init) => self.compile_expr(init)?,
+            None => self.compile_expr(&TypedExpr::ArrayLit { items: Vec::new(), ty: ty.clone() })?,
+        }
+        self.chunk.emit(OpCode::SetLocal(out));
+        self.chunk.emit(OpCode::Pop);
+
+        let loop_start = self.chunk.next_index();
+        self.chunk.emit(OpCode::GetLocal(idx));
+        self.chunk.emit(OpCode::GetLocal(src));
+        self.chunk.emit(OpCode::ArrayLen);
+        self.chunk.emit(OpCode::LtInt);
+        let exit = self.chunk.emit(OpCode::JumpIfFalse(0));
+
+        match kind {
+            ArrayFnKind::Map => {
+                self.chunk.emit(OpCode::GetLocal(out));
+                self.chunk.emit(OpCode::GetLocal(fn_slot));
+                self.push_element(src, idx);
+                self.chunk.emit(OpCode::CallValue { argc: 1 });
+                self.chunk.emit(OpCode::CallBuiltin { id: spg_typecheck::BuiltinId::ArrayPush, argc: 2 });
+                self.chunk.emit(OpCode::Pop);
+            }
+            ArrayFnKind::Filter => {
+                self.chunk.emit(OpCode::GetLocal(fn_slot));
+                self.push_element(src, idx);
+                self.chunk.emit(OpCode::CallValue { argc: 1 });
+                let skip = self.chunk.emit(OpCode::JumpIfFalse(0));
+                self.chunk.emit(OpCode::GetLocal(out));
+                self.push_element(src, idx);
+                self.chunk.emit(OpCode::CallBuiltin { id: spg_typecheck::BuiltinId::ArrayPush, argc: 2 });
+                self.chunk.emit(OpCode::Pop);
+                let after = self.chunk.next_index();
+                self.chunk.patch_jump(skip, after);
+            }
+            ArrayFnKind::Reduce => {
+                self.chunk.emit(OpCode::GetLocal(fn_slot));
+                self.chunk.emit(OpCode::GetLocal(out));
+                self.push_element(src, idx);
+                self.chunk.emit(OpCode::CallValue { argc: 2 });
+                self.chunk.emit(OpCode::SetLocal(out));
+                self.chunk.emit(OpCode::Pop);
+            }
+        }
+
+        // idx = idx + 1
+        self.chunk.emit(OpCode::GetLocal(idx));
+        let one = self.const_int(1);
+        self.chunk.emit(OpCode::Const(one));
+        self.chunk.emit(OpCode::AddInt);
+        self.chunk.emit(OpCode::SetLocal(idx));
+        self.chunk.emit(OpCode::Pop);
+        self.chunk.emit(OpCode::Jump(loop_start));
+
+        let end = self.chunk.next_index();
+        self.chunk.patch_jump(exit, end);
+        self.chunk.emit(OpCode::GetLocal(out));
+        Ok(())
+    }
+
+    /// `@map.map` / `@map.filter`: a loop over the keys, which are taken once, in insertion
+    /// order. each step reads `map[key]`, calls `func(key, value)`, and writes into a new map
+    fn compile_map_fn(&mut self, kind: &MapFnKind, map: &TypedExpr, func: &TypedExpr, ty: &Ty) -> Result<(), CompileError> {
+        let src = self.hidden_local();
+        self.compile_expr(map)?;
+        self.chunk.emit(OpCode::SetLocal(src));
+        self.chunk.emit(OpCode::Pop);
+
+        let fn_slot = self.hidden_local();
+        self.compile_expr(func)?;
+        self.chunk.emit(OpCode::SetLocal(fn_slot));
+        self.chunk.emit(OpCode::Pop);
+
+        let keys = self.hidden_local();
+        self.chunk.emit(OpCode::GetLocal(src));
+        self.chunk.emit(OpCode::CallBuiltin { id: spg_typecheck::BuiltinId::MapKeys, argc: 1 });
+        self.chunk.emit(OpCode::SetLocal(keys));
+        self.chunk.emit(OpCode::Pop);
+
+        let idx = self.hidden_local();
+        let zero = self.const_int(0);
+        self.chunk.emit(OpCode::Const(zero));
+        self.chunk.emit(OpCode::SetLocal(idx));
+        self.chunk.emit(OpCode::Pop);
+
+        let key = self.hidden_local();
+        let out = self.hidden_local();
+        self.compile_expr(&TypedExpr::MapLit { entries: Vec::new(), ty: ty.clone() })?;
+        self.chunk.emit(OpCode::SetLocal(out));
+        self.chunk.emit(OpCode::Pop);
+
+        let loop_start = self.chunk.next_index();
+        self.chunk.emit(OpCode::GetLocal(idx));
+        self.chunk.emit(OpCode::GetLocal(keys));
+        self.chunk.emit(OpCode::ArrayLen);
+        self.chunk.emit(OpCode::LtInt);
+        let exit = self.chunk.emit(OpCode::JumpIfFalse(0));
+
+        // key = keys[idx]
+        self.chunk.emit(OpCode::GetLocal(keys));
+        self.chunk.emit(OpCode::GetLocal(idx));
+        self.chunk.emit(OpCode::IndexGet);
+        self.chunk.emit(OpCode::SetLocal(key));
+        self.chunk.emit(OpCode::Pop);
+
+        match kind {
+            MapFnKind::Map => {
+                // out[key] = func(key, map[key])
+                self.chunk.emit(OpCode::GetLocal(out));
+                self.chunk.emit(OpCode::GetLocal(key));
+                self.chunk.emit(OpCode::GetLocal(fn_slot));
+                self.chunk.emit(OpCode::GetLocal(key));
+                self.chunk.emit(OpCode::GetLocal(src));
+                self.chunk.emit(OpCode::GetLocal(key));
+                self.chunk.emit(OpCode::MapGet);
+                self.chunk.emit(OpCode::CallValue { argc: 2 });
+                self.chunk.emit(OpCode::MapSet);
+            }
+            MapFnKind::Filter => {
+                // if func(key, map[key]) then out[key] = map[key]
+                self.chunk.emit(OpCode::GetLocal(fn_slot));
+                self.chunk.emit(OpCode::GetLocal(key));
+                self.chunk.emit(OpCode::GetLocal(src));
+                self.chunk.emit(OpCode::GetLocal(key));
+                self.chunk.emit(OpCode::MapGet);
+                self.chunk.emit(OpCode::CallValue { argc: 2 });
+                let skip = self.chunk.emit(OpCode::JumpIfFalse(0));
+                self.chunk.emit(OpCode::GetLocal(out));
+                self.chunk.emit(OpCode::GetLocal(key));
+                self.chunk.emit(OpCode::GetLocal(src));
+                self.chunk.emit(OpCode::GetLocal(key));
+                self.chunk.emit(OpCode::MapGet);
+                self.chunk.emit(OpCode::MapSet);
+                let after = self.chunk.next_index();
+                self.chunk.patch_jump(skip, after);
+            }
+        }
+
+        self.chunk.emit(OpCode::GetLocal(idx));
+        let one = self.const_int(1);
+        self.chunk.emit(OpCode::Const(one));
+        self.chunk.emit(OpCode::AddInt);
+        self.chunk.emit(OpCode::SetLocal(idx));
+        self.chunk.emit(OpCode::Pop);
+        self.chunk.emit(OpCode::Jump(loop_start));
+
+        let end = self.chunk.next_index();
+        self.chunk.patch_jump(exit, end);
+        self.chunk.emit(OpCode::GetLocal(out));
+        Ok(())
+    }
+
+    /// pushes `src[idx]`
+    fn push_element(&mut self, src: usize, idx: usize) {
+        self.chunk.emit(OpCode::GetLocal(src));
+        self.chunk.emit(OpCode::GetLocal(idx));
+        self.chunk.emit(OpCode::IndexGet);
+    }
+
+    /// `++`/`--` as a value. the target's parts (variable, array, index, object)
+    /// are each evaluated once, and the stack ends with the new value (prefix)
+    /// or the old one (postfix). the opcodes are the ones the assignments use.
+    fn compile_incdec(&mut self, target: &TypedExpr, delta: i64, prefix: bool, ty: &Ty) -> Result<(), CompileError> {
+        let op = if delta > 0 { BinaryOp::Add } else { BinaryOp::Sub };
+        let one = if *ty == Ty::Float { Value::Float(1.0) } else { Value::Int(1) };
+        let add = binary_opcode(&op, ty);
+        match target {
+            TypedExpr::Ident { name, .. } => {
+                let (get, set) = match self.resolve_var(name).expect(
+                    "compiler bug: incdec target not found in any scope (should've been caught by typecheck)",
+                ) {
+                    VarSlot::Local(slot) => (OpCode::GetLocal(slot), OpCode::SetLocal(slot)),
+                    VarSlot::Global(slot) => (OpCode::GetGlobal(slot), OpCode::SetGlobal(slot)),
+                };
+                if !prefix {
+                    self.chunk.emit(get.clone()); // postfix keeps the old value below
+                }
+                self.chunk.emit(get);
+                let k = self.chunk.add_constant(one);
+                self.chunk.emit(OpCode::Const(k));
+                self.chunk.emit(add);
+                self.chunk.emit(set); // SetLocal/SetGlobal leave the new value on the stack
+                if !prefix {
+                    self.chunk.emit(OpCode::Pop);
+                }
+            }
+
+            TypedExpr::Index { array, index, .. } => {
+                let is_map = matches!(array.ty(), Ty::Map(..));
+                let (get_op, set_op) = if is_map { (OpCode::MapGet, OpCode::MapSet) } else { (OpCode::IndexGet, OpCode::IndexSet) };
+                let arr = self.hidden_local();
+                self.compile_expr(array)?;
+                self.chunk.emit(OpCode::SetLocal(arr));
+                self.chunk.emit(OpCode::Pop);
+                let idx = self.hidden_local();
+                self.compile_expr(index)?;
+                self.chunk.emit(OpCode::SetLocal(idx));
+                self.chunk.emit(OpCode::Pop);
+
+                if !prefix {
+                    self.chunk.emit(OpCode::GetLocal(arr));
+                    self.chunk.emit(OpCode::GetLocal(idx));
+                    self.chunk.emit(get_op.clone());
+                }
+                // store: push array, index, then (old + delta), in IndexSet's pop order
+                self.chunk.emit(OpCode::GetLocal(arr));
+                self.chunk.emit(OpCode::GetLocal(idx));
+                self.chunk.emit(OpCode::GetLocal(arr));
+                self.chunk.emit(OpCode::GetLocal(idx));
+                self.chunk.emit(get_op.clone());
+                let k = self.chunk.add_constant(one);
+                self.chunk.emit(OpCode::Const(k));
+                self.chunk.emit(add);
+                self.chunk.emit(set_op);
+                if prefix {
+                    self.chunk.emit(OpCode::GetLocal(arr));
+                    self.chunk.emit(OpCode::GetLocal(idx));
+                    self.chunk.emit(get_op);
+                }
+            }
+
+            TypedExpr::Field { object, field, .. } => {
+                let obj = self.hidden_local();
+                self.compile_expr(object)?;
+                self.chunk.emit(OpCode::SetLocal(obj));
+                self.chunk.emit(OpCode::Pop);
+                let field_index = self.resolve_field_index(object.ty(), field)?;
+
+                if !prefix {
+                    self.chunk.emit(OpCode::GetLocal(obj));
+                    self.chunk.emit(OpCode::FieldGet { field_index });
+                }
+                // store: push struct, then (old + delta), in FieldSet's pop order
+                self.chunk.emit(OpCode::GetLocal(obj));
+                self.chunk.emit(OpCode::GetLocal(obj));
+                self.chunk.emit(OpCode::FieldGet { field_index });
+                let k = self.chunk.add_constant(one);
+                self.chunk.emit(OpCode::Const(k));
+                self.chunk.emit(add);
+                self.chunk.emit(OpCode::FieldSet { field_index });
+                if prefix {
+                    self.chunk.emit(OpCode::GetLocal(obj));
+                    self.chunk.emit(OpCode::FieldGet { field_index });
+                }
+            }
+
+            _ => {
+                return Err(CompileError::InvalidControlFlow(
+                    "compiler bug: incdec on a non-assignable target (should've been caught by typecheck)".to_string(),
+                ))
+            }
+        }
+        Ok(())
+    }
+
     fn declare_local(&mut self, name: &str) -> usize {
         let slot = self.next_slot;
         self.next_slot += 1;
@@ -602,6 +895,26 @@ impl<'a> FunctionCompiler<'a> {
                 self.compile_block(body)?;
             }
 
+            TypedStmt::DoWhile { body, cond } => {
+                let loop_start = self.chunk.next_index();
+                self.loop_stack.push(LoopContext { break_jumps: Vec::new(), continue_jumps: Vec::new(), handlers_at_entry: self.open_handlers });
+                self.compile_block(body)?;
+                let loop_ctx = self.loop_stack.pop().expect("pushed right above");
+                // `continue` in a do-while goes to the condition check, not to the body's start
+                let cond_start = self.chunk.next_index();
+                for continue_idx in &loop_ctx.continue_jumps {
+                    self.chunk.patch_jump(*continue_idx, cond_start);
+                }
+                self.compile_expr(cond)?;
+                let jump_if_false = self.chunk.emit(OpCode::JumpIfFalse(0));
+                self.chunk.emit(OpCode::Jump(loop_start));
+                let after = self.chunk.next_index();
+                self.chunk.patch_jump(jump_if_false, after);
+                for break_idx in &loop_ctx.break_jumps {
+                    self.chunk.patch_jump(*break_idx, after);
+                }
+            }
+
             TypedStmt::While { cond, body } => {
                 let loop_start = self.chunk.next_index();
                 self.compile_expr(cond)?;
@@ -625,8 +938,8 @@ impl<'a> FunctionCompiler<'a> {
                 }
             }
 
-            TypedStmt::ForIn { var_name, iterable, body, .. } => {
-                self.compile_for_in(var_name, iterable, body)?;
+            TypedStmt::ForIn { var_name, index_var, iterable, body, map_source, .. } => {
+                self.compile_for_in(var_name, index_var.as_deref(), iterable, map_source.as_deref(), body)?;
             }
 
             TypedStmt::ForRange { var_name, start, end, step, var_assigned, body } => {
@@ -717,7 +1030,9 @@ impl<'a> FunctionCompiler<'a> {
     fn compile_for_in(
         &mut self,
         var_name: &str,
+        index_var: Option<&str>,
         iterable: &TypedExpr,
+        map_source: Option<&TypedExpr>,
         body: &TypedBlock,
     ) -> Result<(), CompileError> {
         self.begin_scope();
@@ -733,6 +1048,18 @@ impl<'a> FunctionCompiler<'a> {
         self.chunk.emit(OpCode::SetLocal(index_slot));
         self.chunk.emit(OpCode::Pop);
 
+        // `for k, v in map`: the map is read once, before the loop, for its values
+        let map_slot = match map_source {
+            Some(map) => {
+                self.compile_expr(map)?;
+                let slot = self.declare_local("<for-map>");
+                self.chunk.emit(OpCode::SetLocal(slot));
+                self.chunk.emit(OpCode::Pop);
+                Some(slot)
+            }
+            None => None,
+        };
+
         let loop_start = self.chunk.next_index();
         // condition: index < len(array)
         self.chunk.emit(OpCode::GetLocal(index_slot));
@@ -745,9 +1072,28 @@ impl<'a> FunctionCompiler<'a> {
         self.chunk.emit(OpCode::GetLocal(array_slot));
         self.chunk.emit(OpCode::GetLocal(index_slot));
         self.chunk.emit(OpCode::IndexGet);
-        let elem_slot = self.declare_local(var_name);
+        // in a map loop the element is the key, so it gets the key's name
+        let elem_name = if map_slot.is_some() { index_var.unwrap_or(var_name) } else { var_name };
+        let elem_slot = self.declare_local(elem_name);
         self.chunk.emit(OpCode::SetLocal(elem_slot));
         self.chunk.emit(OpCode::Pop);
+        if let Some(map_slot) = map_slot {
+            // the value for this key, read from the map as it is right now
+            self.chunk.emit(OpCode::GetLocal(map_slot));
+            self.chunk.emit(OpCode::GetLocal(elem_slot));
+            self.chunk.emit(OpCode::MapGet);
+            let value_slot = self.declare_local(var_name);
+            self.chunk.emit(OpCode::SetLocal(value_slot));
+            self.chunk.emit(OpCode::Pop);
+        }
+        // `for i, v in arr`: the position is the loop's own index, copied out.
+        // the copy keeps a `i = ...` in the body from disturbing the iteration
+        if let (None, Some(index)) = (map_slot, index_var) {
+            self.chunk.emit(OpCode::GetLocal(index_slot));
+            let index_copy = self.declare_local(index);
+            self.chunk.emit(OpCode::SetLocal(index_copy));
+            self.chunk.emit(OpCode::Pop);
+        }
         self.loop_stack.push(LoopContext { break_jumps: Vec::new(), continue_jumps: Vec::new(), handlers_at_entry: self.open_handlers });
         self.compile_block(body)?;
         let loop_ctx = self.loop_stack.pop().expect("pushed right above");
@@ -1004,6 +1350,18 @@ impl<'a> FunctionCompiler<'a> {
 
             TypedExpr::Binary { left, op, right, .. } => {
                 self.compile_binary(left, op, right)?;
+            }
+
+            TypedExpr::MapFn { kind, map, func, ty } => {
+                self.compile_map_fn(kind, map, func, ty)?;
+            }
+
+            TypedExpr::ArrayFn { kind, array, func, init, ty } => {
+                self.compile_array_fn(kind, array, func, init.as_deref(), ty)?;
+            }
+
+            TypedExpr::IncDec { target, delta, prefix, ty } => {
+                self.compile_incdec(target, *delta, *prefix, ty)?;
             }
 
             TypedExpr::Unary { op, expr, .. } => {

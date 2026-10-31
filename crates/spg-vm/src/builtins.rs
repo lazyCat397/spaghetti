@@ -478,6 +478,17 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
 
         // ---- arrays (the big one) ----
         ArrayLenBuiltin => Value::Int(as_array(args.remove(0)).borrow().len() as i64),
+        // none (Value::Nil, the same value a `none` literal compiles to) for an empty array
+        ArrayFirst => {
+            let arr = as_array(args.remove(0));
+            let first = arr.borrow().first().cloned();
+            first.unwrap_or(Value::Nil)
+        }
+        ArrayLast => {
+            let arr = as_array(args.remove(0));
+            let last = arr.borrow().last().cloned();
+            last.unwrap_or(Value::Nil)
+        }
         ArrayPush => {
             let arr = as_array(args.remove(0));
             let item = args.remove(0);

@@ -17,6 +17,12 @@ pub struct Diag {
 /// win over disk) and returns everything wrong with it. resolve stops at
 /// its first error. the typechecker reports all of its errors. show-off.
 pub fn analyze(entry: &Path, overlay: &HashMap<PathBuf, String>) -> Vec<Diag> {
+    let mut diags = analyze_pipeline(entry, overlay);
+    diags.extend(native_path_diags(entry, overlay));
+    diags
+}
+
+fn analyze_pipeline(entry: &Path, overlay: &HashMap<PathBuf, String>) -> Vec<Diag> {
     let entry_canon = spg_modules::canon(entry).unwrap_or_else(|_| entry.to_path_buf());
     let program = match spg_modules::resolve_with(entry, overlay) {
         Ok(p) => p,
@@ -132,6 +138,95 @@ pub fn utf16_range(line_text: &str, col: usize) -> (usize, usize) {
     (u16_of(start), u16_of(end))
 }
 
+/// `label.font = "./f.ttf"` and `win.image(x, y, "./p.png", w, h)` name files too, but the
+/// compiler only sees strings there, so a missing file shows up only when the program runs.
+/// the literal ones are checked here, the way `import` and `install` already are: relative
+/// to the file being edited. `font = ""` is valid (it goes back to the bitmap font), so it
+/// is not checked; `image("")` has no file at all, so it is an error
+fn native_path_diags(entry: &Path, overlay: &HashMap<PathBuf, String>) -> Vec<Diag> {
+    use spg_lexer::TokenKind;
+    let Some(text) = overlay.get(entry).cloned().or_else(|| std::fs::read_to_string(entry).ok()) else {
+        return Vec::new();
+    };
+    let Ok(tokens) = spg_lexer::Lexer::new(&text).tokenize() else { return Vec::new() };
+    let dir = entry.parent().unwrap_or(Path::new("."));
+    let mut out = Vec::new();
+    for i in 0..tokens.len() {
+        if tokens[i].kind != TokenKind::Dot {
+            continue;
+        }
+        let Some(TokenKind::Ident(name)) = tokens.get(i + 1).map(|t| &t.kind) else { continue };
+        let found: Option<(&spg_lexer::Token, &str, &str, &[&str], bool)> = match name.as_str() {
+            "font" if tokens.get(i + 2).map(|t| &t.kind) == Some(&TokenKind::Eq) => match tokens.get(i + 3) {
+                // `font = "a" + x` is not a plain literal: leave it to the runtime
+                Some(t) if matches!(tokens.get(i + 4).map(|n| &n.kind), None | Some(TokenKind::Eof) | Some(TokenKind::Newline) | Some(TokenKind::Semicolon) | Some(TokenKind::RBrace)) => {
+                    if let TokenKind::Str(path) = &t.kind {
+                        Some((t, path.as_str(), "font", &["ttf", "otf"], false))
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            },
+            "image" if tokens.get(i + 2).map(|t| &t.kind) == Some(&TokenKind::LParen) => {
+                third_argument(&tokens, i + 2).map(|(t, path)| (t, path, "image", &["png"][..], true))
+            }
+            _ => None,
+        };
+        let Some((tok, path, what, exts, is_image)) = found else { continue };
+        let problem = if path.is_empty() {
+            if is_image { Some(format!("the {what} needs a file path")) } else { None }
+        } else {
+            let ext_ok = Path::new(path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .map_or(false, |e| exts.iter().any(|x| e.eq_ignore_ascii_case(x)));
+            if ext_ok && !dir.join(path).is_file() {
+                Some(format!("cannot find the {what} \"{path}\" (paths are relative to this file)"))
+            } else {
+                None
+            }
+        };
+        if let Some(message) = problem {
+            out.push(Diag { file: entry.to_path_buf(), line: tok.line, col: tok.col, message });
+        }
+    }
+    out
+}
+
+/// the third argument of the call whose `(` is at `lparen`, when it is a single plain string
+fn third_argument(tokens: &[spg_lexer::Token], lparen: usize) -> Option<(&spg_lexer::Token, &str)> {
+    use spg_lexer::TokenKind;
+    let mut args: Vec<Vec<&spg_lexer::Token>> = vec![Vec::new()];
+    let mut depth = 0usize;
+    for t in &tokens[lparen + 1..] {
+        match t.kind {
+            TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
+                depth += 1;
+                args.last_mut()?.push(t);
+            }
+            TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
+                if depth == 0 {
+                    break;
+                }
+                depth -= 1;
+                args.last_mut()?.push(t);
+            }
+            TokenKind::Comma if depth == 0 => args.push(Vec::new()),
+            TokenKind::Newline => {}
+            _ => args.last_mut()?.push(t),
+        }
+    }
+    let arg = args.get(2)?;
+    match arg.as_slice() {
+        [only] => match &only.kind {
+            TokenKind::Str(path) => Some((*only, path.as_str())),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,5 +295,74 @@ mod typing_directive_tests {
         assert!(!run("wrong_name", "#> strikt\nprint(1)\n").is_empty());
         // a complete directive without its argument is an error too
         assert!(!run("timeout_bare", "#> timeout\nprint(1)\n").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod native_path_tests {
+    use super::*;
+
+    /// a folder with the given files (empty), the main file's text in the overlay
+    fn run(name: &str, files: &[&str], text: &str) -> Vec<Diag> {
+        let dir = std::env::temp_dir().join(format!("spg_native_paths_{}", name));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in files {
+            let p = dir.join(f);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, "").unwrap();
+        }
+        let path = dir.join("main.spg");
+        std::fs::write(&path, text).unwrap();
+        let mut overlay = HashMap::new();
+        overlay.insert(spg_modules::canon(&path).unwrap(), text.to_string());
+        native_path_diags(&spg_modules::canon(&path).unwrap(), &overlay)
+    }
+
+    fn msgs(d: &[Diag]) -> Vec<String> {
+        d.iter().map(|x| x.message.clone()).collect()
+    }
+
+    #[test]
+    fn missing_font_file_is_an_error_and_an_existing_one_is_not() {
+        let src = "label.font = \"./sans.ttf\"\n";
+        let bad = run("font_missing", &[], src);
+        assert_eq!(bad.len(), 1, "{:?}", msgs(&bad));
+        assert!(bad[0].message.contains("cannot find the font \"./sans.ttf\""));
+        assert_eq!((bad[0].line, bad[0].col), (1, 14));
+        assert!(run("font_there", &["sans.ttf"], src).is_empty());
+    }
+
+    #[test]
+    fn empty_font_goes_back_to_the_bitmap_and_is_fine() {
+        assert!(run("font_empty", &[], "label.font = \"\"\n").is_empty());
+    }
+
+    #[test]
+    fn image_checks_the_third_argument_only() {
+        let src = "win.image(0, 0, \"./pic.png\", 10, 10)\n";
+        let bad = run("image_missing", &[], src);
+        assert_eq!(bad.len(), 1, "{:?}", msgs(&bad));
+        assert!(bad[0].message.contains("cannot find the image \"./pic.png\""));
+        assert!(run("image_there", &["pic.png"], src).is_empty());
+    }
+
+    #[test]
+    fn empty_image_path_is_an_error() {
+        let bad = run("image_empty", &[], "win.image(0, 0, \"\", 0, 0)\n");
+        assert_eq!(bad.len(), 1, "{:?}", msgs(&bad));
+        assert!(bad[0].message.contains("needs a file path"));
+    }
+
+    #[test]
+    fn computed_paths_are_left_to_the_runtime() {
+        assert!(run("font_expr", &[], "label.font = \"./a.ttf\" + x\n").is_empty());
+        assert!(run("image_expr", &[], "win.image(0, 0, name, 1, 1)\n").is_empty());
+    }
+
+    #[test]
+    fn dot_and_dot_dot_paths_resolve_from_the_file_folder() {
+        assert!(run("dotdot", &["assets/sans.ttf", "sub/k"], "label.font = \"./sub/../assets/sans.ttf\"\n").is_empty());
+        assert!(run("dotdot_ok", &["x/y.png"], "win.image(0, 0, \"./x/../x/y.png\", 1, 1)\n").is_empty());
     }
 }

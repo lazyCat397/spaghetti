@@ -1,0 +1,1 @@
+print(@array.map(["a"], fn(x: int) -> int { return x }))

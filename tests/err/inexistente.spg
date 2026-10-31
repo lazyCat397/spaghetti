@@ -1,1 +1,1 @@
-import { fantasma } from "../lib/a.spg"
+import (fantasma) from "../lib/a.spg"

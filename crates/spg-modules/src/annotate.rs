@@ -85,6 +85,12 @@ fn annotate_stmt(stmt: &mut Stmt, file: &str) {
             }
         }
 
+        Stmt::DoWhile { body, cond, pos } => {
+            stamp(pos, file);
+            annotate_block(body, file);
+            annotate_expr(cond, file);
+        }
+
         Stmt::While { cond, body, pos } => {
             stamp(pos, file);
             annotate_expr(cond, file);
@@ -215,6 +221,11 @@ fn annotate_expr(expr: &mut Expr, file: &str) {
         Expr::Unary { expr, pos, .. } => {
             stamp(pos, file);
             annotate_expr(expr, file);
+        }
+
+        Expr::IncDec { target, pos, .. } => {
+            stamp(pos, file);
+            annotate_expr(target, file);
         }
 
         Expr::Call { callee, args, pos } => {

@@ -1,0 +1,23 @@
+let names = ["ana", "bia", "caio"]
+for i, n in names {
+    print("${i}: ${n}")
+}
+let total = 0
+for i, v in [10, 20, 30] {
+    total += i * v
+}
+print(total)
+for i, v in [5, 6, 7, 8] {
+    if (v == 6) {
+        continue
+    }
+    if (i == 3) {
+        break
+    }
+    print(i)
+}
+for i, a in [1, 2] {
+    for j, b in [10, 20] {
+        print(i * 100 + j * 10 + b)
+    }
+}

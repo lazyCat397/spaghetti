@@ -1,5 +1,5 @@
-import { Vec, makeVec, hiddenTwice } from "../lib/sm_vec.spg"
-import { makeOther } from "../lib/sm_other.spg"
+import (Vec, makeVec, hiddenTwice) from "../lib/sm_vec.spg"
+import (makeOther) from "../lib/sm_other.spg"
 let v = makeVec(3, 4)
 print(v.len2())
 print(v.add(Vec { x: 1, y: 1 }).len2())

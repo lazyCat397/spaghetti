@@ -1,1 +1,1 @@
-import { inc } from "../lib/reexport_facade_import.spg"
+import (inc) from "../lib/reexport_facade_import.spg"

@@ -1,2 +1,2 @@
-import { fc } from "./ciclo3_c.spg"
+import (fc) from "./ciclo3_c.spg"
 export fn fb() -> int { return 2 }

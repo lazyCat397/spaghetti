@@ -64,6 +64,8 @@ pub struct Session<B: Backend> {
     shape_down: HashSet<(ShapeId, Button)>,
     shape_pressed: HashSet<(ShapeId, Button)>,
     shape_released: HashSet<(ShapeId, Button)>,
+    /// the icon file last set on the window, as the program gave it (empty: the default icon)
+    icon: String,
 }
 
 fn closed() -> String {
@@ -106,7 +108,23 @@ impl<B: Backend> Session<B> {
             shape_down: HashSet::new(),
             shape_pressed: HashSet::new(),
             shape_released: HashSet::new(),
+            icon: String::new(),
         })
+    }
+
+    /// the icon file last set, as the program wrote it. empty when none was set
+    pub fn icon(&self) -> &str {
+        &self.icon
+    }
+
+    /// sets the icon of the window from the `.ico` file `path` (see `Backend::set_icon`)
+    pub fn set_icon(&mut self, path: &str) -> Result<(), String> {
+        if self.state == State::Closed {
+            return Err(closed());
+        }
+        self.backend.set_icon(path)?;
+        self.icon = path.to_string();
+        Ok(())
     }
 
     pub fn state(&self) -> State {
@@ -374,6 +392,7 @@ impl<B: Backend> Session<B> {
     /// window are cut off
     fn render(&mut self) {
         let Session { scene, pixels, width, height, .. } = self;
+        let smooth = scene.antialias();
         pixels.fill(scene.background());
         for drawn in scene.draw_list() {
             match drawn {
@@ -385,7 +404,7 @@ impl<B: Backend> Session<B> {
                             draw_outline(pixels, *width, *height, shape, stroke);
                         }
                     } else {
-                        draw_turned_shape(pixels, *width, *height, shape);
+                        draw_turned_shape(pixels, *width, *height, shape, smooth);
                     }
                 }
                 Drawn::Label(label) => draw_label(pixels, *width, *height, label),
@@ -511,12 +530,16 @@ fn draw_outline(pixels: &mut [u32], width: usize, height: usize, shape: &Shape, 
     fill_box(pixels, width, height, x + w - stroke, y, stroke, h, c);
 }
 
-/// draws a shape that is turned, see-through, without fill or an ellipse. every pixel of its box is
-/// tested against the shape's own geometry at the pixel's center, then the pixel takes the fill or
-/// the outline, mixed by the shape's alpha
-fn draw_turned_shape(pixels: &mut [u32], width: usize, height: usize, shape: &Shape) {
-    let alpha = (shape.alpha() * 255.0).round() as u8;
-    if alpha == 0 {
+/// how many samples per side a pixel gets when the window is antialiased: 4 by 4, so an edge can
+/// be lit at 17 levels of coverage
+const SAMPLES_PER_SIDE: usize = 4;
+
+/// draws a shape that is turned, see-through, without fill or an ellipse. the pixel's samples are
+/// tested against the shape's own geometry: one at the pixel's center when `smooth` is off, a grid
+/// of `SAMPLES_PER_SIDE` squared when it is on. the fill and the outline are each mixed into the
+/// pixel by the share of samples they took, times the shape's alpha
+fn draw_turned_shape(pixels: &mut [u32], width: usize, height: usize, shape: &Shape, smooth: bool) {
+    if shape.alpha() == 0.0 {
         return;
     }
     let (left, top, right, bottom) = shape.bounds();
@@ -526,21 +549,42 @@ fn draw_turned_shape(pixels: &mut [u32], width: usize, height: usize, shape: &Sh
     let y1 = bottom.ceil().clamp(0.0, height as f64) as usize;
     let turn = shape.turn();
     let stroke = shape.stroke().round();
+    let side = if smooth { SAMPLES_PER_SIDE } else { 1 };
+    let total = (side * side) as f64;
     for py in y0..y1 {
         for px in x0..x1 {
-            let local = shape.to_local(turn, px as f64 + 0.5, py as f64 + 0.5);
-            if !shape.covers(local, 0.0) {
-                continue;
-            }
-            if shape.covers(local, stroke) {
-                if shape.fill() {
-                    blend(pixels, width, height, px as i64, py as i64, shape.color(), alpha);
+            let (mut fill_hits, mut line_hits) = (0usize, 0usize);
+            for sy in 0..side {
+                for sx in 0..side {
+                    let (ox, oy) = ((sx as f64 + 0.5) / side as f64, (sy as f64 + 0.5) / side as f64);
+                    let local = shape.to_local(turn, px as f64 + ox, py as f64 + oy);
+                    if !shape.covers(local, 0.0) {
+                        continue;
+                    }
+                    if shape.covers(local, stroke) {
+                        if shape.fill() {
+                            fill_hits += 1;
+                        }
+                    } else {
+                        line_hits += 1;
+                    }
                 }
-            } else {
-                blend(pixels, width, height, px as i64, py as i64, shape.stroke_color(), alpha);
+            }
+            if fill_hits > 0 {
+                let alpha = shape.alpha() * fill_hits as f64 / total;
+                blend(pixels, width, height, px as i64, py as i64, shape.color(), coverage_byte(alpha));
+            }
+            if line_hits > 0 {
+                let alpha = shape.alpha() * line_hits as f64 / total;
+                blend(pixels, width, height, px as i64, py as i64, shape.stroke_color(), coverage_byte(alpha));
             }
         }
     }
+}
+
+/// a 0 to 1 share as the 0 to 255 byte `blend` takes, rounded like the shape's alpha always was
+fn coverage_byte(share: f64) -> u8 {
+    (share * 255.0).round() as u8
 }
 
 /// draws an image into its `width` x `height` pixels, nearest neighbor: each screen pixel takes the

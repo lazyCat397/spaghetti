@@ -200,16 +200,24 @@ impl<'a> Renamer<'a> {
                 }
             }
 
+            Stmt::DoWhile { body, cond, .. } => {
+                self.rename_block(body);
+                self.rename_expr(cond);
+            }
+
             Stmt::While { cond, body, .. } => {
                 self.rename_expr(cond);
                 self.rename_block(body);
             }
 
-            Stmt::ForIn { var_name, iterable, body, .. } => {
+            Stmt::ForIn { var_name, index_var, iterable, body, .. } => {
                 self.rename_expr(iterable);
-                // the loop variable is visible only inside the body
+                // the loop variables are visible only inside the body
                 self.shadowed.push(HashSet::new());
                 self.shadow(var_name);
+                if let Some(index) = index_var {
+                    self.shadow(index);
+                }
                 self.rename_block(body);
                 self.shadowed.pop();
             }
@@ -321,6 +329,8 @@ impl<'a> Renamer<'a> {
             }
 
             Expr::Unary { expr, .. } => self.rename_expr(expr),
+
+            Expr::IncDec { target, .. } => self.rename_expr(target),
 
             Expr::Call { callee, args, .. } => {
                 self.rename_expr(callee);

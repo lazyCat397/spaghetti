@@ -1,2 +1,2 @@
-import { fa } from "./cycle_a.spg"
+import (fa) from "./cycle_a.spg"
 export fn fb() -> int { return 2 }

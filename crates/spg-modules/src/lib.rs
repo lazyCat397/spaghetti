@@ -13,7 +13,7 @@
 //! messages about the user's own code stay readable. for the user, not us.
 //!
 //! fixed language decisions this implements (no arguing):
-//! - only named imports: `import { a, b } from "./x.spg"`
+//! - only named imports: `import (a, b) from "./x.spg"`
 //! - an import cycle is always a fatal error, never "resolved"
 //! - the path must carry an explicit `.spg` extension
 //! - a module is loaded ONCE even if several files import it (diamond)
@@ -38,7 +38,7 @@ struct ModuleInfo {
     /// a non-exported one is still looked up, to say "not exported"
     /// instead of "no such name"). precise sadness.
     symbols: HashMap<String, Symbol>,
-    /// names re-exported with `export { x } from "./y.spg"`. kept apart
+    /// names re-exported with `export (x) from "./y.spg"`. kept apart
     /// from `symbols` on purpose: a re-export is importable FROM this
     /// module, but it's not a name INSIDE it, so it must never leak into
     /// this module's own scope. the mangled name is the ORIGINAL

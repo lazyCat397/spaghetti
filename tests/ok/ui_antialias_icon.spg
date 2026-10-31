@@ -1,0 +1,9 @@
+// the antialias flag and the window icon: the fields read back, and an .ico file is accepted
+install #ui
+
+let win = ui.window("aa", 20, 20)
+print(win.antialias)
+win.antialias = true
+print(win.antialias)
+win.windowIcon = "../../examples/assets/icons/tomato.ico"
+print(win.windowIcon != "")

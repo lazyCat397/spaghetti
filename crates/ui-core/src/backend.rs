@@ -135,6 +135,12 @@ pub trait Backend {
 
     /// closes the window and frees it. may be called more than once
     fn close(&mut self);
+
+    /// sets the icon of the window (the small picture in its corner), from an `.ico` file at
+    /// `path`. a backend that cannot show icons keeps the default one: the default does nothing
+    fn set_icon(&mut self, _path: &str) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// a boxed backend is a backend, so the core can pick one at run time

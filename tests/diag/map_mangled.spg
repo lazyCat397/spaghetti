@@ -1,4 +1,4 @@
-import { Item } from "../lib/mp_types.spg"
+import (Item) from "../lib/mp_types.spg"
 let a: map<string, Item> = [1: Item { name: "x", qty: 1 }]
 let b: map<string, int> = ["a": 1]
 b["a"] = Item { name: "x", qty: 1 }

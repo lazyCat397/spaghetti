@@ -1,0 +1,61 @@
+// Loops, operators and collection helpers added in 2026-10.
+
+// ++ and -- work as statements and as values
+let n = 0
+n++
+++n
+print(n)              // 2
+let a = n++          // a gets the old value, n is now 3
+let b = ++n          // b gets the new value, n is now 4
+print(a, b, n)       // 2 4 4
+
+// compound assignment, including modulo
+let m = 17
+m %= 5
+print(m)              // 2
+
+// let without a value starts at the zero of its type
+let count: int
+let label: string
+print(count, "[${label}]")   // 0 []
+
+// index and field targets work too
+let scores = [10, 20, 30]
+scores[1]++
+print(scores[1])      // 21
+
+// for with an index, over an array
+let names = ["ana", "bia", "caio"]
+for i, name in names {
+    print("${i}: ${name}")
+}
+
+// for with two names over a map: keys in insertion order
+let ages: map<string, int> = ["ana": 31, "bia": 25]
+for name, age in ages {
+    print("${name} is ${age}")
+}
+
+// do ... while runs the body at least once
+let tries = 0
+do {
+    tries++
+} while (tries < 3)
+print(tries)         // 3
+
+// membership with in
+print("bia" in names, "bob" in ages)   // true false
+
+// first and last give none for an empty array
+let empty: array<int> = []
+print(@array.first(names), @array.last(scores))   // ana 30
+print(@array.first(empty) == none)                // true
+
+// map and filter over arrays and maps
+let doubled = @array.map(scores, fn(x: int) -> int { return x * 2 })
+let big = @array.filter(scores, fn(x: int) -> bool { return x > 15 })
+let total = @array.reduce(scores, fn(acc: int, x: int) -> int { return acc + x }, 0)
+print(doubled, big, total)
+let prices: map<string, int> = ["bread": 5, "milk": 8]
+let cheap = @map.filter(prices, fn(k: string, v: int) -> bool { return v < 6 })
+print(@map.len(cheap))           // 1

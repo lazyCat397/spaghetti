@@ -168,6 +168,21 @@ pub struct TypedBlock {
     pub ty: Ty,
 }
 
+/// which of the two map loops a `MapFn` is
+#[derive(Debug, Clone, PartialEq)]
+pub enum MapFnKind {
+    Map,
+    Filter,
+}
+
+/// which of the three array loops an `ArrayFn` is
+#[derive(Debug, Clone, PartialEq)]
+pub enum ArrayFnKind {
+    Map,
+    Filter,
+    Reduce,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedExpr {
     IntLit(i64),
@@ -207,6 +222,36 @@ pub enum TypedExpr {
     Unary {
         op: UnaryOp,
         expr: Box<TypedExpr>,
+        ty: Ty,
+    },
+
+    /// `@array.map` / `@array.filter` / `@array.reduce`: a loop over `array` that
+    /// calls `func` on each element. built by the compiler (a native builtin can't
+    /// call a user function back), and typed here, since there are no generics.
+    ArrayFn {
+        kind: ArrayFnKind,
+        array: Box<TypedExpr>,
+        func: Box<TypedExpr>,
+        init: Option<Box<TypedExpr>>,
+        ty: Ty,
+    },
+
+    /// `@map.map(m, f)` / `@map.filter(m, f)`: a loop over the keys, in insertion order,
+    /// calling `func(key, value)`. built by the compiler, typed here (no generics)
+    MapFn {
+        kind: MapFnKind,
+        map: Box<TypedExpr>,
+        func: Box<TypedExpr>,
+        ty: Ty,
+    },
+
+    /// `++x`, `x--`, `a[i]++`, `o.f++` as a value. `target` is an Ident, Index
+    /// or Field node; `delta` is +1 or -1; `prefix` says which value comes out
+    /// (new when true, old when false). `ty` is the target's type (int or float).
+    IncDec {
+        target: Box<TypedExpr>,
+        delta: i64,
+        prefix: bool,
         ty: Ty,
     },
 
@@ -281,6 +326,9 @@ impl TypedExpr {
             TypedExpr::Ident { ty, .. } => ty,
             TypedExpr::Binary { ty, .. } => ty,
             TypedExpr::Unary { ty, .. } => ty,
+            TypedExpr::IncDec { ty, .. } => ty,
+            TypedExpr::ArrayFn { ty, .. } => ty,
+            TypedExpr::MapFn { ty, .. } => ty,
             TypedExpr::Call { ty, .. } => ty,
             TypedExpr::Lambda { ty, .. } => ty,
             TypedExpr::NoneLit { ty } => ty,
@@ -342,7 +390,11 @@ pub enum TypedStmt {
 
     While { cond: TypedExpr, body: TypedBlock },
 
-    ForIn { var_name: String, elem_ty: Ty, iterable: TypedExpr, body: TypedBlock },
+    DoWhile { body: TypedBlock, cond: TypedExpr },
+
+    /// `map_source` is set for `for k, v in map`: `iterable` is then the map's keys,
+    /// `index_var` is `k`, `var_name` is `v`, and the value is read from the map
+    ForIn { var_name: String, index_var: Option<String>, elem_ty: Ty, iterable: TypedExpr, body: TypedBlock, map_source: Option<Box<TypedExpr>> },
 
     /// `for i in start..end [step s]` (end exclusive, always)
     ForRange {

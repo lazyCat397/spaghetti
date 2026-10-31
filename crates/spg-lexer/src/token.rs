@@ -22,6 +22,8 @@ pub enum TokenKind {
     If,
     Else,
     While,
+    /// `do { } while (cond)`: the body runs once before the first check
+    Do,
     For,
     In,
     Try,
@@ -60,6 +62,12 @@ pub enum TokenKind {
     MinusEq,   // -=
     StarEq,    // *=
     SlashEq,   // /=
+    /// `%=`: the modulo compound assignment (`x %= 3`)
+    PercentEq,
+    /// `++`: increment, prefix or postfix (`++i`, `i++`), as an expression
+    PlusPlus,
+    /// `--`: decrement, prefix or postfix (`--i`, `i--`), as an expression
+    MinusMinus,
     Lt,
     Gt,
     LtEq,
@@ -120,6 +128,7 @@ pub fn lookup_keyword(word: &str) -> Option<TokenKind> {
         "if" => Some(TokenKind::If),
         "else" => Some(TokenKind::Else),
         "while" => Some(TokenKind::While),
+        "do" => Some(TokenKind::Do),
         "for" => Some(TokenKind::For),
         "in" => Some(TokenKind::In),
         "try" => Some(TokenKind::Try),

@@ -1,0 +1,2 @@
+struct Pt { x: int }
+let pt: Pt;

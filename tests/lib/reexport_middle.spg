@@ -1,1 +1,1 @@
-export { inc, read } from "./reexport_origin.spg"
+export (inc, read) from "./reexport_origin.spg"

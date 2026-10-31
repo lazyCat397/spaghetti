@@ -92,6 +92,18 @@ pub enum Expr {
         pos: Pos,
     },
 
+    /// `++x` / `x++` (delta +1) and `--x` / `x--` (delta -1), as an EXPRESSION.
+    /// `prefix` picks the value: prefix gives the new value, postfix the old one.
+    /// only plain variables work in expression position. `arr[i]++` and `o.f++`
+    /// as a STATEMENT are rewritten by the parser to `+= 1` / `-= 1`; as a value
+    /// the typecheck refuses them.
+    IncDec {
+        target: Box<Expr>,
+        delta: i64,
+        prefix: bool,
+        pos: Pos,
+    },
+
     Call {
         callee: Box<Expr>,
         args: Vec<Expr>,
@@ -144,6 +156,8 @@ pub enum Expr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum BinaryOp {
+    /// `x in list` / `k in map`: membership. the checker turns it into a builtin call
+    In,
     Add,
     Sub,
     Mul,
@@ -241,8 +255,17 @@ pub enum Stmt {
         pos: Pos,
     },
 
+    /// `do { body } while (cond)`: the body runs before the first check
+    DoWhile {
+        body: Block,
+        cond: Expr,
+        pos: Pos,
+    },
+
     ForIn {
         var_name: String,
+        /// `for i, v in arr`: `i` gets the position, `var_name` (`v`) the element
+        index_var: Option<String>,
         iterable: Expr,
         body: Block,
         pos: Pos,
@@ -336,7 +359,7 @@ pub enum Stmt {
         std: bool,
     },
 
-    /// `export { a, b } from "./y.spg"`: makes names that live in
+    /// `export (a, b) from "./y.spg"`: makes names that live in
     /// another module importable FROM THIS ONE, without declaring
     /// anything here. deliberately not the same as `Import`: an import
     /// only brings a name into this file's own scope, never makes it
@@ -446,6 +469,7 @@ impl Expr {
             | Expr::Ident(_, p) => Some(p),
             Expr::Binary { pos, .. }
             | Expr::Unary { pos, .. }
+            | Expr::IncDec { pos, .. }
             | Expr::Call { pos, .. }
             | Expr::Index { pos, .. }
             | Expr::StructLit { pos, .. }
@@ -473,6 +497,7 @@ impl Stmt {
             | Stmt::IfStmt { pos, .. }
             | Stmt::Match { pos, .. }
             | Stmt::While { pos, .. }
+            | Stmt::DoWhile { pos, .. }
             | Stmt::ForIn { pos, .. }
             | Stmt::ForRange { pos, .. }
             | Stmt::Return { pos, .. }

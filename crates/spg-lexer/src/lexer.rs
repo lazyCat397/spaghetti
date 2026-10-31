@@ -766,6 +766,9 @@ impl<'a> Lexer<'a> {
                 if self.peek() == Some('=') {
                     self.advance();
                     TokenKind::PlusEq
+                } else if self.peek() == Some('+') {
+                    self.advance();
+                    TokenKind::PlusPlus
                 } else {
                     TokenKind::Plus
                 }
@@ -777,6 +780,9 @@ impl<'a> Lexer<'a> {
                 } else if self.peek() == Some('=') {
                     self.advance();
                     TokenKind::MinusEq
+                } else if self.peek() == Some('-') {
+                    self.advance();
+                    TokenKind::MinusMinus
                 } else {
                     TokenKind::Minus
                 }
@@ -800,7 +806,14 @@ impl<'a> Lexer<'a> {
                     TokenKind::Slash
                 }
             }
-            '%' => TokenKind::Percent,
+            '%' => {
+                if self.peek() == Some('=') {
+                    self.advance();
+                    TokenKind::PercentEq
+                } else {
+                    TokenKind::Percent
+                }
+            }
             '=' => {
                 if self.peek() == Some('=') {
                     self.advance();

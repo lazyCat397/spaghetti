@@ -1,1 +1,1 @@
-export { inc, read, Point } from "./reexport_origin.spg"
+export (inc, read, Point) from "./reexport_origin.spg"

@@ -1,5 +1,5 @@
-import { Color, next } from "../lib/en_facade.spg"
-import { second } from "../lib/en_other.spg"
+import (Color, next) from "../lib/en_facade.spg"
+import (second) from "../lib/en_other.spg"
 
 let c = Color.Red
 for i in 0..4 {

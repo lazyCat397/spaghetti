@@ -1,2 +1,2 @@
-import { sum } from "./base.spg"
+import (sum) from "./base.spg"
 export fn addB() -> void { sum(10) }
