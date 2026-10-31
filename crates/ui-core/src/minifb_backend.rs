@@ -203,15 +203,35 @@ impl Backend for MinifbBackend {
     }
 
     fn set_icon(&mut self, path: &str) -> Result<(), String> {
-        // only Windows takes an icon file here; minifb reads it from a path that must stay alive
-        // for the call, so the wide string is kept in this frame. other systems keep their icon
+        // only Windows takes an icon file here; other systems keep their own icon
         #[cfg(target_os = "windows")]
         {
             use std::os::windows::ffi::OsStrExt;
-            let window = self.window.as_mut().ok_or("the window is not open")?;
+            use winapi::shared::windef::HWND;
+            use winapi::um::errhandlingapi::GetLastError;
+            use winapi::um::winuser::{
+                GetSystemMetrics, LoadImageW, SendMessageW, ICON_BIG, ICON_SMALL, IMAGE_ICON,
+                LR_LOADFROMFILE, SM_CXICON, SM_CXSMICON, SM_CYICON, SM_CYSMICON, WM_SETICON,
+            };
+            let window = self.window.as_ref().ok_or("the window is not open")?;
+            let hwnd = window.get_window_handle() as HWND;
             let mut wide: Vec<u16> = std::ffi::OsStr::new(path).encode_wide().collect();
             wide.push(0);
-            window.set_icon(minifb::Icon::Path(wide.as_ptr()));
+            unsafe {
+                let load = |w: i32, h: i32| {
+                    LoadImageW(std::ptr::null_mut(), wide.as_ptr(), IMAGE_ICON, w, h, LR_LOADFROMFILE)
+                };
+                let small = load(GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON));
+                let big = load(GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON));
+                if small.is_null() || big.is_null() {
+                    return Err(format!(
+                        "windows refused the icon \"{path}\" (error {})",
+                        GetLastError()
+                    ));
+                }
+                SendMessageW(hwnd, WM_SETICON, ICON_SMALL as _, small as _);
+                SendMessageW(hwnd, WM_SETICON, ICON_BIG as _, big as _);
+            }
         }
         #[cfg(not(target_os = "windows"))]
         let _ = path;
