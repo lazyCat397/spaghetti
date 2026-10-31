@@ -1,5 +1,7 @@
 // `let` makes a variable that can change; `const` makes one that cannot
 let points = 0
 points += 10
+
 const name: string = "Spaghetti"
+
 print(name, points)

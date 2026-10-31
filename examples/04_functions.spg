@@ -2,9 +2,14 @@
 fn area(w: int, h: int) -> int {
     return w * h
 }
+
 // a function can also receive another function
 fn twice(f: fn(int) -> int, x: int) -> int {
     return f(x)
 }
+
 print(area(3, 4))
-print(twice(fn(x: int) -> int { return x * 2 }, 5))
+
+print(twice(fn(x: int) -> int {
+    return x * 2
+}, 5))

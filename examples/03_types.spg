@@ -3,6 +3,7 @@ let count: int = 7
 let price: float = 2.5
 let open: bool = true
 let text: string = "hi"
+
 print(count, price, open, text)
 print(count / 2, count % 2)
 print(@into.string(count) + "!")

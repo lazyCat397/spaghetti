@@ -1,17 +1,26 @@
 // measure and center text: ui.textWidth and ui.textHeight tell the size of a text before drawing it
 install #ui
+
 let win = ui.window("measure", 320, 200)
 win.background = ui.hex("#1b1f27")
 
 let title = "Centered"
 let size = 24
+
 let x = (@into.float(win.width) - ui.textWidth(title, size, 0.0)) / 2.0
 let y = (@into.float(win.height) - ui.textHeight(title, size, 0.0)) / 2.0
 win.text(x, y, title, ui.hex("#ffcc00"), size)
 
 let phrase = "A long text that wraps over several lines and stays centered in its block"
 let width = 260.0
-let block = win.text((@into.float(win.width) - width) / 2.0, 12.0, phrase, ui.hex("#ffffff"), 8)
+
+let block = win.text(
+    (@into.float(win.width) - width) / 2.0,
+    12.0,
+    phrase,
+    ui.hex("#ffffff"),
+    8
+)
 block.wrap = width
 block.align = Align.Center
 

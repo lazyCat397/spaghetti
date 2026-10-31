@@ -1,5 +1,6 @@
-// `install #ui`: a window with a rectangle moved by the arrow keys. the rectangle is an object
-// the window keeps: changing its fields is all it takes to move it or recolor it.
+// `install #ui`: a window with a rectangle moved by the arrow keys.
+// the rectangle is an object the window keeps: changing its fields is all it takes
+// to move it or recolor it.
 // needs a display, so run.sh does not run the files in examples/ui/.
 install #ui
 
@@ -8,13 +9,16 @@ win.background = ui.hex("#101010")
 let box = win.rect(100.0, 100.0, 40.0, 40.0, ui.hex("#ff3300"))
 
 while (true) {
-    let dt = win.nextFrame()            // -1.0 when the window closes (Esc, the X, or win.close())
+    // -1.0 when the window closes (Esc, the X, or win.close())
+    let dt = win.nextFrame()
     if (dt < 0.0) { break }
 
     if (win.isDown(Key.Left))  { box.x = box.x - 200.0 * dt }
     if (win.isDown(Key.Right)) { box.x = box.x + 200.0 * dt }
     if (win.isDown(Key.Up))    { box.y = box.y - 200.0 * dt }
     if (win.isDown(Key.Down))  { box.y = box.y + 200.0 * dt }
+
     if (win.wasPressed(Key.Space)) { box.color = ui.rgb(0, 255, 120) }
 }
+
 print("bye")

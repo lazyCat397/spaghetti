@@ -5,6 +5,7 @@ install #ui
 struct Sprite {
     shape: Shape,
     dx: float,
+
     fn step(dt: float) -> void {
         me.shape.x = me.shape.x + me.dx * dt
     }
@@ -12,13 +13,23 @@ struct Sprite {
 
 let win = ui.window("sprites", 400, 200)
 win.background = ui.hex("#101010")
-let red = Sprite { shape: win.rect(20.0, 60.0, 40.0, 40.0, ui.hex("#ff3300")), dx: 120.0 }
-let blue = Sprite { shape: win.rect(20.0, 120.0, 30.0, 30.0, ui.rgb(40, 120, 255)), dx: 60.0 }
+
+let red = Sprite {
+    shape: win.rect(20.0, 60.0, 40.0, 40.0, ui.hex("#ff3300")),
+    dx: 120.0
+}
+
+let blue = Sprite {
+    shape: win.rect(20.0, 120.0, 30.0, 30.0, ui.rgb(40, 120, 255)),
+    dx: 60.0
+}
 
 while (true) {
     let dt = win.nextFrame()
     if (dt < 0.0) { break }
+
     red.step(dt)
     blue.step(dt)
 }
+
 print("bye")

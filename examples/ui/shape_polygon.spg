@@ -1,4 +1,5 @@
-// `install #ui` with polygons. the points are a flat list of x, y pairs in pixels (at least three).
+// `install #ui` with polygons.
+// the points are a flat list of x, y pairs in pixels (at least three).
 // the shape's box is the smallest one that holds the points, and it is the pivot's frame.
 install #ui
 
@@ -9,10 +10,15 @@ win.background = ui.hex("#1b1f27")
 let tri = win.polygon([40.0, 150.0, 110.0, 150.0, 75.0, 60.0], ui.hex("#ffd23f"))
 
 // a pentagon that spins
-let penta = win.polygon([175.0, 72.0, 202.0, 91.0, 192.0, 122.0, 158.0, 122.0, 148.0, 91.0], ui.hex("#33ccff"))
+let penta = win.polygon([
+    175.0, 72.0, 202.0, 91.0, 192.0, 122.0, 158.0, 122.0, 148.0, 91.0
+], ui.hex("#33ccff"))
 
 // an arrow, drawn as an outline only
-let arrow = win.polygon([290.0, 20.0, 330.0, 80.0, 305.0, 80.0, 305.0, 170.0, 275.0, 170.0, 275.0, 80.0, 250.0, 80.0], ui.hex("#000000"))
+let arrow = win.polygon([
+    290.0, 20.0, 330.0, 80.0, 305.0, 80.0, 305.0, 170.0,
+    275.0, 170.0, 275.0, 80.0, 250.0, 80.0
+], ui.hex("#000000"))
 arrow.fill = false
 arrow.stroke = 4.0
 arrow.strokeColor = ui.hex("#ff66aa")
@@ -21,6 +27,7 @@ arrow.rotation = -10.0
 while (true) {
     let dt = win.nextFrame()
     if (dt < 0.0) { break }
+
     tri.rotation = tri.rotation - 30.0 * dt
     penta.rotation = penta.rotation + 60.0 * dt
 }

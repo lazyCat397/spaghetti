@@ -1,12 +1,28 @@
 install #ui
+
 let win = ui.window("wrap-e2e", 260, 200)
 win.background = ui.hex("#202830")
-let a = win.text(10.0, 10.0, "A long text that wraps by itself over several lines, centered in its block", ui.hex("#ffffff"), 8)
+
+let a = win.text(
+    10.0,
+    10.0,
+    "A long text that wraps by itself over several lines, centered in its block",
+    ui.hex("#ffffff"),
+    8
+)
 a.wrap = 240.0
 a.align = Align.Center
-let b = win.text(10.0, 110.0, "Direita\nalinhada", ui.hex("#ffcc00"), 16)
+
+let b = win.text(
+    10.0,
+    110.0,
+    "Aligned\nright",
+    ui.hex("#ffcc00"),
+    16
+)
 b.align = Align.Right
 b.wrap = 240.0
+
 while (true) {
     let dt = win.nextFrame()
     if (dt < 0.0) { break }

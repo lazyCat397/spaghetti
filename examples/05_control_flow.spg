@@ -1,5 +1,6 @@
 // if chooses one branch; elif adds more cases
 let score = 72
+
 if (score >= 90) {
     print("A")
 } elif (score >= 70) {
@@ -10,6 +11,7 @@ if (score >= 90) {
 
 // while repeats while the condition is true
 let n = 3
+
 while (n > 0) {
     print("countdown", n)
     n -= 1

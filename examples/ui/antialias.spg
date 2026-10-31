@@ -1,5 +1,6 @@
-// `win.antialias` smooths the edges of the turned and see-through shapes. off (the default) they are
-// stepped, which is faster. press Space to switch it and see the star and the ring change.
+// `win.antialias` smooths the edges of the turned and see-through shapes.
+// off (the default) they are stepped, which is faster.
+// press Space to switch it and see the star and the ring change.
 install #ui
 
 let win = ui.window("antialias", 420, 240)
@@ -7,7 +8,10 @@ win.background = ui.hex("#14171f")
 win.antialias = true
 
 // a five-pointed star, turning around its centre
-let star = win.polygon([110.0, 66.0, 125.3, 107.0, 169.0, 108.8, 134.7, 136.0, 146.4, 178.2, 110.0, 154.0, 73.6, 178.2, 85.3, 136.0, 51.0, 108.8, 94.7, 107.0], ui.hex("#ffd23f"))
+let star = win.polygon([
+    110.0, 66.0, 125.3, 107.0, 169.0, 108.8, 134.7, 136.0, 146.4, 178.2,
+    110.0, 154.0, 73.6, 178.2, 85.3, 136.0, 51.0, 108.8, 94.7, 107.0
+], ui.hex("#ffd23f"))
 star.pivotY = 0.5526
 
 // a rounded outline, turning the other way
@@ -32,9 +36,11 @@ let state = win.text(10.0, 30.0, "antialias: on", ui.hex("#33ff99"), 14)
 while (true) {
     let dt = win.nextFrame()
     if (dt < 0.0) { break }
+
     star.rotation = star.rotation + 40.0 * dt
     ring.rotation = ring.rotation - 25.0 * dt
     bar.rotation = bar.rotation + 60.0 * dt
+
     if (win.wasPressed(Key.Space)) {
         win.antialias = !win.antialias
         if (win.antialias) {

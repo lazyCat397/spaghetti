@@ -1,4 +1,5 @@
-// `install #ui` with turned shapes. rotation is in degrees, clockwise, around the pivot.
+// `install #ui` with turned shapes.
+// rotation is in degrees, clockwise, around the pivot.
 // pivotX and pivotY are fractions of the width and the height (0.5 is the centre).
 // alpha goes from 0 (invisible) to 1 (solid), and fill = false draws only the outline.
 install #ui
@@ -18,6 +19,7 @@ hang.rotation = 30.0
 // two see-through squares, one over the other
 let front = win.rect(260.0, 110.0, 60.0, 60.0, ui.hex("#ffffff"))
 front.alpha = 0.5
+
 let back = win.rect(290.0, 130.0, 60.0, 60.0, ui.hex("#ffcc00"))
 back.alpha = 0.5
 back.rotation = 15.0
@@ -25,6 +27,7 @@ back.rotation = 15.0
 // an ellipse, and a circle (a square box) in the corner
 let oval = win.ellipse(300.0, 10.0, 50.0, 26.0, ui.hex("#b388ff"))
 oval.rotation = -20.0
+
 let ball = win.ellipse(10.0, 10.0, 40.0, 40.0, ui.hex("#ff66aa"))
 
 // a line with round ends, from one point to another
@@ -40,6 +43,7 @@ ring.rotation = 45.0
 while (true) {
     let dt = win.nextFrame()
     if (dt < 0.0) { break }
+
     spin.rotation = spin.rotation + 45.0 * dt
     ring.rotation = ring.rotation - 30.0 * dt
 }

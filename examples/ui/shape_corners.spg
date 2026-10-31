@@ -1,6 +1,6 @@
-// `install #ui` with each corner on its own. topLeftRadius, topRightRadius, bottomRightRadius and
-// bottomLeftRadius set one corner each, in pixels. when the two corners of a side do not fit in it,
-// they are scaled down together.
+// `install #ui` with each corner on its own.
+// topLeftRadius, topRightRadius, bottomRightRadius and bottomLeftRadius set one corner each,
+// in pixels. when the two corners of a side do not fit in it, they are scaled down together.
 install #ui
 
 let win = ui.window("corners", 360, 200)
@@ -28,5 +28,6 @@ balao.bottomLeftRadius = 0.0
 while (true) {
     let dt = win.nextFrame()
     if (dt < 0.0) { break }
+
     folha.rotation = folha.rotation + 30.0 * dt
 }

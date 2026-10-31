@@ -16,6 +16,7 @@ struct Counter {
 
 let p = Point { x: 3, y: 4 }
 print("point:", p.x, p.y)
+
 let c = Counter { n: 0 }
 c.add(5).add(10)
 print("counter:", c.n)

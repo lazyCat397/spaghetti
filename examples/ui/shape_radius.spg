@@ -1,5 +1,6 @@
-// `install #ui` with rounded rectangles. radius is in pixels: 0 is square corners, and it is capped
-// at half the smaller side, so a radius of half the height makes a pill.
+// `install #ui` with rounded rectangles.
+// radius is in pixels: 0 is square corners, and it is capped at half the smaller side,
+// so a radius of half the height makes a pill.
 install #ui
 
 let win = ui.window("rounded", 360, 200)
@@ -27,5 +28,6 @@ outline.radius = 20.0
 while (true) {
     let dt = win.nextFrame()
     if (dt < 0.0) { break }
+
     tile.rotation = tile.rotation + 40.0 * dt
 }
