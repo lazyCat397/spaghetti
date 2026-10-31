@@ -10,6 +10,9 @@ AppName=Spaghetti
 AppVersion={#MyAppVersion}
 AppPublisher=lazyCat397
 DefaultDirName={%USERPROFILE}\Spaghetti
+; the install folder is always the one above. without this, Inno reuses the folder of
+; the previous install, recorded in the registry, so an old AppData install would stay in place
+UsePreviousAppDir=no
 DefaultGroupName=Spaghetti
 OutputBaseFilename=spaghetti-{#MyAppVersion}
 OutputDir=.
