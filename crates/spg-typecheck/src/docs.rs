@@ -20,6 +20,7 @@ pub fn builtin_doc(name: &str) -> Option<&'static str> {
         "@str.trimEnd" => "the text without spaces at the end",
         "@str.split" => "split the text by a separator, into an array of strings",
         "@str.substring" => "characters from start up to (not including) end",
+        "@str.slice" => "characters from start up to (not including) end",
         "@str.charAt" => "the character at an index",
         "@str.contains" => "true if the text has the part you pass",
         "@str.startsWith" => "true if the text starts with the prefix",

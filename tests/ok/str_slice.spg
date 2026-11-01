@@ -1,0 +1,3 @@
+// @str.slice: same as @str.substring, start included, end excluded
+print(@str.slice("hi something", 3, 12))
+print(@str.slice("héllo", 1, 3))

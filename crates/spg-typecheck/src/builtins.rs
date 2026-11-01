@@ -377,6 +377,15 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
             return_type: Ty::String,
         },
     );
+    // same rules as substring: start included, end excluded
+    add(
+        "@str.slice",
+        BuiltinSig {
+            id: BuiltinId::Substring,
+            params: vec![Ty::String, Ty::Int, Ty::Int],
+            return_type: Ty::String,
+        },
+    );
     add(
         "@str.charAt",
         BuiltinSig { id: BuiltinId::CharAt, params: vec![Ty::String, Ty::Int], return_type: Ty::String },

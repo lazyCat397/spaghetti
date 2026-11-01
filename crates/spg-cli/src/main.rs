@@ -15,6 +15,7 @@ use spg_vm::chunk::Program;
 use spg_vm::Vm;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+const BUILD_ID: &str = env!("SPG_BUILD_ID");
 
 const HELP: &str = "\
 spg — the Spaghetti language
@@ -91,7 +92,7 @@ fn real_main(args: &[String]) -> i32 {
             0
         }
         "-V" | "--version" | "version" => {
-            println!("spg {}", VERSION);
+            println!("spg {} ({})", VERSION, BUILD_ID);
             0
         }
         "lsp" => spg_lsp::run_stdio(),

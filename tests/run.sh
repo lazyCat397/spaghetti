@@ -103,6 +103,7 @@ ok ns_free_names.spg   '6\n6\n4.0\nT'
 ok ns_into.spg           '42\n5\n-5\n42\n7\n3.0\n3.5\n42true1.5\n3.0'
 ok ns_pi_e.spg           '3.1416\n3.0\n3.1\n3.14\n3.14\n3.141592653589793\n3.141592653589793\n2.718\n2.72\n3.0\n3.14159'
 ok str_chars.spg         '5\n5\n3\nï\naç\nNAÏVE\n5\ná|é|í\nééé\n3\ntrue\ntrue'
+ok str_slice.spg          'something\nél'
 
 # buffered stdout (print goes through a 64 KB buffer when stdout is not a terminal).
 # These prove ORDER and COMPLETENESS, which is what buffering could break.

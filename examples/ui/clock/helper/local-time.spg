@@ -1,0 +1,34 @@
+install #ps
+
+export struct Hour {
+    hour: int,
+    minute: int,
+    second: int
+}
+
+// Used when the system offset cannot be read (e.g. no PowerShell).
+// -180 = Brasilia (UTC-3). Change it to your own offset in minutes if needed.
+const FALLBACK_OFFSET_MIN = -180
+
+// Asks Windows for the current UTC offset in minutes (DST included).
+export fn utcOffsetMinutes() -> int {
+    let offset = FALLBACK_OFFSET_MIN
+    try {
+        let r = ps.run("[int][DateTimeOffset]::Now.Offset.TotalMinutes")
+        offset = @str.trim(r.output).int()
+    } catch (e) {
+        // PowerShell not available: keep the fallback
+    }
+    return offset
+}
+
+// Local wall-clock time, computed from the real clock (UTC ms) plus an offset in minutes.
+export fn localTime(offsetMin: int) -> Hour {
+    let seconds = @time.unix() / 1000 + offsetMin * 60
+    let day = ((seconds % 86400) + 86400) % 86400
+    return Hour {
+        hour: day / 3600,
+        minute: (day % 3600) / 60,
+        second: day % 60
+    }
+}

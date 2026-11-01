@@ -1,0 +1,525 @@
+// SHMUP: a shoot 'em up made with ui
+// arrows move the ship, hold Space to fire
+// Enter or Space starts, Enter or R plays again after game over, Esc quits
+install #ui
+
+const W: float = 640.0
+const H: float = 480.0
+
+// sprites are 16x16 PNGs, drawn at 2x (32 px) on screen, like a small arcade cabinet
+const SHIP_Y: float = 440.0
+const SHIP_SIZE: int = 32
+const SHIP_IMG: string = "./assets/player-space-ship.png"
+const SHOT_IMG: string = "./assets/shoot-uni.png"
+const ENEMY1_A: string = "./assets/enemy1-frame0.png"
+const ENEMY1_B: string = "./assets/enemy1-frame1.png"
+const ENEMY2_A: string = "./assets/enemy2-frame0.png"
+const ENEMY2_B: string = "./assets/enemy2-frame1.png"
+const FONT: string = "./fonts/ArcadeClassic.ttf"
+
+// hitboxes: the painted part of each sprite at 2x (measured from the PNG alpha)
+const INV_SIZE: int = 32
+const INV_W: float = 32.0
+const INV_H: float = 23.0
+const INV_OY: float = 5.0
+const COL_GAP: float = 44.0
+const ROW_GAP: float = 34.0
+const SHOT_OX: float = 12.0
+const SHOT_OY: float = 6.0
+const SHOT_W: float = 8.0
+const SHOT_H: float = 20.0
+
+fn rnd(lo: float, hi: float) -> float {
+    return lo + @math.random() *(hi - lo)
+}
+
+fn overlaps(ax: float, ay: float, aw: float, ah: float, bx: float, by: float, bw: float, bh: float) -> bool {
+    return ax < bx + bw && bx < ax + aw && ay < by + bh && by < ay + ah
+}
+
+// text is centered by the label itself (wrap + align), so the TTF font is measured correctly
+fn setBanner(label: Label, text: string) -> void {
+    label.text = text
+}
+
+// a bullet, from the ship or from an invader
+struct Shot {
+    img: Image,
+    vy: float,
+    alive: bool,
+
+    fn step(dt: float) -> void {
+        me.img.y = me.img.y + me.vy * dt
+        if (me.img.y < -40.0 || me.img.y > H + 40.0) {
+            me.die()
+        }
+    }
+
+    fn die() -> void {
+        me.alive = false
+        me.img.kill()
+    }
+}
+
+// a piece of explosion: flies and fades out by its life
+struct Spark {
+    shape: Shape,
+    vx: float,
+    vy: float,
+    life: float,
+    alive: bool,
+
+    fn step(dt: float) -> void {
+        me.shape.x = me.shape.x + me.vx * dt
+        me.shape.y = me.shape.y + me.vy * dt
+        me.life = me.life - dt
+        if (me.life <= 0.0) {
+            me.die()
+        }
+    }
+
+    fn die() -> void {
+        me.alive = false
+        me.shape.kill()
+    }
+}
+
+// a background star, a single pixel falling slowly and coming back at the top
+struct Star {
+    shape: Shape,
+    speed: float,
+
+    fn step(dt: float) -> void {
+        me.shape.y = me.shape.y + me.speed * dt
+        if (me.shape.y > H) {
+            me.shape.y = -2.0
+            me.shape.x = rnd(0.0, W)
+        }
+    }
+}
+
+// the player's ship
+struct Ship {
+    x: float,
+    cool: float,
+    invul: float,
+    img: Image,
+
+    fn place() -> void {
+        me.img.x = me.x - 16.0
+        me.img.y = SHIP_Y
+    }
+}
+
+// an invader: two frames of the same sprite, shown in turns to animate
+// the formation moves as a whole, each invader keeps its own column and row
+struct Invader {
+    col: float,
+    row: float,
+    points: int,
+    alive: bool,
+    frameA: Image,
+    frameB: Image,
+
+    fn place(fx: float, fy: float) -> void {
+        me.frameA.x = fx + me.col * COL_GAP
+        me.frameA.y = fy + me.row * ROW_GAP
+        me.frameB.x = me.frameA.x
+        me.frameB.y = me.frameA.y
+    }
+
+    fn show(a: bool) -> void {
+        me.frameA.visible = a
+        me.frameB.visible = !a
+    }
+
+    fn die() -> void {
+        me.alive = false
+        me.frameA.kill()
+        me.frameB.kill()
+    }
+}
+
+// builds the 5 x 8 formation
+// top row: enemy2, worth 30. middle rows: enemy1, worth 20. bottom rows: enemy2, worth 10
+fn makeInvaders(win: Window) -> array<Invader> {
+    let list: array<Invader> = []
+    let row = 0.0
+    while (row < 5.0) {
+        let col = 0.0
+        while (col < 8.0) {
+            let pathA = ENEMY2_A
+            let pathB = ENEMY2_B
+            let points = 10
+            if (row == 0.0) {
+                points = 30
+            } elif (row < 3.0) {
+                pathA = ENEMY1_A
+                pathB = ENEMY1_B
+                points = 20
+            }
+            let a = win.image(0.0, 0.0, pathA, INV_SIZE, INV_SIZE)
+            let b = win.image(0.0, 0.0, pathB, INV_SIZE, INV_SIZE)
+            b.visible = false
+            list.push(Invader { col: col, row: row, points: points, alive: true, frameA: a, frameB: b })
+            col = col + 1.0
+        }
+        row = row + 1.0
+    }
+    return list
+}
+
+// explosion: 12 small sparks from one point. kind 0 = yellow (invader), 1 = red (ship)
+fn burst(win: Window, list: array<Spark>, x: float, y: float, kind: int) -> void {
+    let n = 0
+    while (n < 12) {
+        let c = ui.hex("#FFE34D")
+
+        if (kind == 1) {
+            c = ui.hex("#FF4058")
+        }
+
+        let sz = rnd(2.0, 3.0)
+
+        list.push(Spark {
+                shape: win.rect(x, y, sz, sz, c),
+                vx: rnd(-150.0, 150.0),
+                vy: rnd(-150.0, 150.0),
+                life: rnd(0.3, 0.6),
+                alive: true
+            })
+
+        n = n + 1
+    }
+}
+// ---- setup ----
+
+let win = ui.window("SHMUP", 640, 480)
+win.background = ui.hex("#080818")
+
+// stars first, so they stay behind everything
+let stars: array<Star> = []
+let n = 0
+while (n < 60) {
+    let sz = rnd(1.0, 1.5)
+    stars.push(Star {
+            shape: win.rect(rnd(0.0, W), rnd(0.0, H), sz, sz, ui.hex("#6879B8")),
+            speed: rnd(15.0, 70.0)
+        })
+    n = n + 1
+}
+
+// scanlines: a dark line every 4 px, drawn before the sprites so they stay on top
+let scan = 0.0
+while (scan < H) {
+    let line = win.rect(0.0, scan, W, 1.0, ui.hex("#000000"))
+    line.alpha = 0.22
+    scan = scan + 4.0
+    line.layer = 1000
+}
+
+let ship = Ship {
+    x: W / 2.0,
+    cool: 0.0,
+    invul: 0.0,
+    img: win.image(0.0, SHIP_Y, SHIP_IMG, SHIP_SIZE, SHIP_SIZE)
+}
+ship.place()
+
+// HUD: score top-left, hi-score top-center, wave top-right, lives as ship icons bottom-left
+let scoreLabel = win.label(10.0, 8.0, "", ui.hex("#ffffff"), 12)
+scoreLabel.font = FONT
+let hiLabel = win.label(0.0, 8.0, "", ui.hex("#ffffff"), 12)
+hiLabel.font = FONT
+hiLabel.wrap = W
+hiLabel.align = Align.Center
+let waveLabel = win.label(0.0, 8.0, "", ui.hex("#ffffff"), 12)
+waveLabel.font = FONT
+waveLabel.wrap = W - 10.0
+waveLabel.align = Align.Right
+
+let lifeIcons: array<Image> = []
+let li = 0
+while (li < 3) {
+    lifeIcons.push(win.image(10.0 + @into.float(li) * 20.0, 456.0, SHIP_IMG, 16, 16))
+    li = li + 1
+}
+
+// title texts: TTF font, centered through wrap + align
+let banner = win.label(0.0, 150.0, "SHMUP", ui.hex("#39FF72"), 32)
+banner.font = FONT
+banner.wrap = W
+banner.align = Align.Center
+banner.layer = 100
+let sub = win.label(0.0, 250.0, "", ui.hex("#FFE34D"), 12)
+sub.font = FONT
+sub.wrap = W
+sub.align = Align.Center
+let help = win.label(0.0, 290.0, "", ui.hex("#36E8FF"), 12)
+help.font = FONT
+help.wrap = W
+help.align = Align.Center
+setBanner(sub, "PRESS ENTER OR SPACE")
+setBanner(help, "ARROWS MOVE SPACE TO SHOOT")
+
+// game state: 0 title, 1 playing, 2 game over
+let state = 0
+let endTimer = 0.0
+let score = 0
+let hiScore = 0
+let lives = 3
+let wave = 1
+let fx = 150.0
+let fy = 70.0
+let dir = 1.0
+let fireTimer = 1.5
+let waveTimer = 0.0
+let animA = true
+let animTimer = 0.4
+let invaders: array<Invader> = []
+let shots: array<Shot> = []
+let enemyShots: array<Shot> = []
+let sparks: array<Spark> = []
+
+// ---- main loop ----
+
+while (true) {
+    let dt = win.nextFrame()
+    if (dt < 0.0) { break }
+    if (dt > 0.05) { dt = 0.05 }
+
+    for st in stars {
+        st.step(dt)
+    }
+
+    if (endTimer > 0.0) {
+        endTimer = endTimer - dt
+    }
+
+    // start or restart: clear everything and build a new formation
+    let wantStart =(state == 0 &&(win.isDown(Key.Enter) || win.isDown(Key.Space))) ||(state == 2 && endTimer <= 0.0 &&(win.isDown(Key.Enter) || win.isDown(Key.R)))
+    if (wantStart) {
+        for sh in shots {
+            if (sh.alive) { sh.die() }
+        }
+        for sh in enemyShots {
+            if (sh.alive) { sh.die() }
+        }
+        for inv in invaders {
+            if (inv.alive) { inv.die() }
+        }
+        for p in sparks {
+            if (p.alive) { p.die() }
+        }
+        shots = []
+        enemyShots = []
+        sparks = []
+        invaders = makeInvaders(win)
+        fx = 150.0
+        fy = 70.0
+        dir = 1.0
+        score = 0
+        lives = 3
+        wave = 1
+        fireTimer = 1.5
+        waveTimer = 0.0
+        ship.x = W / 2.0
+        ship.cool = 0.0
+        ship.invul = 0.0
+        state = 1
+        setBanner(banner, "")
+        setBanner(sub, "")
+        setBanner(help, "")
+    }
+
+    // the two enemy frames swap every 0.4s
+    animTimer = animTimer - dt
+    if (animTimer <= 0.0) {
+        animA = !animA
+        animTimer = 0.4
+    }
+
+    if (state == 1) {
+        // ship: left and right, Space to fire (holding works, with a short cooldown)
+        if (win.isDown(Key.Left) || win.isDown(Key.A)) { ship.x = ship.x - 340.0 * dt }
+        if (win.isDown(Key.Right) || win.isDown(Key.D)) { ship.x = ship.x + 340.0 * dt }
+        if (ship.x < 40.0) { ship.x = 40.0 }
+        if (ship.x > W - 40.0) { ship.x = W - 40.0 }
+        ship.cool = ship.cool - dt
+        ship.invul = ship.invul - dt
+        // Cheat code: Hold E to shoot without cooldown, for testing or fun >:)
+        let cheatFire = win.isDown(Key.E)
+
+        if (cheatFire ||(win.isDown(Key.Space) && ship.cool <= 0.0)) {
+            shots.push(Shot {
+                    img: win.image(ship.x - 16.0, SHIP_Y - 24.0, SHOT_IMG, 32, 32),
+                    vy: -560.0,
+                    alive: true
+                })
+
+            if (!cheatFire) {
+                ship.cool = 0.25
+            } else {
+                ship.cool = 0.0
+            }
+        }
+
+        if (waveTimer > 0.0) {
+            waveTimer = waveTimer - dt
+            if (waveTimer <= 0.0) {
+                setBanner(banner, "")
+            }
+        }
+
+        // how many invaders are left, and the columns of the outermost ones
+        let count = 0
+        let minCol = 99.0
+        let maxCol = -99.0
+        for inv in invaders {
+            if (inv.alive) {
+                count = count + 1
+                if (inv.col < minCol) { minCol = inv.col }
+                if (inv.col > maxCol) { maxCol = inv.col }
+            }
+        }
+
+        if (count == 0) {
+            // wave cleared: next wave, a bit faster
+            wave = wave + 1
+            score = score + 100
+            invaders = makeInvaders(win)
+            fx = 150.0
+            fy = 70.0
+            dir = 1.0
+            fireTimer = 1.0
+            waveTimer = 1.6
+            setBanner(banner, "WAVE " + wave.string())
+        } else {
+            // formation: faster as it empties and as the waves go on
+            let speed = 26.0 +(40.0 - @into.float(count)) * 2.4 + @into.float(wave) * 4.0
+            fx = fx + dir * speed * dt
+            let leftEdge = fx + minCol * COL_GAP
+            let rightEdge = fx + maxCol * COL_GAP + INV_W
+            if ((dir > 0.0 && rightEdge > W - 16.0) ||(dir < 0.0 && leftEdge < 16.0)) {
+                dir = -dir
+                fy = fy + 14.0
+            }
+            for inv in invaders {
+                if (inv.alive) {
+                    inv.place(fx, fy)
+                    inv.show(animA)
+                    if (inv.frameA.y + INV_OY + INV_H > SHIP_Y - 4.0) {
+                        lives = 0
+                    }
+                }
+            }
+
+            // invaders shoot: a random one fires, faster each wave
+            fireTimer = fireTimer - dt
+            if (fireTimer <= 0.0) {
+                let gap = 1.2 - @into.float(wave) * 0.08
+                if (gap < 0.35) { gap = 0.35 }
+                fireTimer = gap
+                let pool: array<Invader> = []
+                for inv in invaders {
+                    if (inv.alive) { pool.push(inv) }
+                }
+                let shooter = @array.pick(pool)
+                enemyShots.push(Shot {
+                        img: win.image(shooter.frameA.x, shooter.frameA.y + 24.0, SHOT_IMG, 32, 32),
+                        vy: 240.0 + @into.float(wave) * 20.0,
+                        alive: true
+                    })
+            }
+        }
+
+        for sh in shots {
+            sh.step(dt)
+        }
+        for sh in enemyShots {
+            sh.step(dt)
+        }
+
+        // your bullets against invaders
+        for sh in shots {
+            for inv in invaders {
+                if (sh.alive && inv.alive && overlaps(sh.img.x + SHOT_OX, sh.img.y + SHOT_OY, SHOT_W, SHOT_H, inv.frameA.x, inv.frameA.y + INV_OY, INV_W, INV_H)) {
+                    // read the position before the invader's images are killed
+                    let cx = inv.frameA.x + 16.0
+                    let cy = inv.frameA.y + 16.0
+                    sh.die()
+                    inv.die()
+                    score = score + inv.points
+                    burst(win, sparks, cx, cy, 0)
+                }
+            }
+        }
+
+        // their bullets against the ship (short invulnerability after each hit)
+        for sh in enemyShots {
+            if (sh.alive && ship.invul <= 0.0 && overlaps(sh.img.x + SHOT_OX, sh.img.y + SHOT_OY, SHOT_W, SHOT_H, ship.x - 14.0, SHIP_Y + 4.0, 28.0, 26.0)) {
+                sh.die()
+                lives = lives - 1
+                ship.invul = 1.5
+                burst(win, sparks, ship.x, SHIP_Y + 16.0, 1)
+            }
+        }
+
+        if (score > hiScore) {
+            hiScore = score
+        }
+
+        if (lives <= 0) {
+            lives = 0
+            state = 2
+            endTimer = 0.6
+            setBanner(banner, "GAME OVER")
+            setBanner(sub, "SCORE " + score.string() + " - PRESS 'ENTER' OR 'R' TO RETRY")
+        }
+    }
+
+    // effects keep running on every state
+    for p in sparks {
+        p.step(dt)
+    }
+
+    // removes the dead from the lists (only the alive ones are kept)
+    let keepS: array<Shot> = []
+    for sh in shots {
+        if (sh.alive) { keepS.push(sh) }
+    }
+    shots = keepS
+
+    let keepE: array<Shot> = []
+    for sh in enemyShots {
+        if (sh.alive) { keepE.push(sh) }
+    }
+    enemyShots = keepE
+
+    let keepP: array<Spark> = []
+    for p in sparks {
+        if (p.alive) { keepP.push(p) }
+    }
+    sparks = keepP
+
+    // ship: placed each frame, blinks while invulnerable
+    ship.place()
+    if (ship.invul > 0.0) {
+        ship.img.visible = @math.random() < 0.5
+    } else {
+        ship.img.visible = true
+    }
+
+    // lives: one icon per life left
+    let k = 0
+    while (k < 3) {
+        lifeIcons[k].visible = k < lives
+        k = k + 1
+    }
+
+    scoreLabel.text = "1UP " + score.string()
+    hiLabel.text = "HI " + hiScore.string()
+    waveLabel.text = "WAVE " + wave.string()
+}
+
+print("bye")
