@@ -34,6 +34,34 @@ pub fn compile(program: TypedProgram) -> Result<Program, CompileError> {
 /// plain one-op-per-operation bytecode. useful to debug the optimizer, and as
 /// the reference its output must match. the honest version.
 pub fn compile_with(program: TypedProgram, optimize: bool) -> Result<Program, CompileError> {
+    // root-scope variables only need a global slot when some function or lambda
+    // body reads or writes them. a first pass finds those; a second pass keeps
+    // every other root variable as an ordinary local of `main` (faster in the VM).
+    let (first, slots) = compile_body(&program, optimize, None)?;
+    let used: std::collections::HashSet<usize> = first
+        .functions
+        .iter()
+        .flat_map(|chunk| chunk.code.iter())
+        .filter_map(|op| match op {
+            OpCode::GetGlobal(s) | OpCode::SetGlobal(s) | OpCode::StoreGlobal(s) => Some(*s),
+            _ => None,
+        })
+        .collect();
+    let keep: std::collections::HashSet<String> =
+        slots.iter().filter(|(_, slot)| used.contains(slot)).map(|(name, _)| name.clone()).collect();
+    if keep.len() == slots.len() {
+        return Ok(first);
+    }
+    compile_body(&program, optimize, Some(&keep)).map(|(p, _)| p)
+}
+
+/// one full compile. `root_filter`, when given, limits the root-scope variables
+/// that become globals to those names. returns the program and the global slots.
+fn compile_body(
+    program: &TypedProgram,
+    optimize: bool,
+    root_filter: Option<&std::collections::HashSet<String>>,
+) -> Result<(Program, HashMap<String, usize>), CompileError> {
     // pass 1: register every top-level function under a stable index
     // ordering matches declaration order, like the checker's table
     let mut function_names: Vec<String> = Vec::new();
@@ -107,6 +135,9 @@ pub fn compile_with(program: TypedProgram, optimize: bool) -> Result<Program, Co
     let mut global_slots: HashMap<String, usize> = HashMap::new();
     for stmt in &program.stmts {
         if let TypedStmt::Let { name, .. } | TypedStmt::Const { name, .. } = stmt {
+            if root_filter.is_some_and(|keep| !keep.contains(name)) {
+                continue;
+            }
             let next = global_slots.len();
             global_slots.entry(name.clone()).or_insert(next);
         }
@@ -229,7 +260,8 @@ pub fn compile_with(program: TypedProgram, optimize: bool) -> Result<Program, Co
         }
     }
 
-    Ok(Program { main, functions, function_names, struct_defs, enum_defs, num_globals: global_slots.len() })
+    let num_globals = global_slots.len();
+    Ok((Program { main, functions, function_names, struct_defs, enum_defs, num_globals }, global_slots))
 }
 
 /// where a resolved variable name actually lives. the address book.
@@ -782,7 +814,7 @@ impl<'a> FunctionCompiler<'a> {
                 if matches!(stmt, TypedStmt::Const { .. }) {
                     self.chunk.emit(OpCode::FreezeConst);
                 }
-                if self.at_root_scope() {
+                if self.at_root_scope() && self.globals.contains_key(name) {
                     // root-scope declaration -> global slot (pre-assigned
                     // in pass 1c). nothing to declare locally. the global already exists, relax.
                     let slot = *self
@@ -1301,11 +1333,26 @@ impl<'a> FunctionCompiler<'a> {
                 let idx = self.chunk.add_constant(Value::Bool(*b));
                 self.chunk.emit(OpCode::Const(idx));
             }
-            TypedExpr::ArrayLit { items, .. } => {
-                for item in items {
-                    self.compile_expr(item)?;
+            TypedExpr::ArrayLit { items, ty } => {
+                if items.is_empty() {
+                    // an empty literal has no items to tell its type, so the type travels in the opcode
+                    let tag = match ty {
+                        Ty::Array(elem) => match **elem {
+                            Ty::Int => 0,
+                            Ty::Bool => 1,
+                            Ty::Float => 2,
+                            Ty::String => 3,
+                            _ => 255,
+                        },
+                        _ => 255,
+                    };
+                    self.chunk.emit(OpCode::MakeEmptyArray(tag));
+                } else {
+                    for item in items {
+                        self.compile_expr(item)?;
+                    }
+                    self.chunk.emit(OpCode::MakeArray(items.len()));
                 }
-                self.chunk.emit(OpCode::MakeArray(items.len()));
             }
 
             TypedExpr::Ident { name, .. } => match self.resolve_var(name) {

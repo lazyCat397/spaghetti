@@ -30,6 +30,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::rc::Rc;
 
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
+use cranelift_codegen::isa::CallConv;
 use cranelift_codegen::ir::immediates::Ieee64;
 use cranelift_codegen::ir::{
     types::{F64, I128, I64},
@@ -43,6 +44,7 @@ use cranelift_module::{FuncId, Linkage, Module};
 use spg_typecheck::builtins::BuiltinId;
 use spg_vm::chunk::{Chunk, ElemKind, NativeKind as K, OpCode, Program};
 use spg_vm::value::Value;
+use spg_vm::vm::LoopOutcome;
 use spg_vm::{call_depth_limit, NativeCalls};
 
 /// offset of the "failed" flag in the context block: [failed, unused]
@@ -186,6 +188,9 @@ extern "C" fn spg_arr_get_str(p: i64, i: i64) -> i64 {
 // object's original contents. memory grows with the objects, not the writes. clever.
 const MIN_LOG: usize = 4096;
 
+/// undo marker: the entry is a push, so undoing it removes the last element
+const PUSHED: usize = usize::MAX;
+
 /// a heap object native code can store into: an array, or a struct's fields
 #[derive(Clone)]
 enum Obj {
@@ -264,7 +269,12 @@ impl Undo {
                 let now: Vec<Value> = o.slots().expect("no borrow is active during a native call").to_vec();
                 (o.clone(), now)
             });
-            copy[*i] = old.clone();
+            // a push is undone by dropping the element it added
+            if *i == PUSHED {
+                copy.pop();
+            } else {
+                copy[*i] = old.clone();
+            }
         }
         for (p, (o, copy)) in copies {
             self.snap_ids.insert(p);
@@ -280,7 +290,9 @@ impl Undo {
         if !keep {
             while let Some((o, i, old)) = self.log.pop() {
                 if let Some(mut slots) = o.slots() {
-                    if let Some(slot) = slots.get_mut(i) {
+                    if i == PUSHED {
+                        slots.pop();
+                    } else if let Some(slot) = slots.get_mut(i) {
                         *slot = old;
                     }
                 }
@@ -356,6 +368,113 @@ extern "C" fn spg_arr_set(p: i64, i: i64, bits: i64, tag: i64) -> i64 {
     store(Obj::Arr(unsafe { arr_ref(p) }), i, value_of(bits, tag))
 }
 
+/// typed local arrays (see the typed mode in `eligible`): plain bits, refcounted like the others.
+/// they never reach the VM, so no undo entries. helpers never panic (no unwinding through native code).
+extern "C" fn spg_tarr_new() -> i64 {
+    Rc::into_raw(Rc::new(RefCell::new(Vec::<i64>::new()))) as i64
+}
+
+extern "C" fn spg_tarr_retain(p: i64) {
+    if p != 0 {
+        // SAFETY: p came from Rc::into_raw and is alive while native code holds it
+        unsafe { Rc::increment_strong_count(p as *const RefCell<Vec<i64>>) }
+    }
+}
+
+extern "C" fn spg_tarr_release(p: i64) {
+    if p != 0 {
+        // SAFETY: consumes the reference native code holds
+        unsafe { drop(Rc::from_raw(p as *const RefCell<Vec<i64>>)) }
+    }
+}
+
+extern "C" fn spg_tarr_len(p: i64) -> i64 {
+    // SAFETY: as in spg_tarr_retain. we only borrow it
+    let arr = unsafe { &*(p as *const RefCell<Vec<i64>>) };
+    arr.try_borrow().map(|v| v.len() as i64).unwrap_or(0)
+}
+
+extern "C" fn spg_tarr_get(p: i64, i: i64) -> i64 {
+    // SAFETY: as in spg_tarr_len. native code checked the index already
+    let arr = unsafe { &*(p as *const RefCell<Vec<i64>>) };
+    arr.try_borrow().ok().and_then(|v| v.get(i as usize).copied()).unwrap_or(0)
+}
+
+extern "C" fn spg_tarr_set(p: i64, i: i64, bits: i64) -> i64 {
+    // SAFETY: as in spg_tarr_len
+    let arr = unsafe { &*(p as *const RefCell<Vec<i64>>) };
+    if let Ok(mut v) = arr.try_borrow_mut() {
+        if let Some(slot) = v.get_mut(i as usize) {
+            *slot = bits;
+        }
+    }
+    0
+}
+
+extern "C" fn spg_tarr_push(p: i64, bits: i64) -> i64 {
+    // SAFETY: as in spg_tarr_len
+    let arr = unsafe { &*(p as *const RefCell<Vec<i64>>) };
+    if let Ok(mut v) = arr.try_borrow_mut() {
+        v.push(bits);
+    }
+    0
+}
+
+/// a new, empty array: an owned reference
+extern "C" fn spg_arr_new() -> i64 {
+    Rc::into_raw(Rc::new(RefCell::new(Vec::<Value>::new()))) as i64
+}
+
+/// appends to an array native code just made (nothing can observe it yet, so no undo entry).
+/// consumes the element.
+extern "C" fn spg_arr_add(p: i64, bits: i64, tag: i64) -> i64 {
+    let value = value_of(bits, tag);
+    // SAFETY: p is the owned reference native code holds. we only borrow it
+    let arr = unsafe { &*(p as *const RefCell<Vec<Value>>) };
+    if let Ok(mut v) = arr.try_borrow_mut() {
+        v.push(value);
+    }
+    0
+}
+
+/// `push` on an array the program already has (borrowed). logged for undo, so a failed
+/// native call can take the element back out. consumes the element. returns 1 when the
+/// array is const: the VM raises the error.
+extern "C" fn spg_arr_push(p: i64, bits: i64, tag: i64) -> i64 {
+    let value = value_of(bits, tag);
+    let o = Obj::Arr(unsafe { arr_ref(p) });
+    let pushed = match o.slots() {
+        Some(mut slots) => {
+            slots.push(value);
+            true
+        }
+        None => false,
+    };
+    if !pushed {
+        return 1;
+    }
+    UNDO.with(|u| {
+        let mut u = u.borrow_mut();
+        if !u.snap_ids.contains(&o.addr()) {
+            u.log.push((o, PUSHED, Value::Void));
+        }
+    });
+    0
+}
+
+/// stores into an array native code just made: no undo entry needed. the index was checked already.
+extern "C" fn spg_arr_put(p: i64, i: i64, bits: i64, tag: i64) -> i64 {
+    let value = value_of(bits, tag);
+    // SAFETY: as in spg_arr_add
+    let arr = unsafe { &*(p as *const RefCell<Vec<Value>>) };
+    if let Ok(mut v) = arr.try_borrow_mut() {
+        if let Some(slot) = v.get_mut(i as usize) {
+            *slot = value;
+        }
+    }
+    0
+}
+
 /// stores into field `i` of the struct behind `p`. same contract as spg_arr_set.
 extern "C" fn spg_struct_set(p: i64, i: i64, bits: i64, tag: i64) -> i64 {
     // SAFETY: as in spg_arr_len
@@ -411,7 +530,19 @@ fn owned_of(k: K) -> Owned {
 
 /// `Some(ptr, arity)` for every function that has native code
 pub struct NativeTable {
-    _module: JITModule,
+    module: RefCell<JITModule>,
+    /// the plain program: loop regions are compiled from it, at run time
+    plain: Program,
+    ids: HashMap<usize, FuncId>,
+    sigs: Vec<Option<Sig>>,
+    structs: Vec<Rc<spg_vm::value::StructDef>>,
+    decls: Vec<(&'static str, FuncId)>,
+    call_conv: CallConv,
+    /// loop regions by (chunk, exit): None when native can't run it
+    regions: RefCell<HashMap<(usize, usize), Option<Rc<Region>>>>,
+    /// how many times each loop top was reached, until it's worth compiling
+    counts: RefCell<HashMap<(usize, usize), u32>>,
+    next_region: Cell<usize>,
     /// keeps the string constants baked into the code alive. don't let them die.
     _keep: Vec<Rc<String>>,
     entries: Vec<Option<(usize, usize)>>,
@@ -428,6 +559,71 @@ pub struct NativeTable {
 impl NativeCalls for NativeTable {
     fn has(&self, func_index: usize) -> bool {
         matches!(self.entries.get(func_index), Some(Some(_)))
+    }
+
+    fn try_loop(&self, chunk: usize, entry: usize, exit: usize, locals: &mut [Value]) -> LoopOutcome {
+        let key = (chunk, exit);
+        let known = self.regions.borrow().get(&key).cloned();
+        let region = match known {
+            Some(Some(r)) => r,
+            Some(None) => return LoopOutcome::Never,
+            None => {
+                let n = {
+                    let mut counts = self.counts.borrow_mut();
+                    let c = counts.entry(key).or_insert(0);
+                    *c += 1;
+                    *c
+                };
+                if n < HOT_LOOP_ENTRIES {
+                    return LoopOutcome::Skipped;
+                }
+                let compiled = self.compile_region(chunk, exit, locals).map(Rc::new);
+                self.regions.borrow_mut().insert(key, compiled.clone());
+                match compiled {
+                    Some(r) => r,
+                    None => return LoopOutcome::Never,
+                }
+            }
+        };
+        // the VM is at an instruction of the loop (not before its head), and the locals have the kinds it was built for
+        if entry < region.head || entry >= exit || locals.len() != region.nlocals {
+            return LoopOutcome::Skipped;
+        }
+        let mut buf = vec![0i64; region.nlocals];
+        for &(s, k) in &region.loads {
+            buf[s] = match (k, &locals[s]) {
+                (K::Int, Value::Int(n)) => *n,
+                (K::Float, Value::Float(f)) => f.to_bits() as i64,
+                (K::Bool, Value::Bool(b)) => *b as i64,
+                (K::Array(_), Value::Array(_)) => 0,
+                _ => return LoopOutcome::Skipped,
+            };
+        }
+        // every check passed: now the region takes its own reference to each array it reads
+        for &(s, k) in &region.loads {
+            if let (K::Array(_), Value::Array(a)) = (k, &locals[s]) {
+                buf[s] = Rc::into_raw(a.clone()) as i64;
+            }
+        }
+        let mut ctx = [0i64; 2];
+        let cp = ctx.as_mut_ptr() as i64;
+        let run = unsafe { std::mem::transmute::<usize, extern "C" fn(i64, i64, i64) -> i64>(region.ptr) };
+        run(cp, 0, buf.as_mut_ptr() as i64);
+        if ctx[0] != 0 {
+            // undo the array writes made so far: the VM runs this loop from its start. and keeps doing so
+            UNDO.with(|u| u.borrow_mut().finish(false));
+            self.regions.borrow_mut().insert(key, None);
+            return LoopOutcome::Never;
+        }
+        UNDO.with(|u| u.borrow_mut().finish(true));
+        for &(s, k) in &region.stores {
+            locals[s] = match k {
+                K::Float => Value::Float(f64::from_bits(buf[s] as u64)),
+                K::Bool => Value::Bool(buf[s] != 0),
+                _ => Value::Int(buf[s]),
+            };
+        }
+        LoopOutcome::Ran
     }
 
     fn call(&self, func_index: usize, args: &[i64]) -> Option<i64> {
@@ -499,7 +695,7 @@ fn leaders(chunk: &Chunk) -> BTreeSet<usize> {
 
 /// whether a value of this kind is reference counted. heap stuff.
 fn is_heap(k: K) -> bool {
-    matches!(k, K::String | K::Array(_) | K::Struct(_))
+    matches!(k, K::String | K::Array(_) | K::TArray(_) | K::Struct(_))
 }
 
 /// type-checks the unoptimized bytecode of one function against the signatures
@@ -508,7 +704,14 @@ fn is_heap(k: K) -> bool {
 /// constants, operands of the wrong kind, a local read before its kind is known,
 /// a local that changes kind, values left on the stack across a jump, or a
 /// return of the wrong kind. the bouncer, basically.
-fn check(chunk: &Chunk, own: &Sig, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::value::StructDef>]) -> Option<Vec<K>> {
+fn check(chunk: &Chunk, own: &Sig, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::value::StructDef>], typed: bool) -> Option<Vec<K>> {
+    let init: Vec<Option<K>> = own.0.iter().map(|k| Some(*k)).collect();
+    check_init(chunk, &init, own.1, sigs, structs, typed)
+}
+
+/// the checker behind `check` and loop regions. `init` gives the kinds of the slots that hold
+/// a value on entry, `ret` the kind a `Return` hands back
+fn check_init(chunk: &Chunk, init: &[Option<K>], ret: K, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::value::StructDef>], typed: bool) -> Option<Vec<K>> {
     let code = &chunk.code;
     if code.is_empty() || !matches!(code.last(), Some(OpCode::Return) | Some(OpCode::Jump(_))) {
         return None;
@@ -525,8 +728,10 @@ fn check(chunk: &Chunk, own: &Sig, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::v
     }
     let leaders = leaders(chunk);
     let mut slots: Vec<Option<K>> = vec![None; chunk.num_locals];
-    for (i, k) in own.0.iter().enumerate() {
-        *slots.get_mut(i)? = Some(*k);
+    for (i, k) in init.iter().enumerate() {
+        if let Some(k) = k {
+            *slots.get_mut(i)? = Some(*k);
+        }
     }
     let mut st: Vec<K> = Vec::new();
 
@@ -588,7 +793,7 @@ fn check(chunk: &Chunk, own: &Sig, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::v
                 // stack: array, index
                 pop(&mut st, K::Int)?;
                 match st.pop()? {
-                    K::Array(e) => st.push(e.value_kind()),
+                    K::Array(e) | K::TArray(e) => st.push(e.value_kind()),
                     _ => return None,
                 }
             }
@@ -597,7 +802,7 @@ fn check(chunk: &Chunk, own: &Sig, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::v
                 let v = st.pop()?;
                 pop(&mut st, K::Int)?;
                 match st.pop()? {
-                    K::Array(e) if e.value_kind() == v => {}
+                    K::Array(e) | K::TArray(e) if e.value_kind() == v => {}
                     _ => return None,
                 }
             }
@@ -648,6 +853,14 @@ fn check(chunk: &Chunk, own: &Sig, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::v
                 st.truncate(at);
                 st.push(*r);
             }
+            OpCode::CallBuiltin { id: BuiltinId::ArrayPush, argc: 2 } => {
+                // stack: array, item. pushes a placeholder for the Void result, which the Pop right after drops
+                let item = st.pop()?;
+                match st.pop()? {
+                    K::Array(e) | K::TArray(e) if elem_kind(item) == Some(e) => st.push(K::Int),
+                    _ => return None,
+                }
+            }
             OpCode::CallBuiltin { id, argc } => {
                 // only pure builtins. everything else stays in the VM. the rest is not our problem.
                 let (args, out): (&[K], K) = match id {
@@ -659,7 +872,7 @@ fn check(chunk: &Chunk, own: &Sig, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::v
                     BuiltinId::IntToFloat => (&[K::Int], K::Float),
                     BuiltinId::FloatToInt => (&[K::Float], K::Int),
                     BuiltinId::ArrayLenBuiltin => {
-                        if *argc != 1 || !matches!(st.last(), Some(K::Array(_))) {
+                        if *argc != 1 || !matches!(st.last(), Some(K::Array(_) | K::TArray(_))) {
                             return None;
                         }
                         st.pop();
@@ -675,8 +888,38 @@ fn check(chunk: &Chunk, own: &Sig, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::v
                 st.push(out);
             }
             OpCode::Return => {
-                pop(&mut st, own.1)?;
+                pop(&mut st, ret)?;
                 st.clear();
+            }
+            OpCode::MakeEmptyArray(tag) => {
+                let e = match tag {
+                    0 => ElemKind::Int,
+                    1 => ElemKind::Bool,
+                    2 => ElemKind::Float,
+                    3 => ElemKind::String,
+                    _ => return None,
+                };
+                if typed && matches!(e, ElemKind::String) {
+                    return None;
+                }
+                st.push(array_kind(e, typed));
+            }
+            OpCode::MakeArray(n) => {
+                // every item is a scalar of one kind, so the array's element kind is that kind
+                let mut kind: Option<K> = None;
+                for _ in 0..*n {
+                    let k = st.pop()?;
+                    elem_kind(k)?;
+                    if kind.is_some_and(|prev| prev != k) {
+                        return None;
+                    }
+                    kind = Some(k);
+                }
+                let e = elem_kind(kind?)?;
+                if typed && matches!(e, ElemKind::String) {
+                    return None;
+                }
+                st.push(array_kind(e, typed));
             }
             // globals, maps, the rest of the builtins: still in the VM
             _ => return None,
@@ -688,7 +931,7 @@ fn check(chunk: &Chunk, own: &Sig, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::v
 
 /// which functions get native code: a fixpoint over the call graph, so a
 /// function that calls a non-native function isn't native either. guilt by association.
-fn eligible(program: &Program) -> (Vec<bool>, Vec<Option<Vec<K>>>) {
+fn eligible(program: &Program) -> (Vec<bool>, Vec<Option<Vec<K>>>, Vec<bool>) {
     let n = program.functions.len();
     let mut elig: Vec<bool> = program
         .functions
@@ -701,13 +944,22 @@ fn eligible(program: &Program) -> (Vec<bool>, Vec<Option<Vec<K>>>) {
             .collect();
         let mut changed = false;
         let mut slots = vec![None; n];
+        let mut typed = vec![false; n];
         for i in 0..n {
             if !elig[i] {
                 continue;
             }
             let own = sigs[i].clone().unwrap();
-            match check(&program.functions[i], &own, &sigs, &program.struct_defs) {
-                Some(s) => slots[i] = Some(s),
+            // typed mode first: arrays that never leave the function become native-only buffers
+            let found = match check(&program.functions[i], &own, &sigs, &program.struct_defs, true) {
+                Some(s) => Some((s, true)),
+                None => check(&program.functions[i], &own, &sigs, &program.struct_defs, false).map(|s| (s, false)),
+            };
+            match found {
+                Some((s, t)) => {
+                    slots[i] = Some(s);
+                    typed[i] = t;
+                }
                 None => {
                     elig[i] = false;
                     changed = true;
@@ -715,8 +967,49 @@ fn eligible(program: &Program) -> (Vec<bool>, Vec<Option<Vec<K>>>) {
             }
         }
         if !changed {
-            return (elig, slots);
+            return (elig, slots, typed);
         }
+    }
+}
+
+/// the runtime helpers, declared inside one function
+fn helpers_in(module: &mut JITModule, decls: &[(&'static str, FuncId)], func: &mut cranelift_codegen::ir::Function) -> Helpers {
+    let id_of = |name: &str| decls.iter().find(|(n, _)| *n == name).unwrap().1;
+    let mut declare = |name: &str| module.declare_func_in_func(id_of(name), func);
+    Helpers {
+        fmod: declare("spg_fmod"),
+        powf: declare("spg_powf"),
+        str_retain: declare("spg_str_retain"),
+        str_release: declare("spg_str_release"),
+        arr_retain: declare("spg_arr_retain"),
+        arr_release: declare("spg_arr_release"),
+        concat: declare("spg_str_concat"),
+        streq: declare("spg_str_eq"),
+        len: declare("spg_str_len"),
+        int_str: declare("spg_int_str"),
+        float_str: declare("spg_float_str"),
+        bool_str: declare("spg_bool_str"),
+        arr_len: declare("spg_arr_len"),
+        arr_get_int: declare("spg_arr_get_int"),
+        arr_get_bool: declare("spg_arr_get_bool"),
+        arr_get_float: declare("spg_arr_get_float"),
+        arr_get_str: declare("spg_arr_get_str"),
+        arr_set: declare("spg_arr_set"),
+        struct_set: declare("spg_struct_set"),
+        struct_get: declare("spg_struct_get"),
+        struct_retain: declare("spg_struct_retain"),
+        struct_release: declare("spg_struct_release"),
+        arr_new: declare("spg_arr_new"),
+        arr_add: declare("spg_arr_add"),
+        arr_push: declare("spg_arr_push"),
+        arr_put: declare("spg_arr_put"),
+        tarr_new: declare("spg_tarr_new"),
+        tarr_retain: declare("spg_tarr_retain"),
+        tarr_release: declare("spg_tarr_release"),
+        tarr_len: declare("spg_tarr_len"),
+        tarr_get: declare("spg_tarr_get"),
+        tarr_set: declare("spg_tarr_set"),
+        tarr_push: declare("spg_tarr_push"),
     }
 }
 
@@ -745,6 +1038,17 @@ struct Helpers {
     struct_get: FuncRef,
     struct_retain: FuncRef,
     struct_release: FuncRef,
+    arr_new: FuncRef,
+    arr_add: FuncRef,
+    arr_push: FuncRef,
+    arr_put: FuncRef,
+    tarr_new: FuncRef,
+    tarr_retain: FuncRef,
+    tarr_release: FuncRef,
+    tarr_len: FuncRef,
+    tarr_get: FuncRef,
+    tarr_set: FuncRef,
+    tarr_push: FuncRef,
 }
 
 impl Helpers {
@@ -755,6 +1059,9 @@ impl Helpers {
             }
             K::Array(_) => {
                 b.ins().call(self.arr_retain, &[v]);
+            }
+            K::TArray(_) => {
+                b.ins().call(self.tarr_retain, &[v]);
             }
             K::Struct(_) => {
                 b.ins().call(self.struct_retain, &[v]);
@@ -770,6 +1077,9 @@ impl Helpers {
             }
             K::Array(_) => {
                 b.ins().call(self.arr_release, &[v]);
+            }
+            K::TArray(_) => {
+                b.ins().call(self.tarr_release, &[v]);
             }
             K::Struct(_) => {
                 b.ins().call(self.struct_release, &[v]);
@@ -817,6 +1127,48 @@ fn fail_block(b: &mut FunctionBuilder, h: Helpers, ctx: CV, fail: Block, heap_va
     b.ins().return_(&[zero]);
 }
 
+/// a stack value as the bits and tag the array and struct helpers take (0 int, 1 bool, 2 float, 3 string)
+fn elem_bits(b: &mut FunctionBuilder, v: CV, k: K) -> (CV, CV) {
+    let (bits, tag) = match k {
+        K::Float => (b.ins().bitcast(I64, MemFlags::new(), v), 2),
+        K::Bool => (v, 1),
+        K::String => (v, 3),
+        _ => (v, 0),
+    };
+    (bits, b.ins().iconst(I64, tag))
+}
+
+/// the element kind of an array of this runtime value (None: empty, or not a scalar element)
+fn elem_of(items: &[Value]) -> Option<ElemKind> {
+    match items.first()? {
+        Value::Int(_) => Some(ElemKind::Int),
+        Value::Float(_) => Some(ElemKind::Float),
+        Value::Bool(_) => Some(ElemKind::Bool),
+        Value::String(_) => Some(ElemKind::String),
+        _ => None,
+    }
+}
+
+/// the element the native kinds stand for, when it's an array element
+/// the kind of a new array: typed (native-only, plain bits) or the VM's representation
+fn array_kind(e: ElemKind, typed: bool) -> K {
+    if typed {
+        K::TArray(e)
+    } else {
+        K::Array(e)
+    }
+}
+
+fn elem_kind(k: K) -> Option<ElemKind> {
+    match k {
+        K::Int => Some(ElemKind::Int),
+        K::Float => Some(ElemKind::Float),
+        K::Bool => Some(ElemKind::Bool),
+        K::String => Some(ElemKind::String),
+        _ => None,
+    }
+}
+
 /// the element tag the struct helpers take: 0 int, 1 bool, 2 float, 3 string
 fn struct_tag(k: K) -> i64 {
     match k {
@@ -844,6 +1196,9 @@ fn lower(
     structs: &[Rc<spg_vm::value::StructDef>],
     refs: &HashMap<usize, FuncRef>,
     h: Helpers,
+    // loop regions: (slots to load from the locals array on entry, slots to store back on exit)
+    region: Option<(&[bool], &[bool])>,
+    typed: bool,
 ) {
     let vars: Vec<Variable> = (0..chunk.num_locals).map(|i| Variable::from_u32(i as u32)).collect();
     for (v, k) in vars.iter().zip(slot_kinds) {
@@ -865,7 +1220,13 @@ fn lower(
     let depth = params[1];
     // params arrive owned. the other locals start empty (null / zero)
     for (i, (v, k)) in vars.iter().zip(slot_kinds).enumerate() {
-        let raw = if i < chunk.arity {
+        let raw = if let Some((loads, _)) = region {
+            if loads.get(i).copied().unwrap_or(false) {
+                b.ins().load(I64, MemFlags::trusted(), params[2], (8 * i) as i32)
+            } else {
+                b.ins().iconst(I64, 0)
+            }
+        } else if i < chunk.arity {
             params[i + 2]
         } else {
             b.ins().iconst(I64, 0)
@@ -894,9 +1255,30 @@ fn lower(
     for &i in &leader_set {
         blocks.insert(i, b.create_block());
     }
+    // a loop region leaves through its exit: the one past the end, where the locals get stored back
+    let exit_block = region.map(|_| {
+        let eb = b.create_block();
+        blocks.insert(chunk.code.len(), eb);
+        eb
+    });
 
     let mut stack: Vec<(CV, K)> = Vec::new();
     let mut terminated = false;
+    // a fresh array is one this function made and nothing else holds: its slot only ever gets
+    // a new literal. pushes to it need no undo entry, since a failed call throws it away.
+    let fresh_slot = |s: usize| -> bool {
+        // a slot that's never set here (a param, or an array a region got from the VM) is not fresh
+        s >= chunk.arity
+            && chunk.code.iter().any(|op| matches!(op, OpCode::SetLocal(t) if *t == s))
+            && chunk.code.iter().enumerate().all(|(i, op)| match op {
+                OpCode::SetLocal(t) if *t == s => {
+                    i > 0 && matches!(chunk.code[i - 1], OpCode::MakeArray(_) | OpCode::MakeEmptyArray(_))
+                }
+                _ => true,
+            })
+    };
+    // the values that hold a fresh array right now
+    let mut fresh_vals: std::collections::HashSet<CV> = std::collections::HashSet::new();
     for (i, op) in chunk.code.iter().enumerate() {
         if i != 0 && leader_set.contains(&i) {
             if !terminated {
@@ -925,6 +1307,9 @@ fn lower(
                 let v = b.use_var(vars[*s]);
                 let k = slot_kinds[*s];
                 h.retain(b, k, v);
+                if matches!(k, K::Array(_)) && fresh_slot(*s) {
+                    fresh_vals.insert(v);
+                }
                 stack.push((v, k));
             }
             OpCode::SetLocal(s) => {
@@ -1035,6 +1420,22 @@ fn lower(
                 let r = if matches!(op, OpCode::EqString) { eq } else { b.ins().bxor_imm(eq, 1) };
                 stack.push((r, K::Bool));
             }
+            OpCode::IndexGet if matches!(stack.len().checked_sub(2).map(|i| stack[i].1), Some(K::TArray(_))) => {
+                let (idx, _) = stack.pop().unwrap();
+                let (arr, ak) = stack.pop().unwrap();
+                let K::TArray(elem) = ak else { unreachable!("guarded above") };
+                let len = b.ins().call(h.tarr_len, &[arr]);
+                let len = b.inst_results(len)[0];
+                let bad = b.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, idx, len);
+                let mut temps = heap_temps(&stack);
+                temps.push((arr, ak));
+                guard(b, h, bad, fail, temps);
+                let got = b.ins().call(h.tarr_get, &[arr, idx]);
+                let bits = b.inst_results(got)[0];
+                h.release(b, ak, arr);
+                let v = if matches!(elem, ElemKind::Float) { b.ins().bitcast(F64, MemFlags::new(), bits) } else { bits };
+                stack.push((v, elem.value_kind()));
+            }
             OpCode::IndexGet => {
                 let (idx, _) = stack.pop().unwrap();
                 let (arr, ak) = stack.pop().unwrap();
@@ -1072,6 +1473,21 @@ fn lower(
                 h.release(b, ak, arr);
                 stack.push((val, k));
             }
+            OpCode::IndexSet if matches!(stack.len().checked_sub(3).map(|i| stack[i].1), Some(K::TArray(_))) => {
+                let (val, _) = stack.pop().unwrap();
+                let (idx, _) = stack.pop().unwrap();
+                let (arr, ak) = stack.pop().unwrap();
+                let K::TArray(elem) = ak else { unreachable!("guarded above") };
+                let len = b.ins().call(h.tarr_len, &[arr]);
+                let len = b.inst_results(len)[0];
+                let bad = b.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, idx, len);
+                let mut temps = heap_temps(&stack);
+                temps.push((arr, ak));
+                guard(b, h, bad, fail, temps);
+                let bits = if matches!(elem, ElemKind::Float) { b.ins().bitcast(I64, MemFlags::new(), val) } else { val };
+                b.ins().call(h.tarr_set, &[arr, idx, bits]);
+                h.release(b, ak, arr);
+            }
             OpCode::IndexSet => {
                 // stack: array, index, value. a string value's ref moves into the array
                 let (val, vk) = stack.pop().unwrap();
@@ -1097,7 +1513,7 @@ fn lower(
                     ElemKind::String => (val, 3),
                 };
                 let tag = b.ins().iconst(I64, tag);
-                let inst = b.ins().call(h.arr_set, &[arr, idx, bits, tag]);
+                let inst = b.ins().call(if fresh_vals.contains(&arr) { h.arr_put } else { h.arr_set }, &[arr, idx, bits, tag]);
                 let status = b.inst_results(inst)[0];
                 // the store ate a string value either way. only a borrow clash lands here
                 let mut temps = heap_temps(&stack);
@@ -1231,6 +1647,37 @@ fn lower(
             OpCode::CallBuiltin { id, argc } => {
                 let at = stack.len() - argc;
                 let args: Vec<(CV, K)> = stack.drain(at..).collect();
+                if matches!(id, BuiltinId::ArrayLenBuiltin) && matches!(args[0].1, K::TArray(_)) {
+                    let (arr, ak) = args[0];
+                    let len = b.ins().call(h.tarr_len, &[arr]);
+                    let len = b.inst_results(len)[0];
+                    h.release(b, ak, arr);
+                    stack.push((len, K::Int));
+                    continue;
+                }
+                if matches!(id, BuiltinId::ArrayPush) && matches!(args[0].1, K::TArray(_)) {
+                    let (arr, ak) = args[0];
+                    let (item, ik) = args[1];
+                    let bits = if matches!(ik, K::Float) { b.ins().bitcast(I64, MemFlags::new(), item) } else { item };
+                    b.ins().call(h.tarr_push, &[arr, bits]);
+                    h.release(b, ak, arr);
+                    stack.push((b.ins().iconst(I64, 0), K::Int));
+                    continue;
+                }
+                if matches!(id, BuiltinId::ArrayPush) {
+                    let (arr, ak) = args[0];
+                    let (item, ik) = args[1];
+                    let (bits, tag) = elem_bits(b, item, ik);
+                    // a fresh array (see fresh_slot) needs no undo entry; any other array is logged
+                    let helper = if fresh_vals.contains(&arr) { h.arr_add } else { h.arr_push };
+                    let failed = b.ins().call(helper, &[arr, bits, tag]);
+                    let failed = b.inst_results(failed)[0];
+                    // the builtin consumes the array reference (the item is consumed by the helper)
+                    h.release(b, ak, arr);
+                    guard(b, h, failed, fail, heap_temps(&stack));
+                    stack.push((b.ins().iconst(I64, 0), K::Int));
+                    continue;
+                }
                 let x = args[0].0;
                 if matches!(id, BuiltinId::IntToFloat) {
                     stack.push((b.ins().fcvt_from_sint(F64, x), K::Float));
@@ -1271,8 +1718,72 @@ fn lower(
                 b.ins().return_(&[v]);
                 terminated = true;
             }
+            OpCode::MakeEmptyArray(tag) if typed => {
+                let arr = b.ins().call(h.tarr_new, &[]);
+                let arr = b.inst_results(arr)[0];
+                let e = match *tag {
+                    0 => ElemKind::Int,
+                    1 => ElemKind::Bool,
+                    _ => ElemKind::Float,
+                };
+                stack.push((arr, K::TArray(e)));
+            }
+            OpCode::MakeArray(n) if typed => {
+                let at = stack.len() - *n;
+                let items: Vec<(CV, K)> = stack.drain(at..).collect();
+                let arr = b.ins().call(h.tarr_new, &[]);
+                let arr = b.inst_results(arr)[0];
+                let elem = elem_kind(items[0].1).expect("check() ensures scalar items");
+                for (v, k) in items {
+                    let bits = if matches!(k, K::Float) { b.ins().bitcast(I64, MemFlags::new(), v) } else { v };
+                    b.ins().call(h.tarr_push, &[arr, bits]);
+                }
+                stack.push((arr, K::TArray(elem)));
+            }
+            OpCode::MakeEmptyArray(tag) => {
+                let arr = b.ins().call(h.arr_new, &[]);
+                let arr = b.inst_results(arr)[0];
+                let e = match *tag {
+                    0 => ElemKind::Int,
+                    1 => ElemKind::Bool,
+                    2 => ElemKind::Float,
+                    _ => ElemKind::String,
+                };
+                fresh_vals.insert(arr);
+                stack.push((arr, K::Array(e)));
+            }
+            OpCode::MakeArray(n) => {
+                let at = stack.len() - *n;
+                let items: Vec<(CV, K)> = stack.drain(at..).collect();
+                let arr = b.ins().call(h.arr_new, &[]);
+                let arr = b.inst_results(arr)[0];
+                let elem = elem_kind(items[0].1).expect("check() ensures scalar items");
+                fresh_vals.insert(arr);
+                // items go in bottom first, and each item's reference moves into the array
+                for (v, k) in items {
+                    let (bits, tag) = elem_bits(b, v, k);
+                    b.ins().call(h.arr_add, &[arr, bits, tag]);
+                }
+                stack.push((arr, K::Array(elem)));
+            }
             _ => unreachable!("check() rejects unsupported opcodes"),
         }
+    }
+    if let (Some((_, stores)), Some(exit_block)) = (region, exit_block) {
+        b.switch_to_block(exit_block);
+        for (i, store) in stores.iter().enumerate() {
+            if *store {
+                let v = b.use_var(vars[i]);
+                let raw = if slot_kinds[i] == K::Float { b.ins().bitcast(I64, MemFlags::new(), v) } else { v };
+                b.ins().store(MemFlags::trusted(), raw, params[2], (8 * i) as i32);
+            }
+        }
+        for (var, k) in &heap_vars {
+            let x = b.use_var(*var);
+            h.release(b, *k, x);
+        }
+        let zero = b.ins().iconst(I64, 0);
+        b.ins().return_(&[zero]);
     }
     fail_block(b, h, ctx, fail, &heap_vars);
     b.seal_all_blocks();
@@ -1281,7 +1792,7 @@ fn lower(
 /// compiles every eligible function of `program`. errors only if Cranelift
 /// refuses the code. the VM then keeps running everything.
 pub fn build(program: &Program) -> Result<NativeTable, String> {
-    let (elig, slots) = eligible(program);
+    let (elig, slots, typed) = eligible(program);
     let sigs: Vec<Option<Sig>> = (0..program.functions.len())
         .map(|i| if elig[i] { program.functions[i].native_sig.clone() } else { None })
         .collect();
@@ -1329,6 +1840,17 @@ pub fn build(program: &Program) -> Result<NativeTable, String> {
         ("spg_struct_get", spg_struct_get as *const u8),
         ("spg_struct_retain", spg_struct_retain as *const u8),
         ("spg_struct_release", spg_struct_release as *const u8),
+        ("spg_arr_new", spg_arr_new as *const u8),
+        ("spg_arr_add", spg_arr_add as *const u8),
+        ("spg_arr_push", spg_arr_push as *const u8),
+        ("spg_arr_put", spg_arr_put as *const u8),
+        ("spg_tarr_new", spg_tarr_new as *const u8),
+        ("spg_tarr_retain", spg_tarr_retain as *const u8),
+        ("spg_tarr_release", spg_tarr_release as *const u8),
+        ("spg_tarr_len", spg_tarr_len as *const u8),
+        ("spg_tarr_get", spg_tarr_get as *const u8),
+        ("spg_tarr_set", spg_tarr_set as *const u8),
+        ("spg_tarr_push", spg_tarr_push as *const u8),
     ];
     for (name, ptr) in symbols {
         jb.symbol(*name, *ptr);
@@ -1356,7 +1878,7 @@ pub fn build(program: &Program) -> Result<NativeTable, String> {
     let i2f = sig(&[I64, I64], Some(F64));
     let i4i = sig(&[I64, I64, I64, I64], Some(I64));
     let i3i = sig(&[I64, I64, I64], Some(I64));
-    let decls: Vec<(&str, FuncId)> = vec![
+    let decls: Vec<(&'static str, FuncId)> = vec![
         ("spg_fmod", imp(&mut module, "spg_fmod", &f2f)?),
         ("spg_powf", imp(&mut module, "spg_powf", &f2f)?),
         ("spg_str_retain", imp(&mut module, "spg_str_retain", &i1v)?),
@@ -1379,8 +1901,18 @@ pub fn build(program: &Program) -> Result<NativeTable, String> {
         ("spg_struct_get", imp(&mut module, "spg_struct_get", &i3i)?),
         ("spg_struct_retain", imp(&mut module, "spg_struct_retain", &i1v)?),
         ("spg_struct_release", imp(&mut module, "spg_struct_release", &i1v)?),
+        ("spg_arr_new", imp(&mut module, "spg_arr_new", &sig(&[], Some(I64)))?),
+        ("spg_arr_add", imp(&mut module, "spg_arr_add", &i3i)?),
+        ("spg_arr_push", imp(&mut module, "spg_arr_push", &i3i)?),
+        ("spg_arr_put", imp(&mut module, "spg_arr_put", &i4i)?),
+        ("spg_tarr_new", imp(&mut module, "spg_tarr_new", &sig(&[], Some(I64)))?),
+        ("spg_tarr_retain", imp(&mut module, "spg_tarr_retain", &i1v)?),
+        ("spg_tarr_release", imp(&mut module, "spg_tarr_release", &i1v)?),
+        ("spg_tarr_len", imp(&mut module, "spg_tarr_len", &i1i)?),
+        ("spg_tarr_get", imp(&mut module, "spg_tarr_get", &i2i)?),
+        ("spg_tarr_set", imp(&mut module, "spg_tarr_set", &i3i)?),
+        ("spg_tarr_push", imp(&mut module, "spg_tarr_push", &i2i)?),
     ];
-    let id_of = |name: &str| decls.iter().find(|(n, _)| *n == name).unwrap().1;
 
     // every native function has the same ABI: (ctx, depth, args as i64...) -> i64
     let abi = |arity: usize| {
@@ -1417,35 +1949,11 @@ pub fn build(program: &Program) -> Result<NativeTable, String> {
                 refs.insert(callee, module.declare_func_in_func(cid, &mut fctx.func));
             }
         }
-        let mut declare = |name: &str| module.declare_func_in_func(id_of(name), &mut fctx.func);
-        let h = Helpers {
-            fmod: declare("spg_fmod"),
-            powf: declare("spg_powf"),
-            str_retain: declare("spg_str_retain"),
-            str_release: declare("spg_str_release"),
-            arr_retain: declare("spg_arr_retain"),
-            arr_release: declare("spg_arr_release"),
-            concat: declare("spg_str_concat"),
-            streq: declare("spg_str_eq"),
-            len: declare("spg_str_len"),
-            int_str: declare("spg_int_str"),
-            float_str: declare("spg_float_str"),
-            bool_str: declare("spg_bool_str"),
-            arr_len: declare("spg_arr_len"),
-            arr_get_int: declare("spg_arr_get_int"),
-            arr_get_bool: declare("spg_arr_get_bool"),
-            arr_get_float: declare("spg_arr_get_float"),
-            arr_get_str: declare("spg_arr_get_str"),
-            arr_set: declare("spg_arr_set"),
-            struct_set: declare("spg_struct_set"),
-            struct_get: declare("spg_struct_get"),
-            struct_retain: declare("spg_struct_retain"),
-            struct_release: declare("spg_struct_release"),
-        };
+        let h = helpers_in(&mut module, &decls, &mut fctx.func);
         {
             let mut b = FunctionBuilder::new(&mut fctx.func, &mut fbc);
             let own = sigs[i].clone().unwrap();
-            lower(&mut b, chunk, &own, slots[i].as_ref().unwrap(), &sigs, &program.struct_defs, &refs, h);
+            lower(&mut b, chunk, &own, slots[i].as_ref().unwrap(), &sigs, &program.struct_defs, &refs, h, None, typed[i]);
             b.finalize();
         }
         module.define_function(id, &mut fctx).map_err(|e| format!("{}: {e}", chunk.name))?;
@@ -1462,9 +1970,193 @@ pub fn build(program: &Program) -> Result<NativeTable, String> {
     }
     let disabled = (0..program.functions.len()).map(|_| Cell::new(false)).collect();
     let compiled = ids.len();
-    Ok(NativeTable { _module: module, _keep: keep, entries, arg_owned, disabled, compiled })
+    Ok(NativeTable {
+        module: RefCell::new(module),
+        plain: program.clone(),
+        ids,
+        sigs: sigs.clone(),
+        structs: program.struct_defs.clone(),
+        decls,
+        call_conv,
+        regions: RefCell::new(HashMap::new()),
+        counts: RefCell::new(HashMap::new()),
+        next_region: Cell::new(0),
+        _keep: keep,
+        entries,
+        arg_owned,
+        disabled,
+        compiled,
+    })
 }
 
 fn calls(chunk: &Chunk, callee: usize) -> bool {
     chunk.code.iter().any(|op| matches!(op, OpCode::Call { func_index, .. } if *func_index == callee))
+}
+
+/// a loop compiled natively, specialized for the kinds its locals had when it was first run
+struct Region {
+    ptr: usize,
+    /// where the loop starts (plain code): its condition
+    head: usize,
+    nlocals: usize,
+    /// (slot, kind) read from the locals on entry
+    loads: Vec<(usize, K)>,
+    /// (slot, kind) written back to the locals on success
+    stores: Vec<(usize, K)>,
+}
+
+/// after this many arrivals at a loop top, the loop gets compiled
+const HOT_LOOP_ENTRIES: u32 = 50;
+
+fn scalar_kind(v: &Value) -> Option<K> {
+    match v {
+        Value::Int(_) => Some(K::Int),
+        Value::Float(_) => Some(K::Float),
+        Value::Bool(_) => Some(K::Bool),
+        _ => None,
+    }
+}
+
+/// the loop `head..exit` as a chunk of its own. jumps to `exit` land one past its end.
+/// None when a jump leaves the loop, so the loop is not closed and can't be native.
+fn region_chunk(plain: &Chunk, head: usize, exit: usize) -> Option<Chunk> {
+    let mut rc = plain.clone();
+    rc.code = plain.code[head..exit].to_vec();
+    rc.locs = Vec::new();
+    rc.origin = Vec::new();
+    let len = exit - head;
+    for op in &mut rc.code {
+        if let Some(t) = op.jump_target_mut() {
+            let old = *t;
+            *t = if old == exit {
+                len
+            } else if old >= head && old < exit {
+                old - head
+            } else {
+                return None;
+            };
+        }
+    }
+    Some(rc)
+}
+
+impl NativeTable {
+    /// compiles the loop that ends at `exit` (plain code) in chunk `chunk`, for the kinds of `locals` now
+    fn compile_region(&self, chunk: usize, exit: usize, locals: &[Value]) -> Option<Region> {
+        let plain = if chunk == self.plain.functions.len() {
+            &self.plain.main
+        } else {
+            self.plain.functions.get(chunk)?
+        };
+        let nlocals = plain.num_locals;
+        if locals.len() != nlocals || exit == 0 || exit > plain.code.len() {
+            return None;
+        }
+        // a loop ends with its backward jump, the last instruction before its exit
+        let head = match plain.code[exit - 1] {
+            OpCode::Jump(h) if h < exit - 1 => h,
+            _ => return None,
+        };
+        let mut touched: BTreeSet<usize> = BTreeSet::new();
+        let mut assigned: BTreeSet<usize> = BTreeSet::new();
+        for op in &plain.code[head..exit] {
+            match op {
+                OpCode::GetLocal(s) => {
+                    touched.insert(*s);
+                }
+                OpCode::SetLocal(s) => {
+                    touched.insert(*s);
+                    assigned.insert(*s);
+                }
+                _ => {}
+            }
+        }
+        let mut init: Vec<Option<K>> = vec![None; nlocals];
+        let mut loads = Vec::new();
+        for &s in &touched {
+            let k = match &locals[s] {
+                // an array is shared with the VM: the region gets its own reference, and its
+                // changes are in place already. the array can't be replaced inside the loop.
+                Value::Array(a) => {
+                    if assigned.contains(&s) {
+                        return None;
+                    }
+                    K::Array(elem_of(&a.borrow())?)
+                }
+                v => match scalar_kind(v) {
+                    Some(k) => k,
+                    None => continue,
+                },
+            };
+            init[s] = Some(k);
+            loads.push((s, k));
+        }
+        let rc = region_chunk(plain, head, exit)?;
+        let slots = check_init(&rc, &init, K::Int, &self.sigs, &self.structs, false)?;
+        let mut stores = Vec::new();
+        for &s in &touched {
+            let k = slots[s];
+            if is_heap(k) {
+                // read-only heap locals (arrays) are shared with the VM already: nothing to write back
+                if assigned.contains(&s) {
+                    return None;
+                }
+                continue;
+            }
+            if !matches!(k, K::Int | K::Float | K::Bool) {
+                return None;
+            }
+            stores.push((s, k));
+        }
+        let mut loads_mask = vec![false; nlocals];
+        for &(s, _) in &loads {
+            loads_mask[s] = true;
+        }
+        let mut stores_mask = vec![false; nlocals];
+        for &(s, _) in &stores {
+            stores_mask[s] = true;
+        }
+
+        let mut sig = Signature::new(self.call_conv);
+        for _ in 0..3 {
+            sig.params.push(AbiParam::new(I64));
+        }
+        sig.returns.push(AbiParam::new(I64));
+        let mut module = self.module.borrow_mut();
+        let name = format!("spg_loop_{}", self.next_region.get());
+        self.next_region.set(self.next_region.get() + 1);
+        let id = module.declare_function(&name, Linkage::Local, &sig).ok()?;
+        let mut fctx = Context::new();
+        let mut fbc = FunctionBuilderContext::new();
+        fctx.func.signature = sig;
+        fctx.func.name = UserFuncName::user(0, id.as_u32());
+        let mut refs: HashMap<usize, FuncRef> = HashMap::new();
+        for (&callee, &cid) in &self.ids {
+            if calls(&rc, callee) {
+                refs.insert(callee, module.declare_func_in_func(cid, &mut fctx.func));
+            }
+        }
+        let h = helpers_in(&mut module, &self.decls, &mut fctx.func);
+        {
+            let mut b = FunctionBuilder::new(&mut fctx.func, &mut fbc);
+            lower(
+                &mut b,
+                &rc,
+                &(Vec::<K>::new(), K::Int),
+                &slots,
+                &self.sigs,
+                &self.structs,
+                &refs,
+                h,
+                Some((&loads_mask, &stores_mask)),
+                false,
+            );
+            b.finalize();
+        }
+        module.define_function(id, &mut fctx).ok()?;
+        module.clear_context(&mut fctx);
+        module.finalize_definitions().ok()?;
+        let ptr = module.get_finalized_function(id) as usize;
+        Some(Region { ptr, head, nlocals, loads, stores })
+    }
 }

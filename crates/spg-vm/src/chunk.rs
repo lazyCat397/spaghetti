@@ -134,6 +134,9 @@ pub enum OpCode {
     // ---- arrays (the Rc<RefCell> saga) ----
     /// pop `count` values, push a new Array with them. in order. yes.
     MakeArray(usize),
+    /// an empty array literal with a known element type: 0 int, 1 bool, 2 float, 3 string, 255 other.
+    /// the same as MakeArray(0), but the native backend (spg-jit) can tell what the array holds
+    MakeEmptyArray(u8),
     /// pop index then array, push array[index]. no bounds joke here, sorry.
     IndexGet,
     /// pop value, index, array; mutate array[index] = value
@@ -403,6 +406,8 @@ pub struct Chunk {
     /// param and return kinds, when all of them are `int`, `float` or `bool`
     /// (set by the compiler). only these can run as native (spg-jit). the rest suffer in the VM.
     pub native_sig: Option<(Vec<NativeKind>, NativeKind)>,
+    /// for the optimized chunk: the index, in the unfused (plain) code, where each\n    /// instruction starts. one extra entry at the end (the exit door). empty means identity.
+    pub origin: Vec<usize>,
     /// a `-> task<T>` function: its call hands back a task (see `TaskCell`), not the T
     pub is_task: bool,
 }
@@ -419,6 +424,7 @@ impl Chunk {
             arity: 0,
             native_sig: None,
             is_task: false,
+            origin: Vec::new(),
         }
     }
 
@@ -483,6 +489,9 @@ pub enum NativeKind {
     String,
     /// an array whose elements are all this kind (arrays are refcounted too, sigh)
     Array(ElemKind),
+    /// an array that only native code (spg-jit) holds: plain bits, one owner chain, never seen by the VM.
+    /// the JIT picks it for a function whose arrays never leave it. see spg-jit's typed mode
+    TArray(ElemKind),
     /// a struct of the type `Program.struct_defs[index]`
     Struct(usize),
 }

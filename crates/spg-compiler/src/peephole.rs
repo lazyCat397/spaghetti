@@ -411,18 +411,22 @@ fn match_at(code: &[OpCode], consts: &[Value], i: usize, limit: usize, late: boo
 }
 
 pub fn fuse_superinstructions(chunk: &mut Chunk) {
+    // origin[i]: where instruction i of the current code started in the plain code
+    let mut origin: Vec<usize> = (0..=chunk.code.len()).collect();
     // fused ops can be part of a bigger pattern too, so keep going
     // until a whole pass finds nothing left to fold. wait for it.
-    while fuse_pass(chunk, false) {}
+    while fuse_pass(chunk, false, &mut origin) {}
     // low-value patterns that could steal operands from bigger ones (a bare
     // `GetLocal; GetLocal` pair) only run once everything else has settled
-    fuse_pass(chunk, true);
+    fuse_pass(chunk, true, &mut origin);
+    chunk.origin = origin;
     {
         invert_loops(chunk);
     }
 }
 
-fn fuse_pass(chunk: &mut Chunk, late: bool) -> bool {
+fn fuse_pass(chunk: &mut Chunk, late: bool, origin: &mut Vec<usize>) -> bool {
+    let mut new_origin: Vec<usize> = Vec::with_capacity(origin.len());
     let old = std::mem::take(&mut chunk.code);
     let old_locs = std::mem::take(&mut chunk.locs);
     let n = old.len();
@@ -462,10 +466,14 @@ fn fuse_pass(chunk: &mut Chunk, late: bool) -> bool {
         }
         new_code.push(op);
         new_locs.push(old_locs[i].clone());
+        // a fused op starts where its first instruction started
+        new_origin.push(origin[i]);
         i += len;
     }
     // a jump may target one-past-the-end (exit point after a loop or if). the exit door.
     map[n] = new_code.len();
+    new_origin.push(origin[n]);
+    *origin = new_origin;
 
     for op in &mut new_code {
         if let Some(t) = op.jump_target_mut() {

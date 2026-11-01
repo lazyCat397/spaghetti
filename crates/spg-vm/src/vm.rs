@@ -36,13 +36,15 @@ struct CallFrame<'p, 'v> {
     /// `Err` and the caller's `run_chunk` checks ITS handlers. that's how a
     /// throw reaches a try in some other function. magic, basically.
     handlers: Vec<(usize, usize)>,
+    /// index of `chunk` in `Program::functions` (`functions.len()` for main), or usize::MAX
+    chunk_id: usize,
 }
 
 impl<'p, 'v> CallFrame<'p, 'v> {
     fn new(chunk: &'p Chunk, args: Vec<Value>, value_stack: &'v mut Vec<Value>) -> Self {
         let mut locals = args;
         locals.resize(chunk.num_locals, Value::Void);
-        CallFrame { chunk, ip: 0, locals, value_stack, handlers: Vec::new() }
+        CallFrame { chunk, ip: 0, locals, value_stack, handlers: Vec::new(), chunk_id: usize::MAX }
     }
 
     fn push(&mut self, v: Value) {
@@ -71,6 +73,8 @@ pub struct Vm<'p> {
     trace_omitted: usize,
     /// optional native backend, asked before running an `int` function.
     native: Option<Box<dyn NativeCalls>>,
+    /// per chunk (see `loop_tops`): for each loop top, where the loop starts and exits
+    loop_tops: Vec<Vec<Option<(usize, usize, usize)>>>,
     /// how many frames are running right now (every spg call is a native recursion, yay)
     depth: usize,
     /// who gets to run spg code right now. see `sched`
@@ -104,10 +108,28 @@ pub fn call_depth_limit() -> usize {
 /// `call` returns `None` when native can't answer for sure (overflow,
 /// div by zero, too deep, a callee that gave up...): the VM runs the
 /// function itself. always correct, because these functions are pure. phew.
+/// what a native loop attempt came to
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoopOutcome {
+    /// the loop ran natively to its exit, and the locals were written back
+    Ran,
+    /// not this time (too few arrivals so far, or the locals have other kinds). try again next time
+    Skipped,
+    /// never natively: the loop is not native-able. the VM stops asking
+    Never,
+}
+
 pub trait NativeCalls {
     /// does this function have native code at all? checked before any arg work.
     fn has(&self, func_index: usize) -> bool;
     fn call(&self, func_index: usize, args: &[i64]) -> Option<i64>;
+    /// runs the loop that the instruction at `entry` (plain code) belongs to, up to `exit` (plain code),
+    /// natively. `chunk` is the chunk's index (`functions.len()` for main). true when the loop ran
+    /// to its exit and wrote its locals back; false leaves everything as it was.
+    fn try_loop(&self, chunk: usize, entry: usize, exit: usize, locals: &mut [Value]) -> LoopOutcome {
+        let _ = (chunk, entry, exit, locals);
+        LoopOutcome::Never
+    }
 }
 
 /// how many frames a trace keeps before it starts just counting
@@ -140,6 +162,7 @@ impl<'p> Vm<'p> {
             trace_omitted: 0,
             depth: 0,
             native: None,
+            loop_tops: Vec::new(),
             handlers: Vec::new(),
             sched: Arc::new(Sched::new()),
             failed_tasks: Vec::new(),
@@ -149,6 +172,23 @@ impl<'p> Vm<'p> {
     /// installs a native backend. int calls try it first.
     pub fn set_native(&mut self, native: Box<dyn NativeCalls>) {
         self.native = Some(native);
+        self.loop_tops = loop_tops(self.program);
+    }
+
+    /// the chunk's index in `functions`, or usize::MAX for a chunk that isn't one of them
+    fn chunk_id(&self, chunk: &Chunk) -> usize {
+        if std::ptr::eq(chunk, &self.program.main) {
+            return self.program.functions.len();
+        }
+        let addr = chunk as *const Chunk as usize;
+        let base = self.program.functions.as_ptr() as usize;
+        let size = std::mem::size_of::<Chunk>();
+        let count = self.program.functions.len();
+        if addr >= base && addr < base + count * size && (addr - base) % size == 0 {
+            (addr - base) / size
+        } else {
+            usize::MAX
+        }
     }
 
     /// tries native for a call whose args are on the stack.
@@ -200,7 +240,7 @@ impl<'p> Vm<'p> {
                     NativeKind::Bool => Value::Bool(r != 0),
                     NativeKind::Float => Value::Float(f64::from_bits(r as u64)),
                     // arrays never come back from native (native_sig rejects them). thank god.
-                    NativeKind::Array(_) | NativeKind::Struct(_) => return false,
+                    NativeKind::Array(_) | NativeKind::TArray(_) | NativeKind::Struct(_) => return false,
                     NativeKind::String if r != 0 => {
                         // SAFETY: native returns an owned ref made by Rc::into_raw. trust me bro.
                         Value::String(unsafe { Rc::from_raw(r as *const String) })
@@ -368,6 +408,7 @@ impl<'p> Vm<'p> {
         }
         self.depth += 1;
         let mut frame = CallFrame::new(chunk, args, value_stack);
+        frame.chunk_id = self.chunk_id(chunk);
 
         loop {
             match self.step(&mut frame) {
@@ -447,6 +488,25 @@ impl<'p> Vm<'p> {
     /// except jumps, which set it themselves.
     #[inline(always)]
     fn step(&mut self, frame: &mut CallFrame<'p, '_>) -> Result<Option<FrameOutcome>, RuntimeError> {
+        // a loop top (a backward jump lands here): the native backend may run the rest of the loop in one go
+        if self.native.is_some() {
+            let top = self.loop_tops.get(frame.chunk_id).and_then(|t| t.get(frame.ip)).copied().flatten();
+            if let Some((entry, exit_plain, exit_opt)) = top {
+                let outcome = match self.native.as_deref() {
+                    Some(native) => native.try_loop(frame.chunk_id, entry, exit_plain, &mut frame.locals),
+                    None => LoopOutcome::Never,
+                };
+                match outcome {
+                    LoopOutcome::Ran => {
+                        frame.ip = exit_opt;
+                        return Ok(None);
+                    }
+                    LoopOutcome::Skipped => {}
+                    // never asked again: this top costs nothing from now on
+                    LoopOutcome::Never => self.loop_tops[frame.chunk_id][frame.ip] = None,
+                }
+            }
+        }
         let op = frame.chunk.code[frame.ip];
         frame.ip += 1;
 
@@ -582,6 +642,9 @@ impl<'p> Vm<'p> {
                 }
                 items.reverse(); // popped in reverse push order
                 frame.push(Value::Array(Rc::new(std::cell::RefCell::new(items))));
+            }
+            OpCode::MakeEmptyArray(_) => {
+                frame.push(Value::Array(Rc::new(std::cell::RefCell::new(Vec::new()))));
             }
             OpCode::EnumValue => match frame.pop()? {
                 Value::Enum(def, variant) => {
@@ -1377,4 +1440,27 @@ fn fused_bool_cmp(frame: &mut CallFrame, a: usize, b: usize, f: impl FnOnce(bool
 fn sleep_index() -> u16 {
     static INDEX: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
     *INDEX.get_or_init(|| spg_libs::index_of("time", "sleep").expect("the time library declares sleep"))
+}
+
+/// for every chunk (functions first, then main), at each instruction a backward jump lands on:
+/// (the instruction's place in plain code, the loop's exit in plain code, the loop's exit here).
+/// a `continue` jumps back too, but it sits before the loop's own back edge, so the last one wins.
+fn loop_tops(program: &Program) -> Vec<Vec<Option<(usize, usize, usize)>>> {
+    program
+        .functions
+        .iter()
+        .chain(std::iter::once(&program.main))
+        .map(|chunk| {
+            let mut tops: Vec<Option<(usize, usize, usize)>> = vec![None; chunk.code.len()];
+            let plain_at = |k: usize| chunk.origin.get(k).copied().unwrap_or(k);
+            for (i, op) in chunk.code.iter().enumerate() {
+                let Some(t) = op.jump_target() else { continue };
+                if t < i && t < tops.len() {
+                    let exit_opt = i + 1;
+                    tops[t] = Some((plain_at(t), plain_at(exit_opt), exit_opt));
+                }
+            }
+            tops
+        })
+        .collect()
 }
