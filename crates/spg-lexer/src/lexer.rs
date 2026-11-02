@@ -6,6 +6,8 @@ use std::fmt;
 #[derive(Debug)]
 pub enum LexError {
     UnexpectedChar { ch: char, line: usize, col: usize },
+    /// a number literal that cannot be read: `0x`, `0b102`, `0xFFFFFFFFFFFFFFFFFF`, `1e400`
+    BadNumber { text: String, reason: &'static str, line: usize, col: usize },
     UnterminatedString { line: usize, col: usize },
     UnterminatedBlockComment { line: usize, col: usize },
     /// `"${}"`: an interpolation with nothing inside the braces. empty, like my coffee cup.
@@ -55,6 +57,9 @@ impl fmt::Display for LexError {
         match self {
             LexError::UnexpectedChar { ch, line, col } => {
                 write!(f, "unexpected character '{}' at line {}, column {}", ch, line, col)
+            }
+            LexError::BadNumber { text, reason, line, col } => {
+                write!(f, "invalid number '{}' at line {}, column {}: {}", text, line, col, reason)
             }
             LexError::EmptyInterpolation { line, col } => {
                 write!(f, "empty interpolation in string, started at line {}, column {}", line, col)
@@ -118,6 +123,10 @@ impl LexError {
             LexError::UnexpectedChar { ch, line, col } => format!(
                 "Oops! I found a character I don't expect: '{}' in `{}` at line {}, column {}. Check for a typo or a stray symbol.",
                 ch, file, line, col
+            ),
+            LexError::BadNumber { text, reason, line, col } => format!(
+                "Oops! The number `{}` in `{}` at line {}, column {} is not valid: {}.",
+                text, file, line, col, reason
             ),
             LexError::EmptyInterpolation { line, col } => format!(
                 "Oops! Empty `${{}}` in string in `{}` at line {}, column {}. Put an expression between the braces, or write `\\${{` for a literal dollar sign.",
@@ -321,7 +330,7 @@ impl<'a> Lexer<'a> {
             }
 
             let kind = if ch.is_ascii_digit() {
-                self.read_number()
+                self.read_number()?
             } else if ch == '\'' {
                 self.read_raw_string()?
             } else if ch.is_alphabetic() || ch == '_' {
@@ -505,26 +514,116 @@ impl<'a> Lexer<'a> {
         Ok(())
     }
 
-    fn read_number(&mut self) -> TokenKind {
-        let start = self.pos;
-        let mut is_float = false;
+    /// `_` is a digit separator only when a digit of the same kind follows it: `1_000`, `1__000`.
+    /// `1_` and `1_x` stop before the underscore, as before.
+    fn at_digit_separator(&self, is_digit: fn(char) -> bool) -> bool {
+        let mut i = self.pos;
+        while self.source.get(i) == Some(&'_') {
+            i += 1;
+        }
+        i > self.pos && self.source.get(i).map_or(false, |c| is_digit(*c))
+    }
 
-        while let Some(c) = self.peek() {
-            if c.is_ascii_digit() {
-                self.advance();
-            } else if c == '.' && !is_float && self.peek_next().map_or(false, |n| n.is_ascii_digit()) {
-                is_float = true;
-                self.advance();
-            } else {
-                break;
+    /// reads a run of digits, skipping the separators between them
+    fn read_digit_run(&mut self, text: &mut String, is_digit: fn(char) -> bool) {
+        loop {
+            match self.peek() {
+                Some(c) if is_digit(c) => {
+                    text.push(c);
+                    self.advance();
+                }
+                Some('_') if self.at_digit_separator(is_digit) => {
+                    while self.peek() == Some('_') {
+                        self.advance();
+                    }
+                }
+                _ => break,
+            }
+        }
+    }
+
+    /// reads a number literal:
+    /// decimal `1_000`, `3.14`, `1e6` (a float), `2.5e-3`; hex `0xFF_00`; binary `0b1010`.
+    /// the value is what the digits say, separators aside.
+    fn read_number(&mut self) -> Result<TokenKind, LexError> {
+        let (line, col) = (self.line, self.col);
+        let start = self.pos;
+
+        // `0x` / `0b`: every letter and digit after the prefix belongs to the literal, so a
+        // wrong digit gives one clear error instead of a stray name
+        if self.peek() == Some('0') {
+            let radix = match self.peek_next() {
+                Some('x') => Some(16),
+                Some('b') => Some(2),
+                _ => None,
+            };
+            if let Some(radix) = radix {
+                self.advance(); // 0
+                self.advance(); // x or b
+                let digits_start = self.pos;
+                while let Some(c) = self.peek() {
+                    if c.is_ascii_alphanumeric() || c == '_' {
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+                let text: String = self.source[start..self.pos].iter().collect();
+                let digits: String = self.source[digits_start..self.pos].iter().filter(|c| **c != '_').collect();
+                return match i64::from_str_radix(&digits, radix) {
+                    Ok(n) => Ok(TokenKind::Int(n)),
+                    Err(e) => {
+                        let reason = match e.kind() {
+                            std::num::IntErrorKind::Empty => "there must be digits after the prefix",
+                            std::num::IntErrorKind::PosOverflow => "the value is too big for an int",
+                            _ => "a character is not a digit of this base",
+                        };
+                        Err(LexError::BadNumber { text, reason, line, col })
+                    }
+                };
             }
         }
 
-        let text: String = self.source[start..self.pos].iter().collect();
+        let mut text = String::new();
+        let mut is_float = false;
+
+        self.read_digit_run(&mut text, |c| c.is_ascii_digit());
+
+        if self.peek() == Some('.') && self.peek_next().map_or(false, |n| n.is_ascii_digit()) {
+            is_float = true;
+            text.push('.');
+            self.advance();
+            self.read_digit_run(&mut text, |c| c.is_ascii_digit());
+        }
+
+        // exponent: `e` or `E`, an optional sign, then digits. without digits the `e` stays a
+        // name, so `1e` is still an error, as before
+        if matches!(self.peek(), Some('e') | Some('E')) {
+            let sign = matches!(self.peek_next(), Some('+') | Some('-'));
+            let first_digit = self.pos + if sign { 2 } else { 1 };
+            if self.source.get(first_digit).map_or(false, |c| c.is_ascii_digit()) {
+                is_float = true;
+                text.push('e');
+                self.advance();
+                if let Some(s @ ('+' | '-')) = self.peek() {
+                    text.push(s);
+                    self.advance();
+                }
+                self.read_digit_run(&mut text, |c| c.is_ascii_digit());
+            }
+        }
+
+        let raw: String = self.source[start..self.pos].iter().collect();
         if is_float {
-            TokenKind::Float(text.parse().unwrap())
+            match text.parse::<f64>() {
+                Ok(v) if v.is_finite() => Ok(TokenKind::Float(v)),
+                _ => Err(LexError::BadNumber { text: raw, reason: "the value is too big for a float", line, col }),
+            }
         } else {
-            TokenKind::Int(text.parse().unwrap())
+            match text.parse::<i64>() {
+                Ok(n) => Ok(TokenKind::Int(n)),
+                Err(_) => Err(LexError::BadNumber { text: raw, reason: "the value is too big for an int", line, col }),
+            }
         }
     }
 
@@ -1149,5 +1248,81 @@ mod header_value_tests {
         assert!(read_file_spec("#> stack 100001\nprint(1)\n").is_err());
         assert!(read_file_spec("#> seed\nprint(1)\n").is_err());
         assert!(read_file_spec("#> no-jit 3\nprint(1)\n").is_err());
+    }
+}
+
+#[cfg(test)]
+mod digit_separator_tests {
+    use super::*;
+
+    fn first(src: &str) -> TokenKind {
+        Lexer::new(src).tokenize().unwrap()[0].kind.clone()
+    }
+
+    #[test]
+    fn underscores_between_digits_are_ignored() {
+        assert_eq!(first("1_000_000"), TokenKind::Int(1_000_000));
+        assert_eq!(first("1__000"), TokenKind::Int(1000));
+        assert_eq!(first("1_000.5"), TokenKind::Float(1000.5));
+        assert_eq!(first("3.14_15"), TokenKind::Float(3.1415));
+    }
+
+    #[test]
+    fn underscore_without_digit_after_is_not_part_of_the_number() {
+        let toks = Lexer::new("1_").tokenize().unwrap();
+        assert_eq!(toks[0].kind, TokenKind::Int(1));
+        assert_eq!(toks[1].kind, TokenKind::Ident("_".into()));
+    }
+}
+
+#[cfg(test)]
+mod numeric_literal_tests {
+    use super::*;
+
+    fn first(src: &str) -> TokenKind {
+        Lexer::new(src).tokenize().unwrap()[0].kind.clone()
+    }
+
+    fn fails(src: &str) -> bool {
+        matches!(Lexer::new(src).tokenize(), Err(LexError::BadNumber { .. }))
+    }
+
+    #[test]
+    fn hex_and_binary_literals() {
+        assert_eq!(first("0xFF"), TokenKind::Int(255));
+        assert_eq!(first("0xff_00"), TokenKind::Int(0xff00));
+        assert_eq!(first("0b1010"), TokenKind::Int(10));
+        assert_eq!(first("0b1111_0000"), TokenKind::Int(0xF0));
+        assert_eq!(first("0x7FFFFFFFFFFFFFFF"), TokenKind::Int(i64::MAX));
+    }
+
+    #[test]
+    fn bad_hex_and_binary_are_errors() {
+        assert!(fails("0x"));
+        assert!(fails("0b"));
+        assert!(fails("0b102"));
+        assert!(fails("0xG1"));
+        assert!(fails("0xFFFFFFFFFFFFFFFFFF"));
+    }
+
+    #[test]
+    fn exponent_makes_a_float() {
+        assert_eq!(first("1e6"), TokenKind::Float(1_000_000.0));
+        assert_eq!(first("2.5e-3"), TokenKind::Float(0.0025));
+        assert_eq!(first("1E+2"), TokenKind::Float(100.0));
+        assert_eq!(first("1_0e1_0"), TokenKind::Float(1e11));
+    }
+
+    #[test]
+    fn e_without_digits_stays_a_name_as_before() {
+        let toks = Lexer::new("1e").tokenize().unwrap();
+        assert_eq!(toks[0].kind, TokenKind::Int(1));
+        assert_eq!(toks[1].kind, TokenKind::Ident("e".into()));
+    }
+
+    #[test]
+    fn too_big_numbers_are_errors_not_panics() {
+        assert!(fails("9999999999999999999999"));
+        assert!(fails("1e400"));
     }
 }

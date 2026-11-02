@@ -1,0 +1,23 @@
+struct Point {
+    x: int,
+    y: int
+}
+
+let pair = [10, 20, 30];
+let (a, b) = pair;
+print(a + b);
+
+let p = Point { x: 3, y: 4 };
+let { x, y } = p;
+print(x * y);
+
+let (first, second, third) = [1.5, 2.5, 3.5];
+print(first + second + third);
+
+let (s, n) = ["oi", "mundo"];
+print("${s} ${n}");
+
+for i in 0..2 {
+    let (u, v) = [i, i * 10];
+    print(u + v);
+}

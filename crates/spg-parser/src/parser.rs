@@ -357,9 +357,67 @@ impl Parser {
         }
     }
 
+    /// destructuring `let`, lowered right here to plain lets so the checker, the VM and the
+    /// JIT never see a new form. the value is read once into a hidden name (`$let_LINE_COL`,
+    /// unique per position, so two lets never clash); each binding then reads its own part:
+    /// `(a, b)` reads `$let[0]`, `$let[1]`; `{ x, y }` reads `$let.x`, `$let.y`.
+    /// the hidden name is never exported; the bindings are, when the `let` is.
+    fn parse_destructuring_let(&mut self, exported: bool, pos: Pos) -> Result<Stmt, ParseError> {
+        let is_array = self.check(&TokenKind::LParen);
+        let close = if is_array { TokenKind::RParen } else { TokenKind::RBrace };
+        self.advance(); // ( or {
+
+        let mut names = Vec::new();
+        while !self.check(&close) {
+            names.push(self.parse_binding_name()?);
+            if !self.match_kind(&TokenKind::Comma) {
+                break;
+            }
+        }
+        let found = self.peek().kind.clone();
+        let (line, col) = (self.peek().line, self.peek().col);
+        if names.is_empty() {
+            return Err(ParseError::Unexpected {
+                expected: "at least one name to bind".to_string(),
+                found,
+                line,
+                col,
+            });
+        }
+        self.expect(close, if is_array { "')'" } else { "'}'" })?;
+        self.expect(TokenKind::Eq, "'='")?;
+        let value = self.parse_expr()?;
+
+        let hidden = format!("$let_{}_{}", pos.line, pos.col);
+        for (i, name) in names.into_iter().enumerate() {
+            let object = Box::new(Expr::Ident(hidden.clone(), pos.clone()));
+            let part = if is_array {
+                Expr::Index { array: object, index: Box::new(Expr::IntLit(i as i64, pos.clone())), pos: pos.clone() }
+            } else {
+                Expr::Field { object, field: name.clone(), pos: pos.clone() }
+            };
+            self.pending.push(Stmt::Let { name, type_ann: None, value: part, exported, pos: pos.clone() });
+        }
+        Ok(Stmt::Let { name: hidden, type_ann: None, value, exported: false, pos })
+    }
+
     fn parse_let(&mut self, is_const: bool, exported: bool) -> Result<Stmt, ParseError> {
         let pos = self.peek_pos();
         self.advance(); // let/const
+
+        // `let (a, b) = arr;` (array) and `let { x, y } = point;` (struct fields)
+        if self.check(&TokenKind::LParen) || self.check(&TokenKind::LBrace) {
+            if is_const {
+                let found = self.peek().kind.clone();
+                return Err(ParseError::Unexpected {
+                    expected: "a name after 'const' (destructuring works with 'let' only)".to_string(),
+                    found,
+                    line: pos.line,
+                    col: pos.col,
+                });
+            }
+            return self.parse_destructuring_let(exported, pos);
+        }
 
         let name = self.parse_binding_name()?;
 
