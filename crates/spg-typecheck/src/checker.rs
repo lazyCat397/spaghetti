@@ -334,6 +334,8 @@ impl Checker {
                     }
                 }
                 Stmt::While { body, .. } => self.collect_return_types_in_stmts(&body.stmts, found),
+                Stmt::CompileVm { body, .. } => self.collect_return_types_in_stmts(&body.stmts, found),
+                Stmt::CompileJit { body, .. } => self.collect_return_types_in_stmts(&body.stmts, found),
                 Stmt::DoWhile { body, .. } => self.collect_return_types_in_stmts(&body.stmts, found),
                 Stmt::Match { arms, else_branch, .. } => {
                     for arm in arms {
@@ -1122,6 +1124,18 @@ impl Checker {
                     self.errors.push(TypeError::NonBoolCondition { found: typed_cond.ty().clone(), pos: pos.clone() });
                 }
                 Some(TypedStmt::DoWhile { body: typed_body, cond: typed_cond })
+            }
+
+            // `compile VM { }`: an ordinary block. the compiler marks its code as VM-only
+            Stmt::CompileVm { body, .. } => {
+                let typed_body = self.check_block(body);
+                Some(TypedStmt::CompileVm { body: typed_body })
+            }
+
+            // `compile JIT { }`: an ordinary block too. the compiler records it, and spg-jit checks it
+            Stmt::CompileJit { body, .. } => {
+                let typed_body = self.check_block(body);
+                Some(TypedStmt::CompileJit { body: typed_body })
             }
 
             Stmt::While { cond, body, pos } => {

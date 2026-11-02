@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 
-use spg_parser::ast::{BinaryOp, UnaryOp};
+use spg_parser::ast::{BinaryOp, TypeExpr, UnaryOp};
 use spg_typecheck::typed_ast::{ArrayFnKind, MapFnKind};
 use spg_typecheck::typed_ast::{RangeStep, Ty, TypedBlock, TypedExpr, TypedProgram, TypedStmt};
 use spg_vm::chunk::{Chunk, OpCode, Program};
@@ -175,7 +175,6 @@ fn compile_body(
                 fc.chunk.arity = params.len();
                 fc.chunk.is_task = matches!(return_type, spg_typecheck::typed_ast::Ty::Task(_));
                 fc.chunk.native_sig = {
-                    use spg_parser::ast::TypeExpr;
                     use spg_vm::chunk::NativeKind;
                     let struct_idx: HashMap<String, usize> = program
                         .stmts
@@ -218,7 +217,8 @@ fn compile_body(
                 };
                 fc.begin_scope();
                 for p in params {
-                    fc.declare_local(&p.name);
+                    let slot = fc.declare_local(&p.name);
+                    fc.set_slot_ty(slot, slot_ty_expr(&p.type_ann));
                 }
                 fc.compile_block(body)?;
                 // a function whose body doesn't end in an explicit
@@ -679,6 +679,14 @@ impl<'a> FunctionCompiler<'a> {
         Ok(())
     }
 
+    /// records the static type of a local slot (see `SlotTy`); None when native code can't hold it
+    fn set_slot_ty(&mut self, slot: usize, ty: Option<spg_vm::chunk::SlotTy>) {
+        if self.chunk.slot_types.len() <= slot {
+            self.chunk.slot_types.resize(slot + 1, None);
+        }
+        self.chunk.slot_types[slot] = ty;
+    }
+
     fn declare_local(&mut self, name: &str) -> usize {
         let slot = self.next_slot;
         self.next_slot += 1;
@@ -809,7 +817,7 @@ impl<'a> FunctionCompiler<'a> {
 
     fn compile_stmt(&mut self, stmt: &TypedStmt) -> Result<(), CompileError> {
         match stmt {
-            TypedStmt::Let { name, value, .. } | TypedStmt::Const { name, value, .. } => {
+            TypedStmt::Let { name, value, ty, .. } | TypedStmt::Const { name, value, ty, .. } => {
                 self.compile_expr(value)?;
                 if matches!(stmt, TypedStmt::Const { .. }) {
                     self.chunk.emit(OpCode::FreezeConst);
@@ -824,6 +832,7 @@ impl<'a> FunctionCompiler<'a> {
                     self.chunk.emit(OpCode::SetGlobal(slot));
                 } else {
                     let slot = self.declare_local(name);
+                    self.set_slot_ty(slot, slot_ty(ty));
                     self.chunk.emit(OpCode::SetLocal(slot));
                 }
                 self.chunk.emit(OpCode::Pop);
@@ -925,6 +934,25 @@ impl<'a> FunctionCompiler<'a> {
 
             TypedStmt::Block { body } => {
                 self.compile_block(body)?;
+            }
+
+            TypedStmt::CompileJit { body } => {
+                // the entry snapshot: the static types of the locals the block can read on entry
+                let block = self.chunk.jit_blocks.len();
+                let entry = self.chunk.slot_types.clone();
+                let start = self.chunk.emit(OpCode::JitBlock { block, end: 0 });
+                self.chunk.jit_blocks.push(spg_vm::chunk::JitBlockInfo { start, end: start, entry });
+                self.compile_block(body)?;
+                let end = self.chunk.next_index();
+                self.chunk.code[start] = OpCode::JitBlock { block, end };
+                self.chunk.jit_blocks[block].end = end;
+            }
+
+            TypedStmt::CompileVm { body } => {
+                let start = self.chunk.next_index();
+                self.compile_block(body)?;
+                let end = self.chunk.next_index();
+                self.chunk.vm_only.push((start, end));
             }
 
             TypedStmt::DoWhile { body, cond } => {
@@ -1684,5 +1712,37 @@ fn to_loc(loc: &spg_typecheck::SrcLoc) -> spg_vm::chunk::Loc {
     spg_vm::chunk::Loc {
         file: loc.file.as_deref().map(std::rc::Rc::from),
         line: loc.line as u32,
+    }
+}
+
+/// the static type of a typed local, as native code can hold it: scalars, and arrays of scalars
+fn slot_ty(ty: &Ty) -> Option<spg_vm::chunk::SlotTy> {
+    use spg_vm::chunk::SlotTy;
+    match ty {
+        Ty::Int => Some(SlotTy::Int),
+        Ty::Float => Some(SlotTy::Float),
+        Ty::Bool => Some(SlotTy::Bool),
+        Ty::String => Some(SlotTy::String),
+        Ty::Array(e) => match e.as_ref() {
+            Ty::Int | Ty::Float | Ty::Bool | Ty::String => slot_ty(e).map(|inner| SlotTy::Array(Box::new(inner))),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// the same, for a parameter's written type
+fn slot_ty_expr(ty: &TypeExpr) -> Option<spg_vm::chunk::SlotTy> {
+    use spg_vm::chunk::SlotTy;
+    match ty {
+        TypeExpr::Int => Some(SlotTy::Int),
+        TypeExpr::Float => Some(SlotTy::Float),
+        TypeExpr::Bool => Some(SlotTy::Bool),
+        TypeExpr::String => Some(SlotTy::String),
+        TypeExpr::Array(e) => match e.as_ref() {
+            TypeExpr::Int | TypeExpr::Float | TypeExpr::Bool | TypeExpr::String => slot_ty_expr(e).map(|inner| SlotTy::Array(Box::new(inner))),
+            _ => None,
+        },
+        _ => None,
     }
 }

@@ -1,0 +1,10 @@
+let i = 0
+let total = 0
+while (i < 120) {
+    total = total + i
+    if (i == 0) { print("at", i) }
+    if (i == 40) { print("at", i) }
+    if (i == 80) { print("at", i, 1.5, true) }
+    i = i + 1
+}
+print("total", total)

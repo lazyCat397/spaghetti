@@ -33,8 +33,10 @@ use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::isa::CallConv;
 use cranelift_codegen::ir::immediates::Ieee64;
 use cranelift_codegen::ir::{
+    immediates::Offset32,
     types::{F64, I128, I64},
-    AbiParam, Block, FuncRef, InstBuilder, MemFlags, Signature, Type, UserFuncName, Value as CV,
+    AbiParam, Block, FuncRef, InstBuilder, MemFlags, Signature, StackSlotData, StackSlotKind, Type, UserFuncName,
+    Value as CV,
 };
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_codegen::Context;
@@ -129,6 +131,43 @@ extern "C" fn spg_arr_release(p: i64) {
     if p != 0 {
         // SAFETY: as in spg_str_release
         unsafe { drop(Rc::from_raw(p as *const RefCell<Vec<Value>>)) }
+    }
+}
+
+thread_local! {
+    /// the `print`s of native code that hasn't settled yet, one batch of argument values per call
+    static PENDING_OUTPUT: RefCell<Vec<Vec<spg_vm::value::Value>>> = RefCell::new(Vec::new());
+}
+
+/// `print` from native code. the arguments are queued, not written: the output is written only when the
+/// native code that made it finishes (see `settle_output`), since a region that gives up is run again by the VM,
+/// and that run prints the same things itself
+extern "C" fn spg_print(buf: *const i64, argc: i64, kinds: i64) {
+    let mut vals = Vec::with_capacity(argc as usize);
+    for i in 0..argc as usize {
+        // SAFETY: the code stored `argc` values at `buf`, and the kinds say how to read each
+        let bits = unsafe { *buf.add(i) };
+        vals.push(match (kinds >> (2 * i)) & 3 {
+            0 => Value::Int(bits),
+            1 => Value::Float(f64::from_bits(bits as u64)),
+            2 => Value::Bool(bits != 0),
+            _ => {
+                // SAFETY: a string argument is a live reference of the native code: the value takes its own count
+                unsafe { Rc::increment_strong_count(bits as *const String) };
+                Value::String(unsafe { Rc::from_raw(bits as *const String) })
+            }
+        });
+    }
+    PENDING_OUTPUT.with(|p| p.borrow_mut().push(vals));
+}
+
+/// writes the queued output of native code that finished, or drops it when that code gave up
+fn settle_output(finished: bool) {
+    let batches = PENDING_OUTPUT.with(|p| std::mem::take(&mut *p.borrow_mut()));
+    if finished {
+        for vals in &batches {
+            spg_vm::builtins::print_values(vals);
+        }
     }
 }
 
@@ -554,9 +593,68 @@ pub struct NativeTable {
     disabled: Vec<Cell<bool>>,
     /// how many functions got compiled natively (for --time reporting)
     pub compiled: usize,
+    /// why each function is not native (None when it is)
+    reasons: Vec<Option<Refusal>>,
+    /// why each loop that was tried is not native, by (chunk, exit)
+    refused: RefCell<HashMap<(usize, usize), Refusal>>,
+    /// the native code of every `compile JIT` block, by (chunk, block)
+    blocks: RefCell<HashMap<(usize, usize), Rc<Region>>>,
 }
 
 impl NativeCalls for NativeTable {
+    fn report_lines(&self) -> Vec<String> {
+        self.build_report()
+    }
+
+    fn run_block(&self, chunk: usize, block: usize, locals: &mut [Value]) -> spg_vm::vm::BlockOutcome {
+        use spg_vm::vm::BlockOutcome;
+        let Some(region) = self.blocks.borrow().get(&(chunk, block)).cloned() else {
+            return BlockOutcome::Off;
+        };
+        if locals.len() != region.nlocals {
+            return BlockOutcome::Failed;
+        }
+        let mut buf = vec![0i64; region.nlocals];
+        for &(s, k) in &region.loads {
+            buf[s] = match (k, &locals[s]) {
+                (K::Int, Value::Int(n)) => *n,
+                (K::Float, Value::Float(f)) => f.to_bits() as i64,
+                (K::Bool, Value::Bool(b)) => *b as i64,
+                (K::Array(_), Value::Array(_)) | (K::String, Value::String(_)) => 0,
+                _ => return BlockOutcome::Failed,
+            };
+        }
+        // the region takes its own reference to each array or string it reads, as a loop region does
+        for &(s, k) in &region.loads {
+            match (k, &locals[s]) {
+                (K::Array(_), Value::Array(a)) => buf[s] = Rc::into_raw(a.clone()) as i64,
+                (K::String, Value::String(st)) => buf[s] = Rc::into_raw(st.clone()) as i64,
+                _ => {}
+            }
+        }
+        let mut ctx = [0i64; 2];
+        let cp = ctx.as_mut_ptr() as i64;
+        let run = unsafe { std::mem::transmute::<usize, extern "C" fn(i64, i64, i64) -> i64>(region.ptr) };
+        run(cp, 0, buf.as_mut_ptr() as i64);
+        // no replay follows a block: the writes made before a failure stay, since the program stops there
+        UNDO.with(|u| u.borrow_mut().finish(true));
+        // the prints made before a failure happened, in the VM too: they stay
+        settle_output(true);
+        if ctx[0] != 0 {
+            return BlockOutcome::Failed;
+        }
+        for &(s, k) in &region.stores {
+            let tag = match k {
+                K::Float => 2,
+                K::Bool => 1,
+                K::String => 3,
+                _ => 0,
+            };
+            locals[s] = value_of(buf[s], tag);
+        }
+        BlockOutcome::Ran
+    }
+
     fn has(&self, func_index: usize) -> bool {
         matches!(self.entries.get(func_index), Some(Some(_)))
     }
@@ -577,7 +675,13 @@ impl NativeCalls for NativeTable {
                 if n < HOT_LOOP_ENTRIES {
                     return LoopOutcome::Skipped;
                 }
-                let compiled = self.compile_region(chunk, exit, locals).map(Rc::new);
+                let compiled = match self.compile_region(chunk, exit, locals) {
+                    Ok(r) => Some(Rc::new(r)),
+                    Err(why) => {
+                        self.refused.borrow_mut().insert(key, why);
+                        None
+                    }
+                };
                 self.regions.borrow_mut().insert(key, compiled.clone());
                 match compiled {
                     Some(r) => r,
@@ -612,10 +716,12 @@ impl NativeCalls for NativeTable {
         if ctx[0] != 0 {
             // undo the array writes made so far: the VM runs this loop from its start. and keeps doing so
             UNDO.with(|u| u.borrow_mut().finish(false));
+            settle_output(false);
             self.regions.borrow_mut().insert(key, None);
             return LoopOutcome::Never;
         }
         UNDO.with(|u| u.borrow_mut().finish(true));
+        settle_output(true);
         for &(s, k) in &region.stores {
             locals[s] = match k {
                 K::Float => Value::Float(f64::from_bits(buf[s] as u64)),
@@ -660,10 +766,12 @@ impl NativeCalls for NativeTable {
         if ctx[0] != 0 {
             // the VM reruns this call, so the stores made before the failure must go
             UNDO.with(|u| u.borrow_mut().finish(false));
+            settle_output(false);
             self.disabled[func_index].set(true);
             None
         } else {
             UNDO.with(|u| u.borrow_mut().finish(true));
+            settle_output(true);
             Some(r)
         }
     }
@@ -698,31 +806,319 @@ fn is_heap(k: K) -> bool {
     matches!(k, K::String | K::Array(_) | K::TArray(_) | K::Struct(_))
 }
 
+/// why native code turned a function or a loop down. `--jit-report` prints these
+#[derive(Clone, Debug, PartialEq)]
+pub enum Reason {
+    /// a param or the return type is not int, float, bool, string, or an array of those
+    Signature,
+    /// more params than a native call takes
+    Arity,
+    /// the code doesn't end with a return or a jump
+    NoEnd,
+    /// a jump lands outside the code
+    BadJump,
+    /// a value is left on the stack where control can also arrive from elsewhere
+    StackAcrossJump,
+    /// an instruction native code doesn't have
+    Opcode,
+    /// a builtin native code doesn't have (the name)
+    Builtin(String),
+    /// a constant native code doesn't hold
+    Constant,
+    /// a local changes kind, or is read before it has one
+    LocalKind,
+    /// an operand has the wrong kind for its instruction
+    Operands,
+    /// an instruction needs more values than the stack holds
+    Stack,
+    /// calls a function that is not native (the function's index)
+    Callee(usize),
+    /// returns a value of the wrong kind
+    ReturnKind,
+    /// an array whose element kind native code can't hold
+    ArrayElem,
+    /// a string or array local is assigned inside a loop
+    HeapAssigned,
+    /// a jump leaves the loop by somewhere other than its exit
+    JumpOutOfLoop,
+    /// the loop doesn't end with its backward jump
+    NotALoop,
+    /// touches a `compile VM` block, which always runs in the VM
+    VmBlock,
+    /// contains a `compile JIT` block: the block runs as native code of its own
+    JitBlock,
+    /// jumps out of a `compile JIT` block (a break or continue of an outer loop, or a jump past its end)
+    JumpOutOfBlock,
+    /// returns from inside a `compile JIT` block: a block is not a function
+    ReturnInBlock,
+    /// native code generation failed
+    Internal,
+}
+
+/// one refusal: its reason, and the instruction that caused it (`pc` in the checked chunk)
+#[derive(Clone, Debug, PartialEq)]
+pub struct Refusal {
+    pub pc: Option<usize>,
+    pub op: String,
+    pub reason: Reason,
+}
+
+fn refusal(reason: Reason) -> Refusal {
+    Refusal { pc: None, op: String::new(), reason }
+}
+
+fn at(pc: usize, op: &OpCode, reason: Reason) -> Refusal {
+    // the variant's name: everything before its first payload
+    let name: String = format!("{op:?}").chars().take_while(|c| c.is_alphanumeric()).collect();
+    Refusal { pc: Some(pc), op: name, reason }
+}
+
 /// type-checks the unoptimized bytecode of one function against the signatures
-/// of its callees, and returns the kind of every local slot. returns `None` for
-/// anything the native backend doesn't support: unsupported opcodes or
+/// of its callees, and returns the kind of every local slot. returns the refusal
+/// for anything the native backend doesn't support: unsupported opcodes or
 /// constants, operands of the wrong kind, a local read before its kind is known,
 /// a local that changes kind, values left on the stack across a jump, or a
 /// return of the wrong kind. the bouncer, basically.
-fn check(chunk: &Chunk, own: &Sig, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::value::StructDef>], typed: bool) -> Option<Vec<K>> {
+fn check(chunk: &Chunk, own: &Sig, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::value::StructDef>], typed: bool) -> Result<Vec<K>, Refusal> {
     let init: Vec<Option<K>> = own.0.iter().map(|k| Some(*k)).collect();
     check_init(chunk, &init, own.1, sigs, structs, typed)
 }
 
+fn pop(st: &mut Vec<K>, want: K) -> Result<(), Reason> {
+    if st.pop().ok_or(Reason::Stack)? == want {
+        Ok(())
+    } else {
+        Err(Reason::Operands)
+    }
+}
+
+fn bin(st: &mut Vec<K>, a: K, b: K, out: K) -> Result<(), Reason> {
+    pop(st, b)?;
+    pop(st, a)?;
+    st.push(out);
+    Ok(())
+}
+
+fn un(st: &mut Vec<K>, a: K, out: K) -> Result<(), Reason> {
+    pop(st, a)?;
+    st.push(out);
+    Ok(())
+}
+
+/// one instruction of the checker: its effect on the kinds of the stack and the locals
+#[allow(clippy::too_many_arguments)]
+fn step(chunk: &Chunk, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::value::StructDef>], typed: bool, ret: K, op: &OpCode, st: &mut Vec<K>, slots: &mut [Option<K>]) -> Result<(), Reason> {
+    match op {
+        OpCode::Const(k) => st.push(match chunk.constants.get(*k).ok_or(Reason::Constant)? {
+            Value::Int(_) => K::Int,
+            Value::Float(_) => K::Float,
+            Value::Bool(_) => K::Bool,
+            Value::String(_) => K::String,
+            _ => return Err(Reason::Constant),
+        }),
+        OpCode::GetLocal(s) => {
+            let k = (*slots.get(*s).ok_or(Reason::LocalKind)?).ok_or(Reason::LocalKind)?;
+            st.push(k);
+        }
+        OpCode::SetLocal(s) => {
+            let k = *st.last().ok_or(Reason::Stack)?;
+            match slots.get(*s).ok_or(Reason::LocalKind)? {
+                Some(old) if *old != k => return Err(Reason::LocalKind),
+                _ => slots[*s] = Some(k),
+            }
+        }
+        OpCode::Pop => {
+            st.pop().ok_or(Reason::Stack)?;
+        }
+        OpCode::AddInt | OpCode::SubInt | OpCode::MulInt | OpCode::DivInt | OpCode::ModInt => {
+            bin(st, K::Int, K::Int, K::Int)?
+        }
+        OpCode::NegInt => un(st, K::Int, K::Int)?,
+        OpCode::AddFloat | OpCode::SubFloat | OpCode::MulFloat | OpCode::DivFloat | OpCode::ModFloat
+        | OpCode::PowFloat => bin(st, K::Float, K::Float, K::Float)?,
+        OpCode::NegFloat => un(st, K::Float, K::Float)?,
+        OpCode::ConcatString => bin(st, K::String, K::String, K::String)?,
+        OpCode::EqString | OpCode::NotEqString => bin(st, K::String, K::String, K::Bool)?,
+        OpCode::LtInt | OpCode::GtInt | OpCode::LtEqInt | OpCode::GtEqInt | OpCode::EqInt | OpCode::NotEqInt => {
+            bin(st, K::Int, K::Int, K::Bool)?
+        }
+        OpCode::LtFloat | OpCode::GtFloat | OpCode::LtEqFloat | OpCode::GtEqFloat | OpCode::EqFloat
+        | OpCode::NotEqFloat => bin(st, K::Float, K::Float, K::Bool)?,
+        OpCode::EqBool | OpCode::NotEqBool => bin(st, K::Bool, K::Bool, K::Bool)?,
+        OpCode::Not => un(st, K::Bool, K::Bool)?,
+        OpCode::IndexGet => {
+            // stack: array, index
+            pop(st, K::Int)?;
+            match st.pop().ok_or(Reason::Stack)? {
+                K::Array(e) | K::TArray(e) => st.push(e.value_kind()),
+                _ => return Err(Reason::Operands),
+            }
+        }
+        OpCode::IndexSet => {
+            // stack: array, index, value. the value must have the element's kind
+            let v = st.pop().ok_or(Reason::Stack)?;
+            pop(st, K::Int)?;
+            match st.pop().ok_or(Reason::Stack)? {
+                K::Array(e) | K::TArray(e) if e.value_kind() == v => {}
+                _ => return Err(Reason::Operands),
+            }
+        }
+        OpCode::Dup2 => {
+            let n = st.len();
+            if n < 2 {
+                return Err(Reason::Stack);
+            }
+            let (a, c) = (st[n - 2], st[n - 1]);
+            st.push(a);
+            st.push(c);
+        }
+        OpCode::FieldGet { field_index } => {
+            // stack: struct
+            let K::Struct(d) = st.pop().ok_or(Reason::Stack)? else { return Err(Reason::Operands) };
+            let fk = (*structs.get(d).ok_or(Reason::Operands)?.field_kinds.get(*field_index).ok_or(Reason::Operands)?)
+                .ok_or(Reason::Operands)?;
+            st.push(fk);
+        }
+        OpCode::FieldSet { field_index } => {
+            // stack: struct, value
+            let v = st.pop().ok_or(Reason::Stack)?;
+            let K::Struct(d) = st.pop().ok_or(Reason::Stack)? else { return Err(Reason::Operands) };
+            let fk = (*structs.get(d).ok_or(Reason::Operands)?.field_kinds.get(*field_index).ok_or(Reason::Operands)?)
+                .ok_or(Reason::Operands)?;
+            if fk != v {
+                return Err(Reason::Operands);
+            }
+        }
+        OpCode::Jump(_) => {
+            if !st.is_empty() {
+                return Err(Reason::StackAcrossJump);
+            }
+        }
+        OpCode::JumpIfFalse(_) => {
+            pop(st, K::Bool)?;
+            if !st.is_empty() {
+                return Err(Reason::StackAcrossJump);
+            }
+        }
+        OpCode::Call { func_index, argc } => {
+            let (ps, r) = sigs
+                .get(*func_index)
+                .and_then(|s| s.as_ref())
+                .ok_or(Reason::Callee(*func_index))?;
+            if *argc != ps.len() || st.len() < *argc {
+                return Err(Reason::Operands);
+            }
+            let base = st.len() - *argc;
+            if st[base..] != ps[..] {
+                return Err(Reason::Operands);
+            }
+            st.truncate(base);
+            st.push(*r);
+        }
+        OpCode::CallBuiltin { id: BuiltinId::ArrayPush, argc: 2 } => {
+            // stack: array, item. pushes a placeholder for the Void result, which the Pop right after drops
+            let item = st.pop().ok_or(Reason::Stack)?;
+            match st.pop().ok_or(Reason::Stack)? {
+                K::Array(e) | K::TArray(e) if elem_kind(item) == Some(e) => st.push(K::Int),
+                _ => return Err(Reason::Operands),
+            }
+        }
+        OpCode::CallBuiltin { id: BuiltinId::Print, argc } => {
+            if *argc > 31 || st.len() < *argc {
+                return Err(Reason::Operands);
+            }
+            let base = st.len() - *argc;
+            if st[base..].iter().any(|k| !matches!(k, K::Int | K::Float | K::Bool | K::String)) {
+                return Err(Reason::Builtin("print of an array or struct".to_string()));
+            }
+            st.truncate(base);
+            st.push(K::Int);
+        }
+        OpCode::CallBuiltin { id, argc } => {
+            // only pure builtins. everything else stays in the VM. the rest is not our problem.
+            if let BuiltinId::ArrayLenBuiltin = id {
+                if *argc != 1 || !matches!(st.last(), Some(K::Array(_) | K::TArray(_))) {
+                    return Err(Reason::Operands);
+                }
+                st.pop();
+                st.push(K::Int);
+                return Ok(());
+            }
+            let (args, out): (&[K], K) = match id {
+                BuiltinId::Len => (&[K::String], K::Int),
+                BuiltinId::IntToString => (&[K::Int], K::String),
+                BuiltinId::FloatToString => (&[K::Float], K::String),
+                BuiltinId::BoolToString => (&[K::Bool], K::String),
+                // exact conversions: `as` in Rust, which saturates and maps NaN to 0. math is weird.
+                BuiltinId::IntToFloat => (&[K::Int], K::Float),
+                BuiltinId::FloatToInt => (&[K::Float], K::Int),
+                _ => return Err(Reason::Builtin(format!("{id:?}"))),
+            };
+            if *argc != args.len() || st.len() < *argc || st[st.len() - *argc..] != *args {
+                return Err(Reason::Operands);
+            }
+            st.truncate(st.len() - *argc);
+            st.push(out);
+        }
+        OpCode::Return => {
+            if st.pop().ok_or(Reason::Stack)? != ret {
+                return Err(Reason::ReturnKind);
+            }
+            st.clear();
+        }
+        OpCode::MakeEmptyArray(tag) => {
+            let e = match tag {
+                0 => ElemKind::Int,
+                1 => ElemKind::Bool,
+                2 => ElemKind::Float,
+                3 => ElemKind::String,
+                _ => return Err(Reason::ArrayElem),
+            };
+            if typed && matches!(e, ElemKind::String) {
+                return Err(Reason::ArrayElem);
+            }
+            st.push(array_kind(e, typed));
+        }
+        OpCode::MakeArray(n) => {
+            // every item is a scalar of one kind, so the array's element kind is that kind
+            let mut kind: Option<K> = None;
+            for _ in 0..*n {
+                let k = st.pop().ok_or(Reason::Stack)?;
+                elem_kind(k).ok_or(Reason::ArrayElem)?;
+                if kind.is_some_and(|prev| prev != k) {
+                    return Err(Reason::Operands);
+                }
+                kind = Some(k);
+            }
+            let e = elem_kind(kind.ok_or(Reason::ArrayElem)?).ok_or(Reason::ArrayElem)?;
+            if typed && matches!(e, ElemKind::String) {
+                return Err(Reason::ArrayElem);
+            }
+            st.push(array_kind(e, typed));
+        }
+        OpCode::JitBlock { .. } => return Err(Reason::JitBlock),
+        // globals, maps, the rest of the builtins: still in the VM
+        _ => return Err(Reason::Opcode),
+    }
+    Ok(())
+}
+
 /// the checker behind `check` and loop regions. `init` gives the kinds of the slots that hold
 /// a value on entry, `ret` the kind a `Return` hands back
-fn check_init(chunk: &Chunk, init: &[Option<K>], ret: K, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::value::StructDef>], typed: bool) -> Option<Vec<K>> {
+fn check_init(chunk: &Chunk, init: &[Option<K>], ret: K, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::value::StructDef>], typed: bool) -> Result<Vec<K>, Refusal> {
     let code = &chunk.code;
     if code.is_empty() || !matches!(code.last(), Some(OpCode::Return) | Some(OpCode::Jump(_))) {
-        return None;
+        return Err(refusal(Reason::NoEnd));
     }
     // a jump may land one past the end: that's the "after the function" label. such a jump
     // only sits in dead code (the `else` of an if whose branches both return). if it's
     // ever taken, the native call fails and the VM runs the function. anything further out gets refused.
     for (i, op) in code.iter().enumerate() {
         match op {
-            OpCode::Jump(t) if *t > code.len() => return None,
-            OpCode::JumpIfFalse(t) if *t > code.len() || i + 1 >= code.len() => return None,
+            OpCode::Jump(t) if *t > code.len() => return Err(at(i, op, Reason::BadJump)),
+            OpCode::JumpIfFalse(t) if *t > code.len() || i + 1 >= code.len() => {
+                return Err(at(i, op, Reason::BadJump))
+            }
             _ => {}
         }
     }
@@ -730,214 +1126,38 @@ fn check_init(chunk: &Chunk, init: &[Option<K>], ret: K, sigs: &[Option<Sig>], s
     let mut slots: Vec<Option<K>> = vec![None; chunk.num_locals];
     for (i, k) in init.iter().enumerate() {
         if let Some(k) = k {
-            *slots.get_mut(i)? = Some(*k);
+            *slots.get_mut(i).ok_or(refusal(Reason::LocalKind))? = Some(*k);
         }
     }
     let mut st: Vec<K> = Vec::new();
-
-    fn pop(st: &mut Vec<K>, want: K) -> Option<()> {
-        (st.pop()? == want).then_some(())
-    }
-    fn bin(st: &mut Vec<K>, a: K, b: K, out: K) -> Option<()> {
-        pop(st, b)?;
-        pop(st, a)?;
-        st.push(out);
-        Some(())
-    }
-    fn un(st: &mut Vec<K>, a: K, out: K) -> Option<()> {
-        pop(st, a)?;
-        st.push(out);
-        Some(())
-    }
-
     for (i, op) in code.iter().enumerate() {
         if leaders.contains(&i) && !st.is_empty() {
-            return None;
+            return Err(at(i, op, Reason::StackAcrossJump));
         }
-        match op {
-            OpCode::Const(k) => st.push(match chunk.constants.get(*k)? {
-                Value::Int(_) => K::Int,
-                Value::Float(_) => K::Float,
-                Value::Bool(_) => K::Bool,
-                Value::String(_) => K::String,
-                _ => return None,
-            }),
-            OpCode::GetLocal(s) => st.push((*slots.get(*s)?)?),
-            OpCode::SetLocal(s) => {
-                let k = *st.last()?;
-                match slots.get(*s)? {
-                    Some(old) if *old != k => return None,
-                    _ => slots[*s] = Some(k),
-                }
-            }
-            OpCode::Pop => {
-                st.pop()?;
-            }
-            OpCode::AddInt | OpCode::SubInt | OpCode::MulInt | OpCode::DivInt | OpCode::ModInt => {
-                bin(&mut st, K::Int, K::Int, K::Int)?
-            }
-            OpCode::NegInt => un(&mut st, K::Int, K::Int)?,
-            OpCode::AddFloat | OpCode::SubFloat | OpCode::MulFloat | OpCode::DivFloat | OpCode::ModFloat
-            | OpCode::PowFloat => bin(&mut st, K::Float, K::Float, K::Float)?,
-            OpCode::NegFloat => un(&mut st, K::Float, K::Float)?,
-            OpCode::ConcatString => bin(&mut st, K::String, K::String, K::String)?,
-            OpCode::EqString | OpCode::NotEqString => bin(&mut st, K::String, K::String, K::Bool)?,
-            OpCode::LtInt | OpCode::GtInt | OpCode::LtEqInt | OpCode::GtEqInt | OpCode::EqInt | OpCode::NotEqInt => {
-                bin(&mut st, K::Int, K::Int, K::Bool)?
-            }
-            OpCode::LtFloat | OpCode::GtFloat | OpCode::LtEqFloat | OpCode::GtEqFloat | OpCode::EqFloat
-            | OpCode::NotEqFloat => bin(&mut st, K::Float, K::Float, K::Bool)?,
-            OpCode::EqBool | OpCode::NotEqBool => bin(&mut st, K::Bool, K::Bool, K::Bool)?,
-            OpCode::Not => un(&mut st, K::Bool, K::Bool)?,
-            OpCode::IndexGet => {
-                // stack: array, index
-                pop(&mut st, K::Int)?;
-                match st.pop()? {
-                    K::Array(e) | K::TArray(e) => st.push(e.value_kind()),
-                    _ => return None,
-                }
-            }
-            OpCode::IndexSet => {
-                // stack: array, index, value. the value must have the element's kind
-                let v = st.pop()?;
-                pop(&mut st, K::Int)?;
-                match st.pop()? {
-                    K::Array(e) | K::TArray(e) if e.value_kind() == v => {}
-                    _ => return None,
-                }
-            }
-            OpCode::Dup2 => {
-                let n = st.len();
-                if n < 2 {
-                    return None;
-                }
-                let (a, c) = (st[n - 2], st[n - 1]);
-                st.push(a);
-                st.push(c);
-            }
-            OpCode::FieldGet { field_index } => {
-                // stack: struct
-                let K::Struct(d) = st.pop()? else { return None };
-                let fk = (*structs.get(d)?.field_kinds.get(*field_index)?)?;
-                st.push(fk);
-            }
-            OpCode::FieldSet { field_index } => {
-                // stack: struct, value
-                let v = st.pop()?;
-                let K::Struct(d) = st.pop()? else { return None };
-                let fk = (*structs.get(d)?.field_kinds.get(*field_index)?)?;
-                if fk != v {
-                    return None;
-                }
-            }
-            OpCode::Jump(_) => {
-                if !st.is_empty() {
-                    return None;
-                }
-            }
-            OpCode::JumpIfFalse(_) => {
-                pop(&mut st, K::Bool)?;
-                if !st.is_empty() {
-                    return None;
-                }
-            }
-            OpCode::Call { func_index, argc } => {
-                let (ps, r) = sigs.get(*func_index)?.as_ref()?;
-                if *argc != ps.len() || st.len() < *argc {
-                    return None;
-                }
-                let at = st.len() - argc;
-                if st[at..] != ps[..] {
-                    return None;
-                }
-                st.truncate(at);
-                st.push(*r);
-            }
-            OpCode::CallBuiltin { id: BuiltinId::ArrayPush, argc: 2 } => {
-                // stack: array, item. pushes a placeholder for the Void result, which the Pop right after drops
-                let item = st.pop()?;
-                match st.pop()? {
-                    K::Array(e) | K::TArray(e) if elem_kind(item) == Some(e) => st.push(K::Int),
-                    _ => return None,
-                }
-            }
-            OpCode::CallBuiltin { id, argc } => {
-                // only pure builtins. everything else stays in the VM. the rest is not our problem.
-                let (args, out): (&[K], K) = match id {
-                    BuiltinId::Len => (&[K::String], K::Int),
-                    BuiltinId::IntToString => (&[K::Int], K::String),
-                    BuiltinId::FloatToString => (&[K::Float], K::String),
-                    BuiltinId::BoolToString => (&[K::Bool], K::String),
-                    // exact conversions: `as` in Rust, which saturates and maps NaN to 0. math is weird.
-                    BuiltinId::IntToFloat => (&[K::Int], K::Float),
-                    BuiltinId::FloatToInt => (&[K::Float], K::Int),
-                    BuiltinId::ArrayLenBuiltin => {
-                        if *argc != 1 || !matches!(st.last(), Some(K::Array(_) | K::TArray(_))) {
-                            return None;
-                        }
-                        st.pop();
-                        st.push(K::Int);
-                        continue;
-                    }
-                    _ => return None,
-                };
-                if *argc != args.len() || st.len() < *argc || st[st.len() - argc..] != *args {
-                    return None;
-                }
-                st.truncate(st.len() - argc);
-                st.push(out);
-            }
-            OpCode::Return => {
-                pop(&mut st, ret)?;
-                st.clear();
-            }
-            OpCode::MakeEmptyArray(tag) => {
-                let e = match tag {
-                    0 => ElemKind::Int,
-                    1 => ElemKind::Bool,
-                    2 => ElemKind::Float,
-                    3 => ElemKind::String,
-                    _ => return None,
-                };
-                if typed && matches!(e, ElemKind::String) {
-                    return None;
-                }
-                st.push(array_kind(e, typed));
-            }
-            OpCode::MakeArray(n) => {
-                // every item is a scalar of one kind, so the array's element kind is that kind
-                let mut kind: Option<K> = None;
-                for _ in 0..*n {
-                    let k = st.pop()?;
-                    elem_kind(k)?;
-                    if kind.is_some_and(|prev| prev != k) {
-                        return None;
-                    }
-                    kind = Some(k);
-                }
-                let e = elem_kind(kind?)?;
-                if typed && matches!(e, ElemKind::String) {
-                    return None;
-                }
-                st.push(array_kind(e, typed));
-            }
-            // globals, maps, the rest of the builtins: still in the VM
-            _ => return None,
-        }
+        step(chunk, sigs, structs, typed, ret, op, &mut st, &mut slots).map_err(|r| at(i, op, r))?;
     }
     // a local that's never written is never read either. give it a kind anyway.
-    Some(slots.into_iter().map(|k| k.unwrap_or(K::Int)).collect())
+    Ok(slots.into_iter().map(|k| k.unwrap_or(K::Int)).collect())
 }
 
 /// which functions get native code: a fixpoint over the call graph, so a
 /// function that calls a non-native function isn't native either. guilt by association.
-fn eligible(program: &Program) -> (Vec<bool>, Vec<Option<Vec<K>>>, Vec<bool>) {
+/// also returns, for every function that isn't native, the refusal that said so.
+fn eligible(program: &Program) -> (Vec<bool>, Vec<Option<Vec<K>>>, Vec<bool>, Vec<Option<Refusal>>) {
     let n = program.functions.len();
-    let mut elig: Vec<bool> = program
-        .functions
-        .iter()
-        .map(|c| c.native_sig.is_some() && c.arity <= MAX_ARITY)
-        .collect();
+    let mut reasons: Vec<Option<Refusal>> = vec![None; n];
+    let mut elig = vec![false; n];
+    for (i, c) in program.functions.iter().enumerate() {
+        if c.native_sig.is_none() {
+            reasons[i] = Some(refusal(Reason::Signature));
+        } else if c.arity > MAX_ARITY {
+            reasons[i] = Some(refusal(Reason::Arity));
+        } else if let Some(&(start, _)) = c.vm_only.first() {
+            reasons[i] = Some(Refusal { pc: Some(start), op: String::new(), reason: Reason::VmBlock });
+        } else {
+            elig[i] = true;
+        }
+    }
     loop {
         let sigs: Vec<Option<Sig>> = (0..n)
             .map(|i| if elig[i] { program.functions[i].native_sig.clone() } else { None })
@@ -952,8 +1172,14 @@ fn eligible(program: &Program) -> (Vec<bool>, Vec<Option<Vec<K>>>, Vec<bool>) {
             let own = sigs[i].clone().unwrap();
             // typed mode first: arrays that never leave the function become native-only buffers
             let found = match check(&program.functions[i], &own, &sigs, &program.struct_defs, true) {
-                Some(s) => Some((s, true)),
-                None => check(&program.functions[i], &own, &sigs, &program.struct_defs, false).map(|s| (s, false)),
+                Ok(s) => Some((s, true)),
+                Err(_) => match check(&program.functions[i], &own, &sigs, &program.struct_defs, false) {
+                    Ok(s) => Some((s, false)),
+                    Err(why) => {
+                        reasons[i] = Some(why);
+                        None
+                    }
+                },
             };
             match found {
                 Some((s, t)) => {
@@ -967,7 +1193,7 @@ fn eligible(program: &Program) -> (Vec<bool>, Vec<Option<Vec<K>>>, Vec<bool>) {
             }
         }
         if !changed {
-            return (elig, slots, typed);
+            return (elig, slots, typed, reasons);
         }
     }
 }
@@ -990,6 +1216,7 @@ fn helpers_in(module: &mut JITModule, decls: &[(&'static str, FuncId)], func: &m
         float_str: declare("spg_float_str"),
         bool_str: declare("spg_bool_str"),
         arr_len: declare("spg_arr_len"),
+        print: declare("spg_print"),
         arr_get_int: declare("spg_arr_get_int"),
         arr_get_bool: declare("spg_arr_get_bool"),
         arr_get_float: declare("spg_arr_get_float"),
@@ -1016,6 +1243,7 @@ fn helpers_in(module: &mut JITModule, decls: &[(&'static str, FuncId)], func: &m
 /// references to the runtime helpers, as seen from one native function
 #[derive(Clone, Copy)]
 struct Helpers {
+    print: FuncRef,
     fmod: FuncRef,
     powf: FuncRef,
     str_retain: FuncRef,
@@ -1647,6 +1875,38 @@ fn lower(
             OpCode::CallBuiltin { id, argc } => {
                 let at = stack.len() - argc;
                 let args: Vec<(CV, K)> = stack.drain(at..).collect();
+                if matches!(id, BuiltinId::Print) {
+                    // the values go to a stack buffer, their kinds packed two bits each; the helper queues the output
+                    let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, (8 * args.len().max(1)) as u32));
+                    let mut kinds: i64 = 0;
+                    for (i, &(v, k)) in args.iter().enumerate() {
+                        let ty = b.func.dfg.value_type(v);
+                        let bits = if ty == F64 {
+                            b.ins().bitcast(I64, MemFlags::new(), v)
+                        } else if ty == I64 {
+                            v
+                        } else {
+                            b.ins().uextend(I64, v)
+                        };
+                        b.ins().stack_store(bits, slot, Offset32::new((8 * i) as i32));
+                        kinds |= match k {
+                            K::Int => 0,
+                            K::Float => 1,
+                            K::Bool => 2,
+                            _ => 3,
+                        } << (2 * i);
+                    }
+                    let buf = b.ins().stack_addr(I64, slot, Offset32::new(0));
+                    let n = b.ins().iconst(I64, args.len() as i64);
+                    let kinds = b.ins().iconst(I64, kinds);
+                    b.ins().call(h.print, &[buf, n, kinds]);
+                    for &(v, k) in &args {
+                        h.release(b, k, v);
+                    }
+                    let placeholder = b.ins().iconst(I64, 0);
+                    stack.push((placeholder, K::Int));
+                    continue;
+                }
                 if matches!(id, BuiltinId::ArrayLenBuiltin) && matches!(args[0].1, K::TArray(_)) {
                     let (arr, ak) = args[0];
                     let len = b.ins().call(h.tarr_len, &[arr]);
@@ -1779,6 +2039,10 @@ fn lower(
             }
         }
         for (var, k) in &heap_vars {
+            // a string handed back to its local is the VM's now: only the rest is released here
+            if stores.get(var.as_u32() as usize).copied().unwrap_or(false) {
+                continue;
+            }
             let x = b.use_var(*var);
             h.release(b, *k, x);
         }
@@ -1792,7 +2056,7 @@ fn lower(
 /// compiles every eligible function of `program`. errors only if Cranelift
 /// refuses the code. the VM then keeps running everything.
 pub fn build(program: &Program) -> Result<NativeTable, String> {
-    let (elig, slots, typed) = eligible(program);
+    let (elig, slots, typed, reasons) = eligible(program);
     let sigs: Vec<Option<Sig>> = (0..program.functions.len())
         .map(|i| if elig[i] { program.functions[i].native_sig.clone() } else { None })
         .collect();
@@ -1831,6 +2095,7 @@ pub fn build(program: &Program) -> Result<NativeTable, String> {
         ("spg_arr_retain", spg_arr_retain as *const u8),
         ("spg_arr_release", spg_arr_release as *const u8),
         ("spg_arr_len", spg_arr_len as *const u8),
+        ("spg_print", spg_print as *const u8),
         ("spg_arr_get_int", spg_arr_get_int as *const u8),
         ("spg_arr_get_bool", spg_arr_get_bool as *const u8),
         ("spg_arr_get_float", spg_arr_get_float as *const u8),
@@ -1878,6 +2143,7 @@ pub fn build(program: &Program) -> Result<NativeTable, String> {
     let i2f = sig(&[I64, I64], Some(F64));
     let i4i = sig(&[I64, I64, I64, I64], Some(I64));
     let i3i = sig(&[I64, I64, I64], Some(I64));
+    let i3v = sig(&[I64, I64, I64], None);
     let decls: Vec<(&'static str, FuncId)> = vec![
         ("spg_fmod", imp(&mut module, "spg_fmod", &f2f)?),
         ("spg_powf", imp(&mut module, "spg_powf", &f2f)?),
@@ -1892,6 +2158,7 @@ pub fn build(program: &Program) -> Result<NativeTable, String> {
         ("spg_arr_retain", imp(&mut module, "spg_arr_retain", &i1v)?),
         ("spg_arr_release", imp(&mut module, "spg_arr_release", &i1v)?),
         ("spg_arr_len", imp(&mut module, "spg_arr_len", &i1i)?),
+        ("spg_print", imp(&mut module, "spg_print", &i3v)?),
         ("spg_arr_get_int", imp(&mut module, "spg_arr_get_int", &i2i)?),
         ("spg_arr_get_bool", imp(&mut module, "spg_arr_get_bool", &i2i)?),
         ("spg_arr_get_float", imp(&mut module, "spg_arr_get_float", &i2f)?),
@@ -1970,7 +2237,7 @@ pub fn build(program: &Program) -> Result<NativeTable, String> {
     }
     let disabled = (0..program.functions.len()).map(|_| Cell::new(false)).collect();
     let compiled = ids.len();
-    Ok(NativeTable {
+    let table = NativeTable {
         module: RefCell::new(module),
         plain: program.clone(),
         ids,
@@ -1986,7 +2253,12 @@ pub fn build(program: &Program) -> Result<NativeTable, String> {
         arg_owned,
         disabled,
         compiled,
-    })
+        reasons,
+        refused: RefCell::new(HashMap::new()),
+        blocks: RefCell::new(HashMap::new()),
+    };
+    table.compile_blocks()?;
+    Ok(table)
 }
 
 fn calls(chunk: &Chunk, callee: usize) -> bool {
@@ -2018,14 +2290,14 @@ fn scalar_kind(v: &Value) -> Option<K> {
 }
 
 /// the loop `head..exit` as a chunk of its own. jumps to `exit` land one past its end.
-/// None when a jump leaves the loop, so the loop is not closed and can't be native.
-fn region_chunk(plain: &Chunk, head: usize, exit: usize) -> Option<Chunk> {
+/// Err holds the pc of the first jump that leaves the loop by another route
+fn region_chunk(plain: &Chunk, head: usize, exit: usize) -> Result<Chunk, usize> {
     let mut rc = plain.clone();
     rc.code = plain.code[head..exit].to_vec();
     rc.locs = Vec::new();
     rc.origin = Vec::new();
     let len = exit - head;
-    for op in &mut rc.code {
+    for (i, op) in rc.code.iter_mut().enumerate() {
         if let Some(t) = op.jump_target_mut() {
             let old = *t;
             *t = if old == exit {
@@ -2033,30 +2305,40 @@ fn region_chunk(plain: &Chunk, head: usize, exit: usize) -> Option<Chunk> {
             } else if old >= head && old < exit {
                 old - head
             } else {
-                return None;
+                return Err(head + i);
             };
         }
     }
-    Some(rc)
+    Ok(rc)
+}
+
+/// the refusal for a string or array local that the loop `head..exit` assigns
+fn assigned_refusal(plain: &Chunk, head: usize, exit: usize, s: usize) -> Refusal {
+    let pc = plain.code[head..exit]
+        .iter()
+        .position(|op| matches!(op, OpCode::SetLocal(x) if *x == s))
+        .map_or(exit - 1, |p| head + p);
+    at(pc, &plain.code[pc], Reason::HeapAssigned)
 }
 
 impl NativeTable {
-    /// compiles the loop that ends at `exit` (plain code) in chunk `chunk`, for the kinds of `locals` now
-    fn compile_region(&self, chunk: usize, exit: usize, locals: &[Value]) -> Option<Region> {
-        let plain = if chunk == self.plain.functions.len() {
-            &self.plain.main
-        } else {
-            self.plain.functions.get(chunk)?
-        };
+    /// compiles the loop that ends at `exit` (plain code) in chunk `chunk`, for the kinds of `locals` now.
+    /// Err says why the loop can't be native
+    fn compile_region(&self, chunk: usize, exit: usize, locals: &[Value]) -> Result<Region, Refusal> {
+        let plain = self.plain_chunk(chunk).ok_or_else(|| refusal(Reason::Internal))?;
         let nlocals = plain.num_locals;
         if locals.len() != nlocals || exit == 0 || exit > plain.code.len() {
-            return None;
+            return Err(refusal(Reason::Internal));
         }
         // a loop ends with its backward jump, the last instruction before its exit
         let head = match plain.code[exit - 1] {
             OpCode::Jump(h) if h < exit - 1 => h,
-            _ => return None,
+            _ => return Err(at(exit - 1, &plain.code[exit - 1], Reason::NotALoop)),
         };
+        // a `compile VM` block always runs in the VM: a loop that touches one is never native
+        if let Some(&(start, _)) = plain.vm_only.iter().find(|&&(s, e)| s < exit && head < e) {
+            return Err(Refusal { pc: Some(start), op: String::new(), reason: Reason::VmBlock });
+        }
         let mut touched: BTreeSet<usize> = BTreeSet::new();
         let mut assigned: BTreeSet<usize> = BTreeSet::new();
         for op in &plain.code[head..exit] {
@@ -2079,9 +2361,9 @@ impl NativeTable {
                 // changes are in place already. the array can't be replaced inside the loop.
                 Value::Array(a) => {
                     if assigned.contains(&s) {
-                        return None;
+                        return Err(assigned_refusal(plain, head, exit, s));
                     }
-                    K::Array(elem_of(&a.borrow())?)
+                    K::Array(elem_of(&a.borrow()).ok_or_else(|| refusal(Reason::ArrayElem))?)
                 }
                 v => match scalar_kind(v) {
                     Some(k) => k,
@@ -2091,20 +2373,23 @@ impl NativeTable {
             init[s] = Some(k);
             loads.push((s, k));
         }
-        let rc = region_chunk(plain, head, exit)?;
-        let slots = check_init(&rc, &init, K::Int, &self.sigs, &self.structs, false)?;
+        let rc = region_chunk(plain, head, exit).map_err(|pc| at(pc, &plain.code[pc], Reason::JumpOutOfLoop))?;
+        let slots = check_init(&rc, &init, K::Int, &self.sigs, &self.structs, false).map_err(|r| Refusal {
+            pc: r.pc.map(|p| head + p),
+            ..r
+        })?;
         let mut stores = Vec::new();
         for &s in &touched {
             let k = slots[s];
             if is_heap(k) {
                 // read-only heap locals (arrays) are shared with the VM already: nothing to write back
                 if assigned.contains(&s) {
-                    return None;
+                    return Err(assigned_refusal(plain, head, exit, s));
                 }
                 continue;
             }
             if !matches!(k, K::Int | K::Float | K::Bool) {
-                return None;
+                return Err(refusal(Reason::LocalKind));
             }
             stores.push((s, k));
         }
@@ -2117,6 +2402,12 @@ impl NativeTable {
             stores_mask[s] = true;
         }
 
+        let ptr = self.codegen(&rc, &slots, &loads_mask, &stores_mask)?;
+        Ok(Region { ptr, head, nlocals, loads, stores })
+    }
+
+    /// generates the native code of a region from its chunk and the kinds of its slots. returns its address
+    fn codegen(&self, rc: &Chunk, slots: &[K], loads_mask: &[bool], stores_mask: &[bool]) -> Result<usize, Refusal> {
         let mut sig = Signature::new(self.call_conv);
         for _ in 0..3 {
             sig.params.push(AbiParam::new(I64));
@@ -2125,7 +2416,9 @@ impl NativeTable {
         let mut module = self.module.borrow_mut();
         let name = format!("spg_loop_{}", self.next_region.get());
         self.next_region.set(self.next_region.get() + 1);
-        let id = module.declare_function(&name, Linkage::Local, &sig).ok()?;
+        let id = module
+            .declare_function(&name, Linkage::Local, &sig)
+            .map_err(|_| refusal(Reason::Internal))?;
         let mut fctx = Context::new();
         let mut fbc = FunctionBuilderContext::new();
         fctx.func.signature = sig;
@@ -2148,15 +2441,323 @@ impl NativeTable {
                 &self.structs,
                 &refs,
                 h,
-                Some((&loads_mask, &stores_mask)),
+                Some((loads_mask, stores_mask)),
                 false,
             );
             b.finalize();
         }
-        module.define_function(id, &mut fctx).ok()?;
+        module.define_function(id, &mut fctx).map_err(|_| refusal(Reason::Internal))?;
         module.clear_context(&mut fctx);
-        module.finalize_definitions().ok()?;
+        module.finalize_definitions().map_err(|_| refusal(Reason::Internal))?;
         let ptr = module.get_finalized_function(id) as usize;
-        Some(Region { ptr, head, nlocals, loads, stores })
+        Ok(ptr)
     }
+
+    /// compiles every `compile JIT` block ahead of the run. the static check has passed, so a refusal here is a bug
+    fn compile_blocks(&self) -> Result<(), String> {
+        for (ci, chunk) in chunks_of(&self.plain) {
+            for b in 0..chunk.jit_blocks.len() {
+                match self.compile_block(ci, b) {
+                    Ok(region) => {
+                        self.blocks.borrow_mut().insert((ci, b), Rc::new(region));
+                    }
+                    Err(r) => {
+                        let start = chunk.jit_blocks[b].start;
+                        let line = chunk.locs.get(r.pc.unwrap_or(start)).map_or(0, |l| l.line);
+                        return Err(format!("line {line}: compile JIT block cannot be native: {}", explain_refusal(&self.plain, &r)));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// the native code of one `compile JIT` block of chunk `chunk`
+    fn compile_block(&self, chunk: usize, block: usize) -> Result<Region, Refusal> {
+        let plain = self.plain_chunk(chunk).ok_or_else(|| refusal(Reason::Internal))?;
+        let info = plain.jit_blocks.get(block).ok_or_else(|| refusal(Reason::Internal))?;
+        let plan = plan_block(plain, info, &self.sigs, &self.structs)?;
+        let ptr = self.codegen(&plan.rc, &plan.slots, &plan.loads_mask, &plan.stores_mask)?;
+        Ok(Region { ptr, head: info.start, nlocals: plain.num_locals, loads: plan.loads, stores: plan.stores })
+    }
+
+    /// the plain chunk with this index (`functions.len()` is main)
+    fn plain_chunk(&self, chunk: usize) -> Option<&Chunk> {
+        if chunk == self.plain.functions.len() {
+            Some(&self.plain.main)
+        } else {
+            self.plain.functions.get(chunk)
+        }
+    }
+
+    /// the name of a chunk, for messages
+    fn chunk_name(&self, chunk: usize) -> String {
+        if chunk == self.plain.functions.len() {
+            "main".to_string()
+        } else {
+            self.plain.function_names.get(chunk).cloned().unwrap_or_else(|| format!("#{chunk}"))
+        }
+    }
+
+    /// the refusal in words, for the report
+    fn explain(&self, r: &Refusal) -> String {
+        explain_refusal(&self.plain, r)
+    }
+
+    /// the `--jit-report` lines: every function, and every loop the VM has asked about so far
+    fn build_report(&self) -> Vec<String> {
+        let mut lines = vec!["native code report".to_string(), "  functions:".to_string()];
+        for (i, chunk) in self.plain.functions.iter().enumerate() {
+            let name = self.chunk_name(i);
+            let line = if self.ids.contains_key(&i) {
+                format!("    {name}: native")
+            } else {
+                match self.reasons.get(i).and_then(|r| r.as_ref()) {
+                    Some(r) => format!("    {name}{}: not native: {}", line_of(chunk, r.pc), self.explain(r)),
+                    None => format!("    {name}: not native"),
+                }
+            };
+            lines.push(line);
+        }
+        lines.push("  loops:".to_string());
+        let regions = self.regions.borrow();
+        let counts = self.counts.borrow();
+        let refused = self.refused.borrow();
+        let mut keys: BTreeSet<(usize, usize)> = regions.keys().copied().collect();
+        keys.extend(counts.keys().copied());
+        for key in keys {
+            let (chunk, exit) = key;
+            let Some(plain) = self.plain_chunk(chunk) else { continue };
+            let Some(head) = exit
+                .checked_sub(1)
+                .and_then(|e| plain.code.get(e))
+                .and_then(|op| match op {
+                    OpCode::Jump(h) => Some(*h),
+                    _ => None,
+                })
+            else {
+                continue;
+            };
+            let state = match (regions.get(&key), refused.get(&key)) {
+                (Some(Some(_)), _) => "native".to_string(),
+                (_, Some(r)) => format!("not native{}: {}", line_of(plain, r.pc), self.explain(r)),
+                (Some(None), None) => "not native".to_string(),
+                (None, None) => {
+                    let n = counts.get(&key).copied().unwrap_or(0);
+                    format!("waiting, reached {n} of {HOT_LOOP_ENTRIES} times")
+                }
+            };
+            lines.push(format!("    loop in {}{}: {state}", self.chunk_name(chunk), line_of(plain, Some(head))));
+        }
+        lines.push("  compile JIT blocks:".to_string());
+        for (ci, chunk) in chunks_of(&self.plain) {
+            for (b, info) in chunk.jit_blocks.iter().enumerate() {
+                let state = if self.blocks.borrow().contains_key(&(ci, b)) { "native" } else { "not native" };
+                lines.push(format!("    block in {}{}: {state}", self.chunk_name(ci), line_of(chunk, Some(info.start))));
+            }
+        }
+        lines
+    }
+}
+
+/// " (line N)" for the instruction at `pc`, when the chunk knows where it came from
+fn line_of(chunk: &Chunk, pc: Option<usize>) -> String {
+    match pc.and_then(|p| chunk.locs.get(p)) {
+        Some(loc) => format!(" (line {})", loc.line),
+        None => String::new(),
+    }
+}
+
+/// the refusal in words, for messages and the report
+pub fn explain_refusal(program: &Program, r: &Refusal) -> String {
+    match &r.reason {
+        Reason::Signature => "a param or the return type is not int, float, bool, string, or an array of those".to_string(),
+        Reason::Arity => format!("takes more than {MAX_ARITY} params"),
+        Reason::NoEnd => "does not end with a return or a jump".to_string(),
+        Reason::BadJump => "jumps outside its code".to_string(),
+        Reason::StackAcrossJump => "leaves a value on the stack across a jump".to_string(),
+        Reason::Opcode => format!("`{}` is not a native instruction", r.op),
+        Reason::Builtin(name) => format!("builtin `{name}` is not native"),
+        Reason::Constant => "uses a constant native code does not hold".to_string(),
+        Reason::LocalKind => "a local changes kind, or is read before it has one".to_string(),
+        Reason::Operands => format!("the operands of `{}` have the wrong kind", r.op),
+        Reason::Stack => "needs more values on the stack than it has".to_string(),
+        Reason::Callee(f) => format!("calls `{}`, which is not native", chunk_name_of(program, *f)),
+        Reason::ReturnKind => "returns a value of the wrong kind".to_string(),
+        Reason::ArrayElem => "uses an array whose elements native code can't hold (empty arrays, arrays of arrays or structs)".to_string(),
+        Reason::HeapAssigned => "assigns a string or array local inside the loop".to_string(),
+        Reason::JumpOutOfLoop => "jumps out of the loop by another route than its exit".to_string(),
+        Reason::NotALoop => "does not end with its backward jump".to_string(),
+        Reason::VmBlock => "touches a `compile VM` block, which always runs in the VM".to_string(),
+        Reason::JitBlock => "contains a `compile JIT` block, which runs as native code of its own".to_string(),
+        Reason::JumpOutOfBlock => "jumps out of the `compile JIT` block (a break, a continue, or a jump past its end)".to_string(),
+        Reason::ReturnInBlock => "returns from inside the `compile JIT` block: a block can't return".to_string(),
+        Reason::Internal => "native code generation failed".to_string(),
+    }
+}
+
+/// the name of a chunk of the plain program, for messages
+fn chunk_name_of(program: &Program, chunk: usize) -> String {
+    if chunk == program.functions.len() {
+        "main".to_string()
+    } else {
+        program.function_names.get(chunk).cloned().unwrap_or_else(|| format!("#{chunk}"))
+    }
+}
+
+/// every chunk of the plain program: the functions in order, then main (at index `functions.len()`)
+fn chunks_of(program: &Program) -> Vec<(usize, &Chunk)> {
+    program.functions.iter().enumerate().chain(std::iter::once((program.functions.len(), &program.main))).collect()
+}
+
+/// the native kind of a static slot type
+fn slot_kind(t: &spg_vm::chunk::SlotTy) -> K {
+    use spg_vm::chunk::SlotTy;
+    match t {
+        SlotTy::Int => K::Int,
+        SlotTy::Float => K::Float,
+        SlotTy::Bool => K::Bool,
+        SlotTy::String => K::String,
+        SlotTy::Array(e) => K::Array(match e.as_ref() {
+            SlotTy::Float => ElemKind::Float,
+            SlotTy::Bool => ElemKind::Bool,
+            SlotTy::String => ElemKind::String,
+            _ => ElemKind::Int,
+        }),
+    }
+}
+
+/// a refusal from a region's own pcs, moved to the plain chunk: `by` is where the region starts
+fn shift(r: Refusal, by: usize) -> Refusal {
+    Refusal { pc: r.pc.map(|p| p + by), ..r }
+}
+
+/// the instructions of one `compile JIT` block as a chunk of their own. jumps to the block's end
+/// become the chunk's end, and the chunk ends by jumping there, so native code falls out where the block does
+fn block_chunk(plain: &Chunk, start: usize, end: usize) -> Result<Chunk, Refusal> {
+    let mut rc = plain.clone();
+    rc.code = plain.code[start..end].to_vec();
+    rc.locs = Vec::new();
+    rc.origin = Vec::new();
+    rc.jit_blocks = Vec::new();
+    rc.vm_only = Vec::new();
+    // the block's ops are 0..len, then the closing jump at len, and the exit (where lower stores the
+    // locals back) is the pc after that jump: len + 1, which is where a jump to the block's end goes
+    let len = end - start;
+    for i in 0..rc.code.len() {
+        let op = rc.code[i];
+        if matches!(op, OpCode::Return) {
+            return Err(at(i, &op, Reason::ReturnInBlock));
+        }
+        if let Some(t) = rc.code[i].jump_target_mut() {
+            let old = *t;
+            *t = if old == end {
+                len + 1
+            } else if old >= start && old < end {
+                old - start
+            } else {
+                return Err(at(i, &op, Reason::JumpOutOfBlock));
+            };
+        }
+    }
+    rc.code.push(OpCode::Jump(len + 1));
+    Ok(rc)
+}
+
+/// what one `compile JIT` block needs to run as native code: its region chunk, the kinds of its slots,
+/// and what it loads on entry and stores on exit. the same plan serves the static check and the build
+struct BlockPlan {
+    rc: Chunk,
+    slots: Vec<K>,
+    loads: Vec<(usize, K)>,
+    stores: Vec<(usize, K)>,
+    loads_mask: Vec<bool>,
+    stores_mask: Vec<bool>,
+}
+
+fn plan_block(plain: &Chunk, info: &spg_vm::chunk::JitBlockInfo, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::value::StructDef>]) -> Result<BlockPlan, Refusal> {
+    // the block's ops start after its marker: the region is what the marker guards, and pcs are counted from there
+    let start = info.start + 1;
+    let rc = block_chunk(plain, start, info.end).map_err(|r| shift(r, start))?;
+    // the kinds on entry come from the compiler's snapshot of the scope: the program is typed, so they don't depend on the run
+    let mut init: Vec<Option<K>> = vec![None; plain.num_locals];
+    for (s, t) in info.entry.iter().enumerate() {
+        if let (Some(t), Some(slot)) = (t, init.get_mut(s)) {
+            *slot = Some(slot_kind(t));
+        }
+    }
+    let slots = check_init(&rc, &init, K::Int, sigs, structs, false).map_err(|r| shift(r, start))?;
+    let mut read: BTreeSet<usize> = BTreeSet::new();
+    let mut written: BTreeSet<usize> = BTreeSet::new();
+    for op in &rc.code {
+        match op {
+            OpCode::GetLocal(s) => {
+                read.insert(*s);
+            }
+            OpCode::SetLocal(s) => {
+                written.insert(*s);
+            }
+            _ => {}
+        }
+    }
+    // a refusal about slot `s` points at its first write, in plain pcs
+    let refuse_write = |s: usize, reason: Reason| {
+        let pc = rc.code.iter().position(|op| matches!(op, OpCode::SetLocal(x) if *x == s)).unwrap_or(0);
+        shift(at(pc, &rc.code[pc], reason), start)
+    };
+    let mut loads = Vec::new();
+    for &s in &read {
+        if let Some(k) = init[s] {
+            loads.push((s, k));
+        }
+    }
+    let mut stores = Vec::new();
+    for &s in &written {
+        let k = slots[s];
+        let outer = info.entry.get(s).is_some_and(|t| t.is_some());
+        if is_heap(k) {
+            // an outer string is handed back to its local with the block's new value. an outer array can't be,
+            // yet: the VM would keep the old one
+            if outer && k == K::String {
+                stores.push((s, k));
+            } else if outer {
+                return Err(refuse_write(s, Reason::HeapAssigned));
+            }
+            continue;
+        }
+        if !matches!(k, K::Int | K::Float | K::Bool) {
+            return Err(refuse_write(s, Reason::LocalKind));
+        }
+        stores.push((s, k));
+    }
+    let mut loads_mask = vec![false; plain.num_locals];
+    for (s, _) in &loads {
+        loads_mask[*s] = true;
+    }
+    let mut stores_mask = vec![false; plain.num_locals];
+    for (s, _) in &stores {
+        stores_mask[*s] = true;
+    }
+    Ok(BlockPlan { rc, slots, loads, stores, loads_mask, stores_mask })
+}
+
+/// the static check of `compile JIT`: every block must be native code. the first block that can't be is an
+/// error, with its line and why. `spg check` and `spg run` both run it, before anything executes
+pub fn check_blocks(program: &Program) -> Result<(), String> {
+    let (elig, _, _, _) = eligible(program);
+    let sigs: Vec<Option<Sig>> = program
+        .functions
+        .iter()
+        .enumerate()
+        .map(|(i, c)| if elig[i] { c.native_sig.clone() } else { None })
+        .collect();
+    for (_, chunk) in chunks_of(program) {
+        for info in &chunk.jit_blocks {
+            if let Err(r) = plan_block(chunk, info, &sigs, &program.struct_defs) {
+                let line = chunk.locs.get(r.pc.unwrap_or(info.start)).map_or(0, |l| l.line);
+                return Err(format!("line {line}: compile JIT block cannot be native: {}", explain_refusal(program, &r)));
+            }
+        }
+    }
+    Ok(())
 }

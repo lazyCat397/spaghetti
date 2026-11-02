@@ -255,6 +255,14 @@ pub enum Stmt {
         pos: Pos,
     },
 
+    /// `compile VM { body }`: an ordinary block that always runs in the VM (to debug
+    /// and compare). native code never runs it, nor any loop that touches it.
+    CompileVm { body: Block, pos: Pos },
+
+    /// `compile JIT { body }`: a block that must run as native code. checked before the run:
+    /// a block that native code can't hold is a compile error, with its line and reason.
+    CompileJit { body: Block, pos: Pos },
+
     /// `do { body } while (cond)`: the body runs before the first check
     DoWhile {
         body: Block,
@@ -498,6 +506,8 @@ impl Stmt {
             | Stmt::Match { pos, .. }
             | Stmt::While { pos, .. }
             | Stmt::DoWhile { pos, .. }
+            | Stmt::CompileVm { pos, .. }
+            | Stmt::CompileJit { pos, .. }
             | Stmt::ForIn { pos, .. }
             | Stmt::ForRange { pos, .. }
             | Stmt::Return { pos, .. }

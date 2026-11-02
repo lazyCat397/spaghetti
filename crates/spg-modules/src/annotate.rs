@@ -85,6 +85,11 @@ fn annotate_stmt(stmt: &mut Stmt, file: &str) {
             }
         }
 
+        Stmt::CompileVm { body, pos } | Stmt::CompileJit { body, pos } => {
+            stamp(pos, file);
+            annotate_block(body, file);
+        }
+
         Stmt::DoWhile { body, cond, pos } => {
             stamp(pos, file);
             annotate_block(body, file);

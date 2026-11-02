@@ -10,6 +10,8 @@ use std::fmt;
 
 #[derive(Debug, Clone)]
 pub enum RuntimeError {
+    /// a `compile JIT` block's native code couldn't carry on (overflow, division by zero, index out of range, ...)
+    JitBlockFailed { line: u32 },
     /// an OpCode expected a certain Value variant on the stack (e.g.
     /// AddInt expects two Ints) and found something else. should be
     /// impossible after typecheck. the type name found is kept for
@@ -102,6 +104,7 @@ impl RuntimeError {
 impl fmt::Display for RuntimeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            RuntimeError::JitBlockFailed { line } => write!(f, "compile JIT block at line {} cannot continue natively", line),
             RuntimeError::TypeMismatch { expected, found: "none" } => write!(
                 f,
                 "unexpected none: a {} was needed but the value is none (an optional was used without checking it; a global can become none inside a function called in between)",

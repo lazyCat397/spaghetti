@@ -139,6 +139,13 @@ ok index_fused.spg       '[3, 2, 15, 7]\n[1.75, 3.25]\n[false, true, true]\n[[1,
 err default_before_required.spg 'parameters after one with a default need one too'
 err default_not_literal.spg 'a literal default value'
 err incdec_const.spg 'declared as const'
+ok compile_vm.spg 'plain loop 9900\nvm loop 4950\nname ok 7\nguarded runs in the VM\n4'
+ok compile_jit.spg 'total 4950\n45'
+ok compile_jit_strings.spg 'hi!\naxxx\nend'
+ok compile_print_loop.spg 'at 0\nat 40\nat 80 1.5 true\ntotal 7140'
+err loop_print_div.spg 'division by zero'
+err compile_jit_print.spg 'compile JIT block cannot be native' 'array'
+err compile_jit_overflow.spg 'cannot continue natively'
 err incdec_literal.spg "'++' and '--' work on a variable"
 err incdec_string.spg 'operator ++ not supported for string and string'
 err let_no_zero_struct.spg 'only int, float, bool, string, arrays, maps and optionals'

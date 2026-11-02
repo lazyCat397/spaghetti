@@ -14,6 +14,9 @@ use crate::value::Value;
 /// cloning an instruction in the hot loop free. no real clone, no drama.
 #[derive(Debug, Clone, Copy)]
 pub enum OpCode {
+    /// the start of a `compile JIT` block: `block` indexes `jit_blocks`, `end` is the pc after the block.
+    /// the VM runs the block as native code and jumps to `end`; without native code it runs the block's ops
+    JitBlock { block: usize, end: usize },
     // ---- constants / literals (the boring part) ----
     /// push constants[idx]. nothing clever.
     Const(usize),
@@ -367,6 +370,7 @@ impl OpCode {
         match *self {
             OpCode::Jump(t) | OpCode::JumpIfFalse(t) | OpCode::JumpIfNotNone(t) => Some(t),
             OpCode::JumpUnlessLtConst(_, t) | OpCode::JumpUnlessGtConst(_, t) | OpCode::JumpUnlessLtEqConst(_, t) | OpCode::JumpUnlessGtEqConst(_, t) | OpCode::JumpUnlessEqConst(_, t) | OpCode::JumpUnlessNotEqConst(_, t) | OpCode::JumpUnlessLt(t) | OpCode::JumpUnlessLtLocals(_, _, t) | OpCode::JumpUnlessLtLocalConst(_, _, t) | OpCode::JumpUnlessGt(t) | OpCode::JumpUnlessGtLocals(_, _, t) | OpCode::JumpUnlessGtLocalConst(_, _, t) | OpCode::JumpUnlessLtEq(t) | OpCode::JumpUnlessLtEqLocals(_, _, t) | OpCode::JumpUnlessLtEqLocalConst(_, _, t) | OpCode::JumpUnlessGtEq(t) | OpCode::JumpUnlessGtEqLocals(_, _, t) | OpCode::JumpUnlessGtEqLocalConst(_, _, t) | OpCode::JumpUnlessEq(t) | OpCode::JumpUnlessEqLocals(_, _, t) | OpCode::JumpUnlessEqLocalConst(_, _, t) | OpCode::JumpUnlessNotEq(t) | OpCode::JumpUnlessNotEqLocals(_, _, t) | OpCode::JumpUnlessNotEqLocalConst(_, _, t) => Some(t),
+            OpCode::JitBlock { end, .. } => Some(end),
             OpCode::PushHandler { catch_target } => Some(catch_target),
             _ => None,
         }
@@ -376,6 +380,7 @@ impl OpCode {
         match self {
             OpCode::Jump(t) | OpCode::JumpIfFalse(t) | OpCode::JumpIfNotNone(t) => Some(t),
             OpCode::JumpUnlessLtConst(_, t) | OpCode::JumpUnlessGtConst(_, t) | OpCode::JumpUnlessLtEqConst(_, t) | OpCode::JumpUnlessGtEqConst(_, t) | OpCode::JumpUnlessEqConst(_, t) | OpCode::JumpUnlessNotEqConst(_, t) | OpCode::JumpUnlessLt(t) | OpCode::JumpUnlessLtLocals(_, _, t) | OpCode::JumpUnlessLtLocalConst(_, _, t) | OpCode::JumpUnlessGt(t) | OpCode::JumpUnlessGtLocals(_, _, t) | OpCode::JumpUnlessGtLocalConst(_, _, t) | OpCode::JumpUnlessLtEq(t) | OpCode::JumpUnlessLtEqLocals(_, _, t) | OpCode::JumpUnlessLtEqLocalConst(_, _, t) | OpCode::JumpUnlessGtEq(t) | OpCode::JumpUnlessGtEqLocals(_, _, t) | OpCode::JumpUnlessGtEqLocalConst(_, _, t) | OpCode::JumpUnlessEq(t) | OpCode::JumpUnlessEqLocals(_, _, t) | OpCode::JumpUnlessEqLocalConst(_, _, t) | OpCode::JumpUnlessNotEq(t) | OpCode::JumpUnlessNotEqLocals(_, _, t) | OpCode::JumpUnlessNotEqLocalConst(_, _, t) => Some(t),
+            OpCode::JitBlock { end, .. } => Some(end),
             OpCode::PushHandler { catch_target } => Some(catch_target),
             _ => None,
         }
@@ -388,6 +393,26 @@ impl OpCode {
 pub struct Loc {
     pub file: Option<std::rc::Rc<str>>,
     pub line: u32,
+}
+
+/// the static type of a local, as native code can hold it. `None` for anything else
+/// (strings, structs, maps, ...): a `compile JIT` block can't read those.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SlotTy {
+    Int,
+    Float,
+    Bool,
+    String,
+    Array(Box<SlotTy>),
+}
+
+/// one `compile JIT` block of a chunk. `start` is the JitBlock op, `end` the pc after the block,
+/// `entry` the static types of the locals when the block starts (a snapshot of the scope)
+#[derive(Debug, Clone)]
+pub struct JitBlockInfo {
+    pub start: usize,
+    pub end: usize,
+    pub entry: Vec<Option<SlotTy>>,
 }
 
 #[derive(Debug, Clone)]
@@ -410,6 +435,13 @@ pub struct Chunk {
     pub origin: Vec<usize>,
     /// a `-> task<T>` function: its call hands back a task (see `TaskCell`), not the T
     pub is_task: bool,
+    /// (start, end) pcs in plain code of every `compile VM` block. native code never runs them.
+    /// only the plain code (the one spg-jit reads) is meant to be checked against this
+    pub vm_only: Vec<(usize, usize)>,
+    /// every `compile JIT` block of this chunk, in source order (plain code)
+    pub jit_blocks: Vec<JitBlockInfo>,
+    /// the static type of each local slot, where it's known (see `SlotTy`)
+    pub slot_types: Vec<Option<SlotTy>>,
 }
 
 impl Chunk {
@@ -423,6 +455,9 @@ impl Chunk {
             num_locals: 0,
             arity: 0,
             native_sig: None,
+            vm_only: Vec::new(),
+            jit_blocks: Vec::new(),
+            slot_types: Vec::new(),
             is_task: false,
             origin: Vec::new(),
         }

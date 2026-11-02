@@ -390,6 +390,10 @@ pub enum TypedStmt {
 
     While { cond: TypedExpr, body: TypedBlock },
 
+    /// `compile VM { }`: a block the compiler marks as VM-only (see `Chunk::vm_only`)
+    CompileVm { body: TypedBlock },
+    /// `compile JIT { }`: a block that must be native code (see `Chunk::jit_blocks`)
+    CompileJit { body: TypedBlock },
     DoWhile { body: TypedBlock, cond: TypedExpr },
 
     /// `map_source` is set for `for k, v in map`: `iterable` is then the map's keys,

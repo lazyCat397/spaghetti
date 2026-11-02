@@ -200,6 +200,10 @@ impl<'a> Renamer<'a> {
                 }
             }
 
+            Stmt::CompileVm { body, .. } | Stmt::CompileJit { body, .. } => {
+                self.rename_block(body);
+            }
+
             Stmt::DoWhile { body, cond, .. } => {
                 self.rename_block(body);
                 self.rename_expr(cond);

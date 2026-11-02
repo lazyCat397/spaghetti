@@ -130,6 +130,27 @@ pub trait NativeCalls {
         let _ = (chunk, entry, exit, locals);
         LoopOutcome::Never
     }
+
+    /// runs a `compile JIT` block natively, on the locals of the frame running it
+    fn run_block(&self, chunk: usize, block: usize, locals: &mut [Value]) -> BlockOutcome {
+        let _ = (chunk, block, locals);
+        BlockOutcome::Off
+    }
+
+    /// the `--jit-report` lines: what the backend made of each function and loop. empty when it has none
+    fn report_lines(&self) -> Vec<String> {
+        Vec::new()
+    }
+}
+
+/// what the native backend did with a `compile JIT` block
+pub enum BlockOutcome {
+    /// ran natively: the VM goes on after the block
+    Ran,
+    /// native code gave up in the middle: the block's effects so far stay, and the program fails
+    Failed,
+    /// no native code for it (--no-jit): the VM runs the block's own ops
+    Off,
 }
 
 /// how many frames a trace keeps before it starts just counting
@@ -170,6 +191,11 @@ impl<'p> Vm<'p> {
     }
 
     /// installs a native backend. int calls try it first.
+    /// the native backend's report (`--jit-report`). empty when no backend is installed
+    pub fn native_report(&self) -> Vec<String> {
+        self.native.as_ref().map(|n| n.report_lines()).unwrap_or_default()
+    }
+
     pub fn set_native(&mut self, native: Box<dyn NativeCalls>) {
         self.native = Some(native);
         self.loop_tops = loop_tops(self.program);
@@ -744,6 +770,20 @@ impl<'p> Vm<'p> {
             OpCode::FreezeConst => {
                 let v = frame.pop()?;
                 frame.push(crate::frozen::copy_frozen(&v));
+            }
+            OpCode::JitBlock { block, end } => {
+                let outcome = match &self.native {
+                    Some(native) => native.run_block(frame.chunk_id, block, &mut frame.locals),
+                    None => BlockOutcome::Off,
+                };
+                match outcome {
+                    BlockOutcome::Ran => frame.ip = end,
+                    BlockOutcome::Off => {}
+                    BlockOutcome::Failed => {
+                        let line = frame.chunk.locs.get(frame.ip - 1).map_or(0, |l| l.line);
+                        return Err(RuntimeError::JitBlockFailed { line });
+                    }
+                }
             }
             OpCode::Jump(target) => frame.ip = target,
             OpCode::JumpIfFalse(target) => {

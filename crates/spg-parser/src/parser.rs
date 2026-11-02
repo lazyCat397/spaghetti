@@ -222,6 +222,10 @@ impl Parser {
             TokenKind::Const => self.parse_let(true, false),
             TokenKind::If => self.parse_if_stmt(),
             TokenKind::When => self.parse_match_stmt(),
+            // `compile VM {` and `compile JIT {` at the start of a line. `compile` is a word only there,
+            // so it stays an ordinary name everywhere else
+            TokenKind::Ident(name) if name == "compile" && self.compile_here("VM") => self.parse_compile(false),
+            TokenKind::Ident(name) if name == "compile" && self.compile_here("JIT") => self.parse_compile(true),
             TokenKind::While => self.parse_while(),
             TokenKind::Do => self.parse_do_while(),
             TokenKind::For => self.parse_for_in(),
@@ -947,6 +951,23 @@ impl Parser {
                 col: pos.col,
             }),
         }
+    }
+
+    /// whether the tokens here read `compile <word> {`, starting a line
+    fn compile_here(&self, word: &str) -> bool {
+        let starts_line = self.pos == 0 || self.starts_new_line();
+        starts_line
+            && self.tokens.get(self.pos + 1).is_some_and(|t| matches!(&t.kind, TokenKind::Ident(m) if m == word))
+            && self.tokens.get(self.pos + 2).is_some_and(|t| matches!(t.kind, TokenKind::LBrace))
+    }
+
+    /// `compile VM { ... }` (jit = false) or `compile JIT { ... }` (jit = true)
+    fn parse_compile(&mut self, jit: bool) -> Result<Stmt, ParseError> {
+        let pos = self.peek_pos();
+        self.advance(); // compile
+        self.advance(); // VM or JIT
+        let body = self.parse_block()?;
+        Ok(if jit { Stmt::CompileJit { body, pos } } else { Stmt::CompileVm { body, pos } })
     }
 
     fn parse_block(&mut self) -> Result<Block, ParseError> {

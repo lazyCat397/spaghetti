@@ -1,11 +1,15 @@
 ../examples/04_functions.spg
 ../examples/10_pipes.spg
 ../examples/12_modules.spg
+err/index_fused_oob_head.spg
 err/opt_div_zero.spg
 err/opt_index_oob.spg
 err/trace_cadeia.spg
 err/trace_lambda.spg
+err/trace_modulo.spg
+err/trace_modulo_lib.spg
 err/trace_recursao.spg
+lang/compound_and_nested_test.spg
 lang/hello.spg
 lang/methods.spg
 lang/semicolons.spg
@@ -13,6 +17,7 @@ lang/struct_test.spg
 ok/array_eq_empty.spg
 ok/basic.spg
 ok/builtin_homonimo.spg
+ok/compile_vm.spg
 ok/copy_user_method.spg
 ok/dir_strict_return_if.spg
 ok/enum_scope.spg

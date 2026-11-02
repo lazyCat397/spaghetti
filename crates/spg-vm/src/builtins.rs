@@ -95,7 +95,7 @@ fn read_stdin_line(function: &'static str) -> Result<String, RuntimeError> {
     Ok(line)
 }
 
-fn print_values(vs: &[Value]) {
+pub fn print_values(vs: &[Value]) {
     let result = {
         let mut guard = lock_out();
         let w = guard.get_or_insert_with(|| BufWriter::with_capacity(64 * 1024, std::io::stdout()));
