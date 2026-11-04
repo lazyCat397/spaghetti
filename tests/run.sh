@@ -139,8 +139,10 @@ exact1 print_before_error.spg 'a\nE1\nb\nruntime error: division by zero\n  at <
 # struct guard blocks: checked after every write (and rolled back on throw)
 ok guard_basic.spg       '7.5\n9.5\nrefused: grade must be between 0 and 10\nafter refusal: 9.5\ncompound: 10.0\nglobal refused: a top grade needs a name\nb unchanged: 5.0\nliteral refused: grade must be between 0 and 10\narray elem: 8.0'
 ok guard_incdec.spg     'after ++ twice: 100\nrefused: reading above 100\nkept: 100\nminus: 99\nbalance: 6\nwithdraw refused: negative balance\nfinal balance: 6'
-err guard_reentry_static.spg 'again: guard of Box -> reset'
-err guard_reentry_chain.spg 'guard of Node -> step_one -> step_two'
+err guard_reentry_static.spg 'again: guard of Box -> reset (line 6)'
+err guard_reentry_chain.spg 'guard of Node -> step_one (line 6) -> step_two (line 12) -> write to Node (line 16)'
+err guard_reentry_alias.spg 'guard of Box -> reset (line 7) -> write to Box (line 13)'
+ok guard_reentry_ambiguous.spg 'refused: a write to a Box ran inside a guard of Box: a guard cannot change its own struct\nvalue: 1'
 ok guard_reentry_runtime.spg 'refused: a write to a Box ran inside a guard of Box: a guard cannot change its own struct\nvalue: 1\nvalue: 3'
 ok guard_other_struct.spg '60'
 ok guard_concurrent.spg 'main wrote: 7\ntask a sees: 7\nfinal: 7'

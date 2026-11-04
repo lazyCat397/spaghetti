@@ -1,11 +1,14 @@
-// the write is reached through a function value, which the compile-time check
-// cannot follow: the runtime guard refuses it
+// the name is assigned twice, so the compile-time check gives up on it and the
+// runtime guard refuses the write instead
 struct Box {
     value: int,
 
     guard (me.value as v) {
         if (v > 5) {
             let reset = fn (b: Box) {
+                b.value = 0
+            }
+            reset = fn (b: Box) {
                 b.value = 0
             }
             reset(me)

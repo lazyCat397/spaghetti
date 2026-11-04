@@ -1,0 +1,27 @@
+struct Box {
+    value: int,
+
+    guard (me.value as v) {
+        if (v > 5) {
+            let f = reset
+            f = reset2
+            f(me)
+        }
+    }
+}
+
+fn reset(b: Box) {
+    b.value = 0
+}
+
+fn reset2(b: Box) {
+    b.value = 0
+}
+
+let b = Box { value: 1 };
+try {
+    b.value = 9
+} catch (e) {
+    print("refused: ${e}")
+}
+print("value: ${b.value}")

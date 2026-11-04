@@ -36,6 +36,39 @@ const cases = [
   ['guard with a field is a keyword', '    guard (me.grade as g) {', 'guard', 0, 'keyword.control.guard.spg'],
   ['me in a guard is still the variable', '    guard (me.grade as g) {', 'me', 0, 'variable.language.me.spg'],
   ['guard does not match inside a longer name', 'let guardian = 1', 'guardian', 0, null, 'keyword.control.guard.spg'],
+  // unicode names: the lexer takes any letter, the highlight must take the whole word
+  ['accented let name is one name', 'let joão = 1', 'joão', 0, 'variable.other.definition.spg'],
+  ['accented let name, tail', 'let joão = 1', 'ão', 0, 'variable.other.definition.spg'],
+  ['keyword inside an accented name is not a keyword', 'let ifé = 2', 'ifé', 0, 'variable.other.definition.spg', 'keyword.control.conditional.spg'],
+  ['accented string is plain text', 'print("joão")', 'joão', 0, 'string.quoted.double.spg'],
+  // logical words: their own keyword scope, not operator
+  ['and is a logical keyword', 'a and (b)', 'and', 0, 'keyword.control.logical.spg'],
+  ['or is a logical keyword', 'a or b', 'or', 0, 'keyword.control.logical.spg'],
+  ['then is a logical keyword', 'a then b', 'then', 0, 'keyword.control.logical.spg'],
+  ['not is a logical keyword', 'let y = not x', 'not', 0, 'keyword.control.logical.spg'],
+  // guard header: `as` is a keyword and the alias is a definition
+  ['as in a guard is a keyword', '    guard (me.grade as g) {', 'as', 0, 'keyword.control.guard.spg'],
+  ['guard alias is a definition', '    guard (me.grade as g) {', 'g)', 0, 'variable.other.definition.spg'],
+  ['guard without alias still works', '    guard (me.grade) {', 'grade', 0, 'variable.other.property.spg'],
+  // compile: the word and its target, with or without braces
+  ['compile is a keyword', 'compile JIT {', 'compile', 0, 'keyword.control.compile.spg'],
+  ['compile JIT target', 'compile JIT {', 'JIT', 0, 'keyword.control.compile.target.spg'],
+  ['compile VM without braces', 'compile VM', 'VM', 0, 'keyword.control.compile.target.spg'],
+  ['compile is not part of a longer name', 'let compiled = 1', 'compiled', 0, null, 'keyword.control.compile.spg'],
+  // the remaining keywords of the lexer
+  ['do is a loop keyword', 'do {', 'do', 0, 'keyword.control.loop.spg'],
+  ['step is a loop keyword', 'for i in 1..4 step 2 {', 'step', 0, 'keyword.control.loop.step.spg'],
+  ['elif is a conditional keyword', 'elif (x) {', 'elif', 0, 'keyword.control.conditional.spg'],
+  ['when is a conditional keyword', 'when (x) {', 'when', 0, 'keyword.control.conditional.spg'],
+  ['continue is a loop keyword', 'continue', 'continue', 0, 'keyword.control.loop.spg'],
+  ['throw is a trycatch keyword', 'throw "x"', 'throw', 0, 'keyword.control.trycatch.spg'],
+  ['install is an import keyword', 'install #ui', 'install', 0, 'keyword.control.import.spg'],
+  ['enum name is a type definition', 'enum Color {', 'Color', 0, 'entity.name.type.enum.spg'],
+  ['const name is a definition', 'const pi = 3.14', 'pi', 0, 'variable.other.definition.spg'],
+  // numbers: hex, binary and scientific forms
+  ['hex number is an integer', 'let h = 0xFF_00', '0xFF_00', 0, 'constant.numeric.integer.spg'],
+  ['binary number is an integer', 'let b = 0b1010', '0b1010', 0, 'constant.numeric.integer.spg'],
+  ['scientific number is a float', 'let e = 1e6', '1e6', 0, 'constant.numeric.float.spg'],
   // none and optional types
   ['none is a language constant', 'let x: int? = none', 'none', 0, 'constant.language.none.spg'],
   ['none is matched as a whole word only', 'let nonexistent = 1', 'nonexistent', 0, null, 'constant.language.none.spg'],

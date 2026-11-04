@@ -1,0 +1,18 @@
+struct Box {
+    value: int,
+
+    guard (me.value as v) {
+        if (v > 5) {
+            let f = reset
+            f(me)
+        }
+    }
+}
+
+fn reset(b: Box) {
+    b.value = 0
+}
+
+let b = Box { value: 1 };
+b.value = 3;
+print("value: ${b.value}")

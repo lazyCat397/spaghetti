@@ -22,6 +22,9 @@
       "include": "#function-value"
     },
     {
+      "include": "#guard-header"
+    },
+    {
       "include": "#keywords"
     },
     {
@@ -157,13 +160,13 @@
       ]
     },
     "function-value": {
-      "match": "\\bfn\\b(?=\\s*\\()",
+      "match": "(?<![\\p{L}\\p{N}_])(?:fn)(?![\\p{L}\\p{N}_])(?=\\s*\\()",
       "name": "storage.type.function.spg"
     },
     "definitions": {
       "patterns": [
         {
-          "match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "((?<![\\p{L}\\p{N}_])fn(?![\\p{L}\\p{N}_]))\\s+([\\p{L}_][\\p{L}\\p{N}_]*)",
           "captures": {
             "1": {
               "name": "storage.type.function.spg"
@@ -174,7 +177,7 @@
           }
         },
         {
-          "match": "\\b(struct)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "((?<![\\p{L}\\p{N}_])struct(?![\\p{L}\\p{N}_]))\\s+([\\p{L}_][\\p{L}\\p{N}_]*)",
           "captures": {
             "1": {
               "name": "storage.type.struct.spg"
@@ -185,7 +188,7 @@
           }
         },
         {
-          "match": "\\b(enum)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "((?<![\\p{L}\\p{N}_])enum(?![\\p{L}\\p{N}_]))\\s+([\\p{L}_][\\p{L}\\p{N}_]*)",
           "captures": {
             "1": {
               "name": "storage.type.enum.spg"
@@ -196,7 +199,7 @@
           }
         },
         {
-          "match": "\\b(let|const)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "((?<![\\p{L}\\p{N}_])(?:let|const)(?![\\p{L}\\p{N}_]))\\s+([\\p{L}_][\\p{L}\\p{N}_]*)",
           "captures": {
             "1": {
               "name": "storage.type.spg"
@@ -211,55 +214,70 @@
     "keywords": {
       "patterns": [
         {
-          "match": "\\b(then|and|or|not)\\b",
-          "name": "keyword.operator.word.spg"
+          "match": "(?<![\\p{L}\\p{N}_])(?:then|and|or|not)(?![\\p{L}\\p{N}_])",
+          "name": "keyword.control.logical.spg"
         },
         {
-          "match": "\\b(if|elif|else|when)\\b",
+          "match": "(?<![\\p{L}\\p{N}_])(?:if|elif|else|when)(?![\\p{L}\\p{N}_])",
           "name": "keyword.control.conditional.spg"
         },
         {
-          "match": "\\b(while|for|in|break|continue)\\b",
+          "match": "(?<![\\p{L}\\p{N}_])(?:while|do|for|in|break|continue)(?![\\p{L}\\p{N}_])",
           "name": "keyword.control.loop.spg"
         },
         {
-          "match": "\\b(try|catch|throw)\\b",
+          "match": "(?<![\\p{L}\\p{N}_])(?:try|catch|throw)(?![\\p{L}\\p{N}_])",
           "name": "keyword.control.trycatch.spg"
         },
         {
-          "match": "\\breturn\\b",
+          "match": "(?<![\\p{L}\\p{N}_])(?:return)(?![\\p{L}\\p{N}_])",
           "name": "keyword.control.flow.spg"
         },
         {
-          "match": "\\bguard\\b",
+          "match": "(?<![\\p{L}\\p{N}_])(?:guard)(?![\\p{L}\\p{N}_])",
           "name": "keyword.control.guard.spg"
         },
         {
-          "match": "\\b(import|export|from|install)\\b",
+          "match": "(?<![\\p{L}\\p{N}_])(?:import|export|from|install)(?![\\p{L}\\p{N}_])",
           "name": "keyword.control.import.spg"
         },
         {
-          "match": "\\bstep\\b(?=\\s+[-(A-Za-z_0-9])",
+          "match": "((?<![\\p{L}\\p{N}_])compile(?![\\p{L}\\p{N}_]))(\\s+)((?<![\\p{L}\\p{N}_])(?:VM|JIT)(?![\\p{L}\\p{N}_]))",
+          "captures": {
+            "1": {
+              "name": "keyword.control.compile.spg"
+            },
+            "3": {
+              "name": "keyword.control.compile.target.spg"
+            }
+          }
+        },
+        {
+          "match": "(?<![\\p{L}\\p{N}_])(?:step)(?![\\p{L}\\p{N}_])(?=\\s+[-(\\p{L}_\\p{N}])",
           "name": "keyword.control.loop.step.spg"
         },
         {
-          "match": "\\bme\\b",
+          "match": "(?<![\\p{L}\\p{N}_])(?:let|const)(?![\\p{L}\\p{N}_])",
+          "name": "storage.type.spg"
+        },
+        {
+          "match": "(?<![\\p{L}\\p{N}_])(?:me)(?![\\p{L}\\p{N}_])",
           "name": "variable.language.me.spg"
         }
       ]
     },
     "types": {
-      "match": "\\b(int|float|bool|string|void|array)\\b|\\bmap\\b(?=\\s*<)|\\btask\\b(?=\\s*<)",
+      "match": "(?<![\\p{L}\\p{N}_])(?:int|float|bool|string|void|array)(?![\\p{L}\\p{N}_])|(?<![\\p{L}\\p{N}_])map(?![\\p{L}\\p{N}_])(?=\\s*<)|(?<![\\p{L}\\p{N}_])task(?![\\p{L}\\p{N}_])(?=\\s*<)",
       "name": "support.type.primitive.spg"
     },
     "constants": {
       "patterns": [
         {
-          "match": "\\b(true|false)\\b",
+          "match": "(?<![\\p{L}\\p{N}_])(?:true|false)(?![\\p{L}\\p{N}_])",
           "name": "constant.language.boolean.spg"
         },
         {
-          "match": "\\bnone\\b",
+          "match": "(?<![\\p{L}\\p{N}_])(?:none)(?![\\p{L}\\p{N}_])",
           "name": "constant.language.none.spg"
         }
       ]
@@ -267,11 +285,19 @@
     "numbers": {
       "patterns": [
         {
-          "match": "\\b\\d[\\d_]*\\.\\d[\\d_]*\\b",
+          "match": "(?<![\\p{L}\\p{N}_])0[xX][0-9A-Fa-f_]+(?![\\p{L}\\p{N}_])|(?<![\\p{L}\\p{N}_])0[bB][01_]+(?![\\p{L}\\p{N}_])",
+          "name": "constant.numeric.integer.spg"
+        },
+        {
+          "match": "(?<![\\p{L}\\p{N}_])\\d[\\d_]*(?:\\.\\d[\\d_]*)?[eE][+-]?\\d+(?![\\p{L}\\p{N}_])",
           "name": "constant.numeric.float.spg"
         },
         {
-          "match": "\\b\\d[\\d_]*\\b",
+          "match": "(?<![\\p{L}\\p{N}_])\\d[\\d_]*\\.\\d[\\d_]*(?![\\p{L}\\p{N}_])",
+          "name": "constant.numeric.float.spg"
+        },
+        {
+          "match": "(?<![\\p{L}\\p{N}_])\\d[\\d_]*(?![\\p{L}\\p{N}_])",
           "name": "constant.numeric.integer.spg"
         }
       ]
@@ -281,8 +307,12 @@
         {
           "match": "\\b(install)\\s*(#[A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
-            "1": { "name": "keyword.control.spg" },
-            "2": { "name": "entity.name.namespace.spg" }
+            "1": {
+              "name": "keyword.control.spg"
+            },
+            "2": {
+              "name": "entity.name.namespace.spg"
+            }
           }
         },
         {
@@ -306,17 +336,29 @@
         {
           "match": "(?<![.A-Za-z0-9_@])((?:ps|http|terminal|regex|crypto|csv|test|toml|sqlite|net|cmd|json5|ui))(\\.)([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
           "captures": {
-            "1": { "name": "entity.name.namespace.spg" },
-            "2": { "name": "punctuation.accessor.spg" },
-            "3": { "name": "support.function.builtin.spg" }
+            "1": {
+              "name": "entity.name.namespace.spg"
+            },
+            "2": {
+              "name": "punctuation.accessor.spg"
+            },
+            "3": {
+              "name": "support.function.builtin.spg"
+            }
           }
         },
         {
           "match": "(?<![.A-Za-z0-9_])(Key|Mouse|Align)(\\.)([A-Za-z][A-Za-z0-9_]*)\\b(?!\\s*\\()",
           "captures": {
-            "1": { "name": "entity.name.type.enum.spg" },
-            "2": { "name": "punctuation.accessor.spg" },
-            "3": { "name": "constant.other.enum.spg" }
+            "1": {
+              "name": "entity.name.type.enum.spg"
+            },
+            "2": {
+              "name": "punctuation.accessor.spg"
+            },
+            "3": {
+              "name": "constant.other.enum.spg"
+            }
           }
         },
         {
@@ -327,19 +369,19 @@
       ]
     },
     "builtins": {
-      "match": "\\b(print|printError|readLine|len|type)\\b(?=\\s*\\()",
+      "match": "(?<![\\p{L}\\p{N}_])(?:print|printError|readLine|len|type)(?![\\p{L}\\p{N}_])(?=\\s*\\()",
       "name": "support.function.builtin.spg"
     },
     "calls": {
-      "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
+      "match": "(?<![\\p{L}\\p{N}_])[\\p{L}_][\\p{L}\\p{N}_]*(?=\\s*\\()",
       "name": "entity.name.function.call.spg"
     },
     "member": {
-      "match": "(?<=[^.]\\.)\\s*[A-Za-z_][A-Za-z0-9_]*",
+      "match": "(?<=[^.]\\.)\\s*[\\p{L}_][\\p{L}\\p{N}_]*",
       "name": "variable.other.property.spg"
     },
     "type-names": {
-      "match": "\\b[A-Z][A-Za-z0-9_]*\\b",
+      "match": "(?<![\\p{L}\\p{N}_])\\p{Lu}[\\p{L}\\p{N}_]*(?![\\p{L}\\p{N}_])",
       "name": "entity.name.type.spg"
     },
     "operators": {
@@ -383,6 +425,48 @@
         {
           "match": ";",
           "name": "punctuation.terminator.statement.spg"
+        }
+      ]
+    },
+    "guard-header": {
+      "begin": "((?<![\\p{L}\\p{N}_])guard(?![\\p{L}\\p{N}_]))(\\s*)(\\()",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.guard.spg"
+        },
+        "3": {
+          "name": "punctuation.section.parens.begin.spg"
+        }
+      },
+      "end": "\\)",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.parens.end.spg"
+        }
+      },
+      "patterns": [
+        {
+          "match": "(?<![\\p{L}\\p{N}_])(?:me)(?![\\p{L}\\p{N}_])",
+          "name": "variable.language.me.spg"
+        },
+        {
+          "match": "((?<![\\p{L}\\p{N}_])as(?![\\p{L}\\p{N}_]))(\\s+)([\\p{L}_][\\p{L}\\p{N}_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.guard.spg"
+            },
+            "3": {
+              "name": "variable.other.definition.spg"
+            }
+          }
+        },
+        {
+          "match": "\\.",
+          "name": "punctuation.accessor.spg"
+        },
+        {
+          "match": "[\\p{L}_][\\p{L}\\p{N}_]*",
+          "name": "variable.other.property.spg"
         }
       ]
     }
