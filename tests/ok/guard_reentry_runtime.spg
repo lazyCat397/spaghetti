@@ -1,0 +1,24 @@
+// the write is reached through a function value, which the compile-time check
+// cannot follow: the runtime guard refuses it
+struct Box {
+    value: int,
+
+    guard (me.value as v) {
+        if (v > 5) {
+            let reset = fn (b: Box) {
+                b.value = 0
+            }
+            reset(me)
+        }
+    }
+}
+
+let b = Box { value: 1 };
+try {
+    b.value = 9
+} catch (e) {
+    print("refused: ${e}")
+}
+print("value: ${b.value}")
+b.value = 3
+print("value: ${b.value}")

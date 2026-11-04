@@ -1,0 +1,5 @@
+compile VM {
+    let x = 2
+    print(x)
+}
+print(x)

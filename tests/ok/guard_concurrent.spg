@@ -1,0 +1,28 @@
+// a guard may sleep (through a helper) while another task writes the same struct type
+fn nap(ms: int) -> int {
+    @time.sleep(ms)
+    return ms
+}
+
+struct Slow {
+    level: int,
+
+    guard (me.level as l) {
+        if (l > 100) {
+            throw "level too high"
+        }
+        nap(30)
+    }
+}
+
+fn raise(s: Slow, to: int) -> task<int> {
+    s.level = to
+    return s.level
+}
+
+let s = Slow { level: 1 };
+let a = raise(s, 50)
+s.level = 7
+print("main wrote: ${s.level}")
+print("task a sees: ${a.wait()}")
+print("final: ${s.level}")

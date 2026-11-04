@@ -35,6 +35,8 @@ pub enum ParseError {
     RangeOutsideFor { line: usize, col: usize },
     /// a struct with a field AND a method of the same name (`p.x` would be ambiguous)
     FieldMethodClash { struct_name: String, name: String, line: usize, col: usize },
+    /// a `guard` rule the parser can see is broken (write to `me`, `return`, unknown field...)
+    GuardError { struct_name: String, reason: String, line: usize, col: usize },
     /// `enum E { A, A }`. twice is too much.
     DuplicateVariant { enum_name: String, name: String, line: usize, col: usize },
     /// `enum E { }`: an enum needs at least one variant. nothing is not an enum.
@@ -70,6 +72,11 @@ impl fmt::Display for ParseError {
                 f,
                 "'string.{}' uses the old namespace spelling; use '@str.{}' (line {}, column {})",
                 member, member, line, col
+            ),
+            ParseError::GuardError { struct_name, reason, line, col } => write!(
+                f,
+                "guard of struct '{}': {} (line {}, column {})",
+                struct_name, reason, line, col
             ),
             ParseError::FieldMethodClash { struct_name, name, line, col } => write!(
                 f,
@@ -806,15 +813,20 @@ impl Parser {
         // a method needs no separator on either side. methods are free-spirited.
         let mut fields: Vec<Param> = Vec::new();
         let mut methods: Vec<Stmt> = Vec::new();
+        let mut guards: Vec<GuardSpec> = Vec::new();
         while !self.check(&TokenKind::RBrace) && !self.check(&TokenKind::Eof) {
             if self.check(&TokenKind::Function) {
                 methods.push(self.parse_method(&name, exported)?);
+                self.match_kind(&TokenKind::Comma);
+            } else if self.check(&TokenKind::Guard) {
+                guards.push(self.parse_guard()?);
                 self.match_kind(&TokenKind::Comma);
             } else {
                 fields.push(self.parse_param(false)?);
                 if !self.match_kind(&TokenKind::Comma)
                     && !self.check(&TokenKind::RBrace)
                     && !self.check(&TokenKind::Function)
+                    && !self.check(&TokenKind::Guard)
                 {
                     break; // the `expect` below reports the missing ',' or '}'
                 }
@@ -835,9 +847,48 @@ impl Parser {
                 }
             }
         }
+        let guarded = !guards.is_empty();
+        if guarded {
+            crate::guard::check_guards(&name, &fields, &guards)?;
+            self.pending.extend(crate::guard::guard_functions(&name, exported, &guards, &pos));
+        }
         self.pending.extend(methods);
 
-        Ok(Stmt::StructDecl { name, fields, exported, pos })
+        Ok(Stmt::StructDecl { name, fields, exported, guarded, pos })
+    }
+
+    /// `guard (me.field as alias) { ... }` or `guard { ... }`, inside a struct body.
+    /// the alias is optional: `me.field` works without it.
+    fn parse_guard(&mut self) -> Result<GuardSpec, ParseError> {
+        let pos = self.peek_pos();
+        self.advance(); // guard
+
+        let mut target = None;
+        if self.match_kind(&TokenKind::LParen) {
+            let (line, col) = (self.peek().line, self.peek().col);
+            let me = self.parse_ident_name()?;
+            if me != "me" {
+                return Err(ParseError::Unexpected {
+                    expected: "'me' (a field guard starts with me.field)".to_string(),
+                    found: TokenKind::Ident(me),
+                    line,
+                    col,
+                });
+            }
+            self.expect(TokenKind::Dot, "'.'")?;
+            let field = self.parse_ident_name()?;
+            let alias = if matches!(&self.peek().kind, TokenKind::Ident(s) if s == "as") {
+                self.advance();
+                Some(self.parse_ident_name()?)
+            } else {
+                None
+            };
+            self.expect(TokenKind::RParen, "')'")?;
+            target = Some((field, alias));
+        }
+
+        let body = self.parse_block()?;
+        Ok(GuardSpec { target, body, pos })
     }
 
     /// `enum Color { Red, Green, Blue }`: variants are plain names separated
@@ -1016,14 +1067,24 @@ impl Parser {
         let starts_line = self.pos == 0 || self.starts_new_line();
         starts_line
             && self.tokens.get(self.pos + 1).is_some_and(|t| matches!(&t.kind, TokenKind::Ident(m) if m == word))
-            && self.tokens.get(self.pos + 2).is_some_and(|t| matches!(t.kind, TokenKind::LBrace))
     }
 
     /// `compile VM { ... }` (jit = false) or `compile JIT { ... }` (jit = true)
     fn parse_compile(&mut self, jit: bool) -> Result<Stmt, ParseError> {
         let pos = self.peek_pos();
         self.advance(); // compile
+        let word = if jit { "JIT" } else { "VM" };
         self.advance(); // VM or JIT
+        if !self.check(&TokenKind::LBrace) {
+            let found = self.peek().kind.clone();
+            let (line, col) = (self.peek().line, self.peek().col);
+            return Err(ParseError::Unexpected {
+                expected: format!("'{{' after 'compile {}' (write it as: compile {} {{ ... }})", word, word),
+                found,
+                line,
+                col,
+            });
+        }
         let body = self.parse_block()?;
         Ok(if jit { Stmt::CompileJit { body, pos } } else { Stmt::CompileVm { body, pos } })
     }

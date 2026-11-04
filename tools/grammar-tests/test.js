@@ -31,6 +31,11 @@ function scopesAt(grammar, line, needle, nth) {
 
 // [name, line, needle, nth occurrence, scope it must have, scope it must NOT have]
 const cases = [
+  // struct guards
+  ['guard is a keyword', 'struct S { guard { } }', 'guard', 0, 'keyword.control.guard.spg'],
+  ['guard with a field is a keyword', '    guard (me.grade as g) {', 'guard', 0, 'keyword.control.guard.spg'],
+  ['me in a guard is still the variable', '    guard (me.grade as g) {', 'me', 0, 'variable.language.me.spg'],
+  ['guard does not match inside a longer name', 'let guardian = 1', 'guardian', 0, null, 'keyword.control.guard.spg'],
   // none and optional types
   ['none is a language constant', 'let x: int? = none', 'none', 0, 'constant.language.none.spg'],
   ['none is matched as a whole word only', 'let nonexistent = 1', 'nonexistent', 0, null, 'constant.language.none.spg'],
@@ -57,12 +62,12 @@ const cases = [
   ['raw strings never interpolate', "print('cru ${x}')", 'x', 0, 'string.quoted.single.spg', 'meta.interpolation.spg'],
   ['a comment is not interpolated', '// hi ${x}', 'x', 0, 'comment.line.double-slash.spg', 'meta.interpolation.spg'],
   // functions as values
-  ['a lambda keyword', 'let f = function(x: int) -> int { return x }', 'function', 0, 'storage.type.function.spg', 'entity.name.function.call.spg'],
-  ['a lambda keyword with a space', 'let f = function (x: int) -> int { return x }', 'function', 0, 'storage.type.function.spg', 'entity.name.function.call.spg'],
-  ['a function type', 'function ap(f: function(int) -> int?) -> int? {', 'function', 1, 'storage.type.function.spg', 'entity.name.function.call.spg'],
-  ['a declared function name', 'function ap(f: function(int) -> int?) -> int? {', 'ap', 0, 'entity.name.function.spg'],
-  ['the ? of an optional return type', 'function ap(f: function(int) -> int?) -> int? {', '?', 1, 'keyword.operator.optional.spg'],
-  ['an arrow', 'let f = function(x: int) -> int { return x }', '->', 0, 'keyword.operator.arrow.spg'],
+  ['a lambda keyword', 'let f = fn(x: int) -> int { return x }', 'fn', 0, 'storage.type.function.spg', 'entity.name.function.call.spg'],
+  ['a lambda keyword with a space', 'let f = fn (x: int) -> int { return x }', 'fn', 0, 'storage.type.function.spg', 'entity.name.function.call.spg'],
+  ['a fn type', 'fn ap(f: fn(int) -> int?) -> int? {', 'fn', 1, 'storage.type.function.spg', 'entity.name.function.call.spg'],
+  ['a declared fn name', 'fn ap(f: fn(int) -> int?) -> int? {', 'ap', 0, 'entity.name.function.spg'],
+  ['the ? of an optional return type', 'fn ap(f: fn(int) -> int?) -> int? {', '?', 1, 'keyword.operator.optional.spg'],
+  ['an arrow', 'let f = fn(x: int) -> int { return x }', '->', 0, 'keyword.operator.arrow.spg'],
   // what must keep working
   ['calls', 'print(dobro(2))', 'dobro', 0, 'entity.name.function.call.spg'],
   ['calling a function value', 'let r = soma3(10)', 'soma3', 0, 'entity.name.function.call.spg'],

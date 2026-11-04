@@ -1,0 +1,49 @@
+struct Student {
+    name: string,
+    grade: float,
+
+    guard (me.grade as g) {
+        if (g < 0.0 or g > 10.0) {
+            throw "grade must be between 0 and 10"
+        }
+    }
+
+    guard {
+        if (me.name == "" and me.grade > 9.0) {
+            throw "a top grade needs a name"
+        }
+    }
+}
+
+let a = Student { name: "Ana", grade: 7.5 };
+print(a.grade);
+a.grade = 9.5;
+print(a.grade);
+
+try {
+    a.grade = 11.0;
+} catch (e) {
+    print("refused: ${e}");
+}
+print("after refusal: ${a.grade}");
+
+a.grade += 0.5;
+print("compound: ${a.grade}");
+
+let b = Student { name: "", grade: 5.0 };
+try {
+    b.grade = 9.5;
+} catch (e) {
+    print("global refused: ${e}");
+}
+print("b unchanged: ${b.grade}");
+
+try {
+    let c = Student { name: "", grade: 12.0 };
+} catch (e) {
+    print("literal refused: ${e}");
+}
+
+let classes = [Student { name: "Bia", grade: 6.0 }];
+classes[0].grade = 8.0;
+print("array elem: ${classes[0].grade}");

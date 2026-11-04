@@ -11,14 +11,6 @@ fn pad(n: int) -> string {
     return "${n}"
 }
 
-// Formats centiseconds as MM:SS.CC
-fn fmtCs(c: int) -> string {
-    let m = c / 6000
-    let s = (c / 100) % 60
-    let f = c % 100
-    return "${pad(m)}:${pad(s)}.${pad(f)}"
-}
-
 // Places a shape so its center sits `dist` px from the clock center
 // along `angle` (degrees, clockwise from 12 o'clock), and rotates it.
 fn place(s: Shape, dist: float, angle: float, w: float, h: float) {
@@ -34,8 +26,8 @@ const win = ui.window("Clock", 360, 360)
 win.background = ui.hex("#000000")
 
 // ---- Face ----
-let baseClock = win.ellipse(20.0, 20.0, 320.0, 320.0, ui.hex("#1f0b04"))
-let ring = win.ellipse(22.0, 22.0, 316.0, 316.0, ui.hex("#E85A24"))
+let baseClock = win.ellipse(20.0, 20.0, 320.0, 320.0, ui.hex("#25282A"))
+let ring = win.ellipse(22.0, 22.0, 316.0, 316.0, ui.hex("#A6A6A0"))
 ring.fill = false
 ring.stroke = 3.0
 
@@ -44,10 +36,10 @@ let n = 0
 let deg = 0.0
 while (deg < 360.0) {
     if (n % 5 == 0) {
-        let big = win.rect(0.0, 0.0, 1.0, 1.0, ui.hex("#FFC247"))
+        let big = win.rect(0.0, 0.0, 1.0, 1.0, ui.hex("#D8D4C8"))
         place(big, 148.0, deg, 4.0, 16.0)
     } else {
-        let small = win.rect(0.0, 0.0, 1.0, 1.0, ui.hex("#75401F"))
+        let small = win.rect(0.0, 0.0, 1.0, 1.0, ui.hex("#777A79"))
         place(small, 152.0, deg, 2.0, 8.0)
     }
     deg += 6.0
@@ -63,37 +55,23 @@ while (hour12 <= 12) {
     let rad = numDeg * PI / 180.0
     let lx = CX + 128.0 * @math.sin(rad) - off
     let ly = CY - 128.0 * @math.cos(rad) - 9.0
-    win.label(lx, ly, "${hour12}", ui.hex("#FFC247"), 18)
+    win.label(lx, ly, "${hour12}", ui.hex("#D8D4C8"), 18)
     numDeg += 30.0
     hour12++
 }
 
-// ---- Hands (created once, repositioned every frame) ----
-let hourHand  = win.rect(0.0, 0.0, 6.0, 60.0, ui.hex("#FFE3A0"))
-let minHand   = win.rect(0.0, 0.0, 4.0, 95.0, ui.hex("#FFE3A0"))
-let chronoHand = win.rect(0.0, 0.0, 1.5, 120.0, ui.hex("#FFB347"))
-let secHand   = win.rect(0.0, 0.0, 2.0, 130.0, ui.hex("#F04432"))
-let secTail   = win.rect(0.0, 0.0, 2.0, 36.0, ui.hex("#F04432"))
-let hub       = win.ellipse(CX - 6.0, CY - 6.0, 12.0, 12.0, ui.hex("#F04432"))
-chronoHand.alpha = 0.0
+// ---- Clock hands ----
+let hourHand = win.rect(0.0, 0.0, 6.0, 60.0, ui.hex("#E8E5DC"))
+let minHand = win.rect(0.0, 0.0, 4.0, 95.0, ui.hex("#E8E5DC"))
+let secHand = win.rect(0.0, 0.0, 2.0, 130.0, ui.hex("#A65E52"))
+let secTail = win.rect(0.0, 0.0, 2.0, 36.0, ui.hex("#A65E52"))
+let hub = win.ellipse(CX - 6.0, CY - 6.0, 12.0, 12.0, ui.hex("#A65E52"))
 
-// ---- Readouts ----
-let digital = win.label(92.0, 222.0, "00:00:00", ui.hex("#FFE3A0"), 22)
-let swtext = win.label(82.0, 254.0, "CRONO 00:00.00", ui.hex("#FFB347"), 14)
-let lap1    = win.label(108.0, 276.0, "", ui.hex("#A87545"), 12)
-let lap2    = win.label(108.0, 292.0, "", ui.hex("#A87545"), 12)
+// ---- Digital clock ----
+let digital = win.label(92.0, 222.0, "00:00:00", ui.hex("#E8E5DC"), 22)
 
-// ---- Real time: the UTC offset is read once at startup ----
+// ---- Real time ----
 let utcOffset = utcOffsetMinutes()
-
-// ---- Stopwatch state ----
-let running = false
-let cs = 0               // centiseconds
-let csAcc = 0.0
-let swAngle = 0.0
-let lapCount = 0
-let lastLap = ""
-let prevLap = ""
 
 win.antialias = true
 
@@ -101,52 +79,21 @@ while (true) {
     let dt = win.nextFrame()
     if (dt < 0.0) { break }
 
-    // Input
-    if (win.wasPressed(Key.Space)) { running = !running }
-    if (win.wasPressed(Key.L) && cs > 0) {
-        lapCount++
-        prevLap = lastLap
-        lastLap = "V${lapCount}  ${fmtCs(cs)}"
-    }
-    if (win.wasPressed(Key.R)) {
-        running = false
-        cs = 0
-        csAcc = 0.0
-        swAngle = 0.0
-        lapCount = 0
-        lastLap = ""
-        prevLap = ""
-    }
-
-    // Stopwatch: centisecond resolution, sweeping chrono hand
-    if (running) {
-        csAcc += dt
-        while (csAcc >= 0.01) {
-            csAcc -= 0.01
-            cs++
-            swAngle += 0.06
-        }
-    }
-    if (cs > 0) { chronoHand.alpha = 1.0 } else { chronoHand.alpha = 0.0 }
-
-    // Clock: read the real time every frame, so it never drifts
+    // Read real time every frame
     let now = localTime(utcOffset)
     let hf = @into.float(now.hour % 12)
     let mf = @into.float(now.minute)
     let sf = @into.float(now.second)
+
     let hourAngle = hf * 30.0 + mf * 0.5 + sf * (0.5 / 60.0)
     let minAngle = mf * 6.0 + sf * 0.1
     let secAngle = sf * 6.0
 
-    // Redraw
+    // Redraw clock hands
     place(hourHand, 30.0, hourAngle, 6.0, 60.0)
     place(minHand, 47.5, minAngle, 4.0, 95.0)
-    place(chronoHand, 60.0, swAngle, 1.5, 120.0)
     place(secHand, 65.0, secAngle, 2.0, 130.0)
     place(secTail, -18.0, secAngle, 2.0, 36.0)
 
     digital.text = "${pad(now.hour)}:${pad(now.minute)}:${pad(now.second)}"
-    swtext.text = "CRONO ${fmtCs(cs)}"
-    lap1.text = lastLap
-    lap2.text = prevLap
 }

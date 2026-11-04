@@ -1,0 +1,7 @@
+struct S {
+    nota: float,
+    nome: string,
+guard (me.nota) { return; }
+}
+
+

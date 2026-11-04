@@ -1,0 +1,5 @@
+struct S {
+    grade: float,
+    name: string,
+    guard { if (me.age > 3) { throw "no" } }
+}

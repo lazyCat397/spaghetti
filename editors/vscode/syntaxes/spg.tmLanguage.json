@@ -231,6 +231,10 @@
           "name": "keyword.control.flow.spg"
         },
         {
+          "match": "\\bguard\\b",
+          "name": "keyword.control.guard.spg"
+        },
+        {
           "match": "\\b(import|export|from|install)\\b",
           "name": "keyword.control.import.spg"
         },

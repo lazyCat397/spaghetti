@@ -373,7 +373,7 @@ fn native_methods_table(ns: &str) -> Vec<Member> {
     }
     let prefix = format!("@{}.", ns);
     let mut out: Vec<Member> = Vec::new();
-    for (name, overloads) in spg_typecheck::builtins::builtin_signatures() {
+    for (name, overloads) in spg_typecheck::builtins::public_builtin_signatures() {
         let Some(short) = name.strip_prefix(&prefix) else { continue };
         let takes_receiver = |sig: &spg_typecheck::builtins::BuiltinSig| {
             matches!(
@@ -403,7 +403,7 @@ fn native_methods_table(ns: &str) -> Vec<Member> {
 fn builtin_return(ns: &str, name: &str) -> Option<String> {
     use spg_typecheck::typed_ast::Ty;
     let full = format!("@{}.{}", ns, name);
-    let (_, overloads) = spg_typecheck::builtins::builtin_signatures().into_iter().find(|(n, _)| *n == full)?;
+    let (_, overloads) = spg_typecheck::builtins::public_builtin_signatures().into_iter().find(|(n, _)| *n == full)?;
     let ret = &overloads.first()?.return_type;
     match ret {
         Ty::Any | Ty::AnyArray | Ty::AnyMap | Ty::Void => None,

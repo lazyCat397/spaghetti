@@ -56,6 +56,11 @@ pub struct Checker {
     /// syntax (even though today's `Name { field: value }` is
     /// checked by name, not position). future problems, future us.
     struct_defs: HashMap<String, Vec<Param>>,
+    /// structs with `guard` blocks: every write to them is wrapped (see `wrap_guarded_write`)
+    guarded_structs: std::collections::HashSet<String>,
+    /// positions of struct literals already wrapped in `Name.__check(...)`, so the
+    /// literal inside the call is checked as itself and not wrapped again
+    guard_literals: std::collections::HashSet<(usize, usize)>,
     /// enum name -> its variants in declaration order (a variant's position
     /// is its identity at runtime). an enum value's type is `Ty::Named(name)`;
     /// this table is how it's told apart from a struct.
@@ -124,6 +129,8 @@ pub fn type_check_with(program: p::Program, strict: bool) -> Result<TypedProgram
         native_objects,
         functions: HashMap::new(),
         struct_defs: HashMap::new(),
+        guarded_structs: std::collections::HashSet::new(),
+        guard_literals: std::collections::HashSet::new(),
         enum_defs: HashMap::new(),
         enum_value_tys: HashMap::new(),
         scopes: vec![HashMap::new()],
@@ -152,6 +159,20 @@ pub fn type_check_with(program: p::Program, strict: bool) -> Result<TypedProgram
         }
     }
 
+    // a guard must not reach a write to its own struct (only when the rest is fine)
+    if checker.errors.is_empty() {
+        let mut positions = HashMap::new();
+        for stmt in &program.stmts {
+            if let p::Stmt::FunctionDecl { name, pos, .. } = stmt {
+                if name.ends_with(".__guard") {
+                    positions.insert(name.clone(), pos.clone());
+                }
+            }
+        }
+        let reentry = crate::guard_reentry::check(&typed_stmts, &positions);
+        checker.errors.extend(reentry);
+    }
+
     if checker.errors.is_empty() {
         Ok(TypedProgram { stmts: typed_stmts, locs })
     } else {
@@ -177,8 +198,11 @@ impl Checker {
             match stmt {
                 // (a struct and an enum with the same name never get here. the
                 // module resolver already yells about duplicate names)
-                Stmt::StructDecl { name, fields, .. } => {
+                Stmt::StructDecl { name, fields, guarded, .. } => {
                     self.struct_defs.insert(name.clone(), fields.clone());
+                    if *guarded {
+                        self.guarded_structs.insert(name.clone());
+                    }
                 }
                 Stmt::EnumDecl { name, variants, values, .. } => {
                     self.enum_defs.insert(name.clone(), variants.clone());
@@ -897,6 +921,128 @@ impl Checker {
 
     // statements (the bulk of it)
 
+    /// the guarded struct that `object` (the target of a field write) is, if any.
+    /// the type is probed with its errors dropped: the real check of the statement
+    /// reports them. `$`-named temporaries are already the wrapped form of a write.
+    fn guarded_object(&mut self, object: &Expr) -> Option<String> {
+        if self.guarded_structs.is_empty() {
+            return None;
+        }
+        if let Expr::Ident(n, _) = object {
+            if n.starts_with('$') {
+                return None;
+            }
+        }
+        let before = self.errors.len();
+        let typed = self.check_expr(object);
+        self.errors.truncate(before);
+        let ty = typed?.ty().clone();
+        match ty {
+            Ty::Named(name) if self.guarded_structs.contains(&name) => Some(name),
+            _ => None,
+        }
+    }
+
+    /// `if (true) {
+    ///   let $o = object; let $old = $o.field; <write on $o>;
+    ///   let $d = @guard.enter("S");           // running guards of S in this task, before us
+    ///   try {
+    ///     if ($d > 0) { throw "..." }         // a guard of S is already running: refuse
+    ///     $o.__guard()
+    ///   } catch ($err) {
+    ///     @guard.leave("S"); $o.field = $old; throw $err
+    ///   }
+    ///   @guard.leave("S")
+    /// }`
+    /// the write runs first, then the guards; a refusal puts the old value back.
+    /// enter and leave always pair up, on the success and the refusal path.
+    fn wrap_guarded_write(&self, struct_name: &str, object: &Expr, field: &str, pos: &p::Pos, write: &dyn Fn(Expr) -> Stmt) -> Stmt {
+        let tmp = format!("$guard_obj_{}_{}", pos.line, pos.col);
+        let old = format!("$guard_old_{}_{}", pos.line, pos.col);
+        let depth = format!("$guard_depth_{}_{}", pos.line, pos.col);
+        let err = format!("$guard_err_{}_{}", pos.line, pos.col);
+        let var = |n: &str| Expr::Ident(n.to_string(), pos.clone());
+        let call = |name: &str, args: Vec<Expr>| Expr::Call {
+            callee: Box::new(Expr::Ident(name.to_string(), pos.clone())),
+            args,
+            pos: pos.clone(),
+        };
+        let name_arg = || Expr::StringLit(struct_name.to_string(), pos.clone());
+        let stmts = vec![
+            Stmt::Let { name: tmp.clone(), type_ann: None, value: object.clone(), exported: false, pos: pos.clone() },
+            Stmt::Let {
+                name: old.clone(),
+                type_ann: None,
+                value: Expr::Field { object: Box::new(var(&tmp)), field: field.to_string(), pos: pos.clone() },
+                exported: false,
+                pos: pos.clone(),
+            },
+            write(var(&tmp)),
+            Stmt::Let {
+                name: depth.clone(),
+                type_ann: None,
+                value: call("@guard.enter", vec![name_arg()]),
+                exported: false,
+                pos: pos.clone(),
+            },
+            Stmt::Try {
+                try_block: p::Block {
+                    stmts: vec![
+                        Stmt::IfStmt {
+                            cond: Expr::Binary {
+                                left: Box::new(var(&depth)),
+                                op: BinaryOp::Gt,
+                                right: Box::new(Expr::IntLit(0, pos.clone())),
+                                pos: pos.clone(),
+                            },
+                            then_branch: p::Block {
+                                stmts: vec![Stmt::Throw {
+                                    value: Expr::StringLit(
+                                        format!("a write to a {} ran inside a guard of {}: a guard cannot change its own struct", struct_name, struct_name),
+                                        pos.clone(),
+                                    ),
+                                    pos: pos.clone(),
+                                }],
+                                pos: pos.clone(),
+                            },
+                            else_branch: None,
+                            pos: pos.clone(),
+                        },
+                        Stmt::ExprStmt(Expr::Call {
+                            callee: Box::new(Expr::Field { object: Box::new(var(&tmp)), field: "__guard".to_string(), pos: pos.clone() }),
+                            args: Vec::new(),
+                            pos: pos.clone(),
+                        }),
+                    ],
+                    pos: pos.clone(),
+                },
+                catch_var: err.clone(),
+                catch_type: None,
+                catch_block: p::Block {
+                    stmts: vec![
+                        Stmt::ExprStmt(call("@guard.leave", vec![name_arg()])),
+                        Stmt::FieldAssign {
+                            object: var(&tmp),
+                            field: field.to_string(),
+                            value: var(&old),
+                            pos: pos.clone(),
+                        },
+                        Stmt::Throw { value: var(&err), pos: pos.clone() },
+                    ],
+                    pos: pos.clone(),
+                },
+                pos: pos.clone(),
+            },
+            Stmt::ExprStmt(call("@guard.leave", vec![name_arg()])),
+        ];
+        Stmt::IfStmt {
+            cond: Expr::BoolLit(true, pos.clone()),
+            then_branch: p::Block { stmts, pos: pos.clone() },
+            else_branch: None,
+            pos: pos.clone(),
+        }
+    }
+
     fn check_stmt(&mut self, stmt: &Stmt) -> Option<TypedStmt> {
         match stmt {
             Stmt::Let { name, type_ann, value, exported, pos } => {
@@ -1128,13 +1274,18 @@ impl Checker {
 
             // `compile VM { }`: an ordinary block. the compiler marks its code as VM-only
             Stmt::CompileVm { body, .. } => {
+                // a block scope, like `if`: names declared inside stay inside
+                self.push_scope();
                 let typed_body = self.check_block(body);
+                self.pop_scope();
                 Some(TypedStmt::CompileVm { body: typed_body })
             }
 
             // `compile JIT { }`: an ordinary block too. the compiler records it, and spg-jit checks it
             Stmt::CompileJit { body, .. } => {
+                self.push_scope();
                 let typed_body = self.check_block(body);
+                self.pop_scope();
                 Some(TypedStmt::CompileJit { body: typed_body })
             }
 
@@ -1544,6 +1695,16 @@ impl Checker {
             }
 
             Stmt::FieldAssign { object, field, value, pos } => {
+                if let Some(sname) = self.guarded_object(object) {
+                    let (val, fld) = (value.clone(), field.clone());
+                    let wrapped = self.wrap_guarded_write(&sname, object, field, pos, &|o| Stmt::FieldAssign {
+                        object: o,
+                        field: fld.clone(),
+                        value: val.clone(),
+                        pos: pos.clone(),
+                    });
+                    return self.check_stmt(&wrapped);
+                }
                 let typed_object = self.check_expr(object)?;
                 // a struct field's declared type is what its value is checked against (`obj.tags = [1, "a"]`)
                 let hint = match typed_object.ty() {
@@ -1587,6 +1748,17 @@ impl Checker {
             }
 
             Stmt::FieldCompoundAssign { object, field, op, value, pos } => {
+                if let Some(sname) = self.guarded_object(object) {
+                    let (val, fld, opr) = (value.clone(), field.clone(), op.clone());
+                    let wrapped = self.wrap_guarded_write(&sname, object, field, pos, &|o| Stmt::FieldCompoundAssign {
+                        object: o,
+                        field: fld.clone(),
+                        op: opr.clone(),
+                        value: val.clone(),
+                        pos: pos.clone(),
+                    });
+                    return self.check_stmt(&wrapped);
+                }
                 let typed_object = self.check_expr(object)?;
                 let typed_value = self.check_expr(value)?;
 
@@ -1683,6 +1855,29 @@ impl Checker {
             // `x++;` as a statement is `x += 1`: the same typed node, so the VM and the JIT
             // keep their fused paths. the `1` is int or float, following the target's type
             Stmt::ExprStmt(Expr::IncDec { target, delta, pos, .. }) => {
+                if let Expr::Field { object, field, .. } = &**target {
+                    if let Some(sname) = self.guarded_object(object) {
+                        let is_float = self
+                            .struct_defs
+                            .get(&sname)
+                            .and_then(|fs| fs.iter().find(|f| &f.name == field))
+                            .map_or(false, |f| resolve_type_expr(&f.type_ann) == Ty::Float);
+                        let one = if is_float {
+                            Expr::FloatLit(delta.abs() as f64, pos.clone())
+                        } else {
+                            Expr::IntLit(delta.abs(), pos.clone())
+                        };
+                        let op = if *delta > 0 { BinaryOp::Add } else { BinaryOp::Sub };
+                        let as_compound = Stmt::FieldCompoundAssign {
+                            object: (**object).clone(),
+                            field: field.clone(),
+                            op,
+                            value: one,
+                            pos: pos.clone(),
+                        };
+                        return self.check_stmt(&as_compound);
+                    }
+                }
                 let typed_target = self.check_incdec_target(target, pos)?;
                 let ty = typed_target.ty().clone();
                 self.check_incdec_numeric(&ty, *delta, pos)?;
@@ -2443,6 +2638,12 @@ impl Checker {
             }
 
             Expr::IncDec { target, delta, prefix, pos } => {
+                if let Expr::Field { object, .. } = &**target {
+                    if let Some(struct_name) = self.guarded_object(object) {
+                        self.errors.push(TypeError::GuardedIncDecValue { struct_name, pos: pos.clone() });
+                        return None;
+                    }
+                }
                 let typed_target = self.check_incdec_target(target, pos)?;
                 let ty = typed_target.ty().clone();
                 self.check_incdec_numeric(&ty, *delta, pos)?;
@@ -2637,6 +2838,20 @@ impl Checker {
             }
 
             Expr::StructLit { name, fields, pos } => {
+                if self.guarded_structs.contains(name) {
+                    let key = (pos.line, pos.col);
+                    if self.guard_literals.contains(&key) {
+                        self.guard_literals.remove(&key); // the literal inside the check call
+                    } else {
+                        self.guard_literals.insert(key);
+                        let call = Expr::Call {
+                            callee: Box::new(Expr::Ident(format!("{}.__check", name), pos.clone())),
+                            args: vec![expr.clone()],
+                            pos: pos.clone(),
+                        };
+                        return self.check_expr(&call);
+                    }
+                }
                 let struct_fields = match self.struct_defs.get(name) {
                     Some(f) => f.clone(),
                     None => {

@@ -1,0 +1,7 @@
+struct S {
+    nota: float,
+    nome: string,
+guard { me.fala(); }
+}
+
+function S.fala(me: S) -> void { print("x") }

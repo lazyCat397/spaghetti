@@ -1,4 +1,5 @@
 pub mod ast;
+mod guard;
 pub mod parser;
 
 pub use ast::*;

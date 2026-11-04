@@ -35,6 +35,13 @@ pub enum BuiltinId {
     /// `@task.all(tasks)`: waits for every task, gives back their results. the checker types it
     TaskAll,
 
+    // ---- struct guards (internal, `@guard.*` is reserved for the checker's wrapper) ----
+    /// `@guard.enter(name)`: counts one more running guard of `name` in the current task.
+    /// returns how many were already running (0 = this is the outer one)
+    GuardEnter,
+    /// `@guard.leave(name)`: undoes one `@guard.enter` for `name` in the current task
+    GuardLeave,
+
     // ---- @json (text in, text out, pain) ----
 
     // ---- strings (utf-8 says hi) ----
@@ -331,6 +338,13 @@ pub fn checker_builtins() -> Vec<(&'static str, &'static str)> {
         ("@map.map", "@map.map(m, fn(k: K, v: V) -> U) -> map<K, U>"),
         ("@map.filter", "@map.filter(m, fn(k: K, v: V) -> bool) -> map<K, V>"),
     ]
+}
+
+/// the builtins a user can see and call: `builtin_signatures()` minus the internal
+/// `@guard.*` ones, which only the checker's guard wrapper emits (the lexer already
+/// refuses `@guard` in source). editors list these, so they must not show up.
+pub fn public_builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>> {
+    builtin_signatures().into_iter().filter(|(name, _)| !name.starts_with("@guard.")).collect()
 }
 
 pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>> {
@@ -659,6 +673,8 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
 
     // ---- tasks ----
     add("@task.all", BuiltinSig { id: BuiltinId::TaskAll, params: vec![Ty::AnyArray], return_type: Ty::AnyArray });
+    add("@guard.enter", BuiltinSig { id: BuiltinId::GuardEnter, params: vec![Ty::String], return_type: Ty::Int });
+    add("@guard.leave", BuiltinSig { id: BuiltinId::GuardLeave, params: vec![Ty::String], return_type: Ty::Void });
 
     // ---- the one global shortcut: `len` (@str.len / @array.len). the only cheat code. ----
     add("len", BuiltinSig { id: BuiltinId::Len, params: vec![Ty::String], return_type: Ty::Int });

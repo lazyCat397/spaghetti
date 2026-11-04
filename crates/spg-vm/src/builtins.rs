@@ -428,6 +428,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
         // `t.wait()` is handled in the VM loop (it may re-throw a task error). never gets here.
         TaskWait => unreachable!("@task.wait is handled by the VM loop"),
         TaskAll => unreachable!("@task.all is handled by the VM loop"),
+        GuardEnter | GuardLeave => unreachable!("@guard.* is handled by the VM loop"),
         // native library calls (ps, http, ...) are made by the VM loop, through `libs::call`
         Lib(_) => unreachable!("native library calls are made by the VM loop"),
         SysReadAll => {

@@ -1,0 +1,24 @@
+struct Box {
+    value: int,
+
+    guard (me.value as v) {
+        if (v > 5) {
+            reset(me)
+        }
+    }
+}
+
+// writes to a Box: called from the guard above, so it must be refused
+fn reset(b: Box) {
+    b.value = 0
+}
+
+let b = Box { value: 1 };
+try {
+    b.value = 9
+} catch (e) {
+    print("refused: ${e}")
+}
+print("value: ${b.value}")
+b.value = 3
+print("value: ${b.value}")

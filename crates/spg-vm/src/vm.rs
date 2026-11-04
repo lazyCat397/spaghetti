@@ -81,6 +81,10 @@ pub struct Vm<'p> {
     sched: Arc<Sched>,
     /// tasks that ended with an error, for the unwaited-failure warning
     failed_tasks: Vec<Rc<TaskCell>>,
+    /// how many guards of each struct type are running, per task. a guard that writes
+    /// its own struct type (directly or through a helper) finds a running one here.
+    /// per task, so another task writing the same struct while a guard sleeps is fine.
+    guard_depth: std::collections::HashMap<(String, u64), i64>,
     /// functions the program passed to a library (`win.onClose(...)`). the library names them by
     /// their position here, and the VM runs them when the library asks
     handlers: Vec<Rc<Closure>>,
@@ -187,6 +191,7 @@ impl<'p> Vm<'p> {
             handlers: Vec::new(),
             sched: Arc::new(Sched::new()),
             failed_tasks: Vec::new(),
+            guard_depth: std::collections::HashMap::new(),
         }
     }
 
@@ -901,6 +906,30 @@ impl<'p> Vm<'p> {
                 }
                 crate::builtins::flush_stdout();
                 self.blocking(|| std::thread::sleep(std::time::Duration::from_millis(ms as u64)));
+                frame.push(Value::Void);
+            }
+            OpCode::CallBuiltin { id: spg_typecheck::BuiltinId::GuardEnter, .. } => {
+                let name = match frame.pop()? {
+                    Value::String(s) => (*s).clone(),
+                    other => return Err(RuntimeError::TypeMismatch { expected: "string", found: other.type_name() }),
+                };
+                let depth = self.guard_depth.entry((name, Sched::current())).or_insert(0);
+                let before = *depth;
+                *depth += 1;
+                frame.push(Value::Int(before));
+            }
+            OpCode::CallBuiltin { id: spg_typecheck::BuiltinId::GuardLeave, .. } => {
+                let name = match frame.pop()? {
+                    Value::String(s) => (*s).clone(),
+                    other => return Err(RuntimeError::TypeMismatch { expected: "string", found: other.type_name() }),
+                };
+                let key = (name, Sched::current());
+                if let Some(depth) = self.guard_depth.get_mut(&key) {
+                    *depth -= 1;
+                    if *depth <= 0 {
+                        self.guard_depth.remove(&key);
+                    }
+                }
                 frame.push(Value::Void);
             }
             OpCode::CallBuiltin { id: spg_typecheck::BuiltinId::TaskAll, .. } => {

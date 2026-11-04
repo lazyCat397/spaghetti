@@ -39,13 +39,13 @@ enum Piece {
 
 const KEYWORDS: &[&str] = &[
     "let", "const", "fn", "return", "if", "else", "while", "for", "in", "try", "catch", "throw", "break",
-    "continue", "when", "elif", "import", "export", "from", "install", "struct", "enum", "true", "false", "int", "float", "step",
+    "continue", "when", "elif", "guard", "import", "export", "from", "install", "struct", "enum", "true", "false", "int", "float", "step",
     "bool", "string", "void", "array",
 ];
 
 /// keywords followed by a space when a `(` comes after them: `if (x)`,
 /// but a call `f(x)` and a lambda or type `function(x)` take none
-const SPACED_PAREN_KEYWORDS: &[&str] = &["if", "elif", "while", "for", "return", "catch", "when", "else", "in", "try", "throw"];
+const SPACED_PAREN_KEYWORDS: &[&str] = &["if", "elif", "while", "for", "return", "catch", "when", "else", "in", "try", "throw", "guard"];
 
 const TWO_CHAR: &[&str] = &["==", "!=", "<=", ">=", "->", "+=", "-=", "*=", "/=", "**", "..", "&&", "||", "??", "|>"];
 

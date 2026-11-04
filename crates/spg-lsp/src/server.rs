@@ -545,7 +545,7 @@ impl<W: Write> Server<W> {
         }
         const KEYWORDS: &[&str] = &[
             "let", "const", "fn", "return", "if", "else", "while", "for", "in", "try", "catch", "throw", "break",
-            "continue", "when", "elif", "import", "export", "from", "install", "struct", "enum", "true", "false", "none", "then", "and", "or", "not",
+            "continue", "when", "elif", "guard", "import", "export", "from", "install", "struct", "enum", "true", "false", "none", "then", "and", "or", "not",
         ];
         const TYPES: &[&str] = &["int", "float", "bool", "string", "void", "array", "map", "task"];
         let edit_range = self.namespace_edit_range(uri, pos);
@@ -619,7 +619,7 @@ impl<W: Write> Server<W> {
             items.push(with_sort(item(t, 25, None, None), SORT_TYPE));
         }
 
-        let mut builtins: Vec<(String, String)> = spg_typecheck::builtins::builtin_signatures()
+        let mut builtins: Vec<(String, String)> = spg_typecheck::builtins::public_builtin_signatures()
             .into_iter()
             .map(|(name, sigs)| {
                 let detail = sigs
@@ -1884,6 +1884,7 @@ fn keyword_doc(word: &str) -> Option<&'static str> {
         "if" => "runs a block when the condition holds (the condition goes in parentheses)",
         "elif" | "else" => "the other branches of an `if`",
         "while" => "repeats a block while the condition holds",
+        "guard" => "inside a struct: a rule checked after every write to it. `guard (me.field as name) { }` for one field, `guard { }` for the whole struct. a `throw` refuses the write",
         "for" => "walks the items of an array, map or range",
         "try" => "runs a block and catches the error it may throw",
         "catch" => "receives the message of an error raised inside its `try`. always a string",

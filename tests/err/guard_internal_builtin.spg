@@ -1,0 +1,2 @@
+let x = @guard.enter("Box");
+print(x)

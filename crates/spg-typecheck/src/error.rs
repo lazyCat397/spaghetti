@@ -88,6 +88,14 @@ pub enum TypeError {
     /// `++`/`--` on something that is not a variable, an array element or a struct field
     IncDecTarget { pos: Pos },
 
+    /// `obj.field++` used as a value on a struct with `guard` blocks: a write inside an
+    /// expression cannot be wrapped in the guard check. as a statement it can.
+    GuardedIncDecValue { struct_name: String, pos: Pos },
+
+    /// a guard of `struct_name` can reach a write to `struct_name`. `path` lists the
+    /// steps from the guard to that write, for the message only.
+    GuardReentry { struct_name: String, path: Vec<String>, pos: Pos },
+
     /// `x = value` where the value's type disagrees with `x`'s type
     AssignTypeMismatch { name: String, expected: Ty, found: Ty, pos: Pos },
 
@@ -231,6 +239,8 @@ impl TypeError {
             | TypeError::NonBoolCondition { pos, .. }
             | TypeError::AssignToConst { pos, .. }
             | TypeError::IncDecTarget { pos }
+            | TypeError::GuardedIncDecValue { pos, .. }
+            | TypeError::GuardReentry { pos, .. }
             | TypeError::AssignTypeMismatch { pos, .. }
             | TypeError::LoopControlOutsideLoop { pos, .. }
             | TypeError::CannotInferReturnType { pos, .. }
@@ -435,6 +445,14 @@ impl TypeError {
             TypeError::NonBoolCondition { found, .. } => write!(
                 f, "{}condition must be bool, found {}",
                 self.location(), found
+            ),
+            TypeError::GuardReentry { struct_name, path, .. } => write!(
+                f, "{}a guard of '{}' can write to '{}' again: {}. a guard cannot change its own struct",
+                self.location(), struct_name, struct_name, path.join(" -> ")
+            ),
+            TypeError::GuardedIncDecValue { struct_name, .. } => write!(
+                f, "{}'++' and '--' on a field of struct '{}' (it has guards) must be a statement, like `obj.field++;`",
+                self.location(), struct_name
             ),
             TypeError::IncDecTarget { .. } => write!(
                 f, "{}'++' and '--' work on a variable, an array element or a struct field (like `i++` or `a[i]++`)",

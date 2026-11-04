@@ -3,6 +3,7 @@ pub mod docs;
 pub mod error;
 pub mod typed_ast;
 pub mod checker;
+mod guard_reentry;
 
 pub use builtins::BuiltinId;
 pub use error::TypeError;

@@ -1,0 +1,10 @@
+struct M {
+    v: int,
+    guard (me.v as x) {
+        if (x > 3) {
+            throw "big"
+        }
+    }
+}
+let m = M { v: 1 };
+let y = m.v++;

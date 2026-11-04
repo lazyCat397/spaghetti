@@ -1,0 +1,47 @@
+struct Meter {
+    reading: int,
+    factor: float,
+
+    guard (me.reading as r) {
+        if (r > 100) {
+            throw "reading above 100"
+        }
+    }
+}
+
+let m = Meter { reading: 98, factor: 1.5 };
+m.reading++;
+m.reading++;
+print("after ++ twice: ${m.reading}");
+try {
+    m.reading++;
+} catch (e) {
+    print("refused: ${e}");
+}
+print("kept: ${m.reading}");
+m.reading -= 1;
+print("minus: ${m.reading}");
+
+// a method writes through me: the guard still runs
+struct Account {
+    balance: int,
+
+    guard (me.balance as b) {
+        if (b < 0) {
+            throw "negative balance"
+        }
+    }
+
+    fn withdraw(amount: int) {
+        me.balance = me.balance - amount
+    }
+}
+let acc = Account { balance: 10 };
+acc.withdraw(4);
+print("balance: ${acc.balance}");
+try {
+    acc.withdraw(50);
+} catch (e) {
+    print("withdraw refused: ${e}");
+}
+print("final balance: ${acc.balance}");

@@ -1,0 +1,29 @@
+// a guard may write a different struct type; that type's guard runs, and it is not a loop
+struct Tank {
+    level: int,
+
+    guard (me.level as l) {
+        if (l > 100) {
+            throw "overflow"
+        }
+    }
+}
+
+fn top_up(t: Tank, amount: int) {
+    t.level = t.level + amount
+}
+
+struct Pump {
+    flow: int,
+
+    guard (me.flow as f) {
+        if (f > 50) {
+            let t = Tank { level: 0 }
+            top_up(t, 10)
+        }
+    }
+}
+
+let p = Pump { flow: 1 };
+p.flow = 60;
+print(p.flow)

@@ -333,6 +333,10 @@ pub enum Stmt {
         name: String,
         fields: Vec<Param>, // reuses Param: name + type
         exported: bool,
+        /// true when the body has `guard` blocks. the parser already turned them
+        /// into `Name.__guard` / `Name.__check`; the checker rewrites every write
+        /// to such a struct so the guards run after it (and roll it back on throw).
+        guarded: bool,
         pos: Pos,
     },
 
@@ -529,4 +533,13 @@ impl Stmt {
             Stmt::ExprStmt(e) => e.pos(),
         }
     }
+}
+
+/// one `guard` block of a struct body. `target` is `Some((field, alias))` for
+/// `guard (me.field as alias)` and `None` for the global `guard { }`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GuardSpec {
+    pub target: Option<(String, Option<String>)>,
+    pub body: Block,
+    pub pos: Pos,
 }

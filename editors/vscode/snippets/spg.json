@@ -252,5 +252,31 @@
       "\"${${1:expr}}\""
     ],
     "description": "String with an embedded expression"
+  },
+  "Struct with guard": {
+    "prefix": "guardstruct",
+    "body": [
+      "struct ${1:Name} {",
+      "\t${2:field}: ${3:int},",
+      "",
+      "\tguard (me.${2:field} as ${4:v}) {",
+      "\t\tif (${4:v} ${5:<} ${6:0}) {",
+      "\t\t\tthrow \"${7:message}\"",
+      "\t\t}",
+      "\t}",
+      "}"
+    ],
+    "description": "Struct with a guard on one field: checked after every write to it"
+  },
+  "Guard": {
+    "prefix": "guard",
+    "body": [
+      "guard (me.${1:field} as ${2:v}) {",
+      "\tif (${2:v} ${3:<} ${4:0}) {",
+      "\t\tthrow \"${5:message}\"",
+      "\t}",
+      "}"
+    ],
+    "description": "Rule for one field of a struct: a throw refuses the write"
   }
 }

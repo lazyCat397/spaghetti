@@ -136,7 +136,23 @@ lines print_big.spg 30000 29999
 exact1 print_before_error.spg 'a\nE1\nb\nruntime error: division by zero\n  at <main> (err/print_before_error.spg:5)'
 
 # fused array-index ops (hand-verified values; the OOB errors must keep the exact message)
+# struct guard blocks: checked after every write (and rolled back on throw)
+ok guard_basic.spg       '7.5\n9.5\nrefused: grade must be between 0 and 10\nafter refusal: 9.5\ncompound: 10.0\nglobal refused: a top grade needs a name\nb unchanged: 5.0\nliteral refused: grade must be between 0 and 10\narray elem: 8.0'
+ok guard_incdec.spg     'after ++ twice: 100\nrefused: reading above 100\nkept: 100\nminus: 99\nbalance: 6\nwithdraw refused: negative balance\nfinal balance: 6'
+err guard_reentry_static.spg 'again: guard of Box -> reset'
+err guard_reentry_chain.spg 'guard of Node -> step_one -> step_two'
+ok guard_reentry_runtime.spg 'refused: a write to a Box ran inside a guard of Box: a guard cannot change its own struct\nvalue: 1\nvalue: 3'
+ok guard_other_struct.spg '60'
+ok guard_concurrent.spg 'main wrote: 7\ntask a sees: 7\nfinal: 7'
 ok index_fused.spg       '[3, 2, 15, 7]\n[1.75, 3.25]\n[false, true, true]\n[[1, 12], [3, 3]]\n5\n9'
+err guard_write_me.spg 'a guard cannot write to '"'"'me'"'"''
+err guard_return.spg 'a guard cannot use '"'"'return'"'"''
+err guard_method_on_me.spg 'a guard cannot call methods on'
+err guard_other_field.spg 'this guard reads only'
+err guard_unknown_field.spg 'has no field '"'"'age'"'"''
+err guard_incdec_value.spg 'must be a statement'
+err guard_outside_struct.spg 'expected an expression'
+err guard_internal_builtin.spg 'unknown namespace '"'"'@guard'"'"''
 err default_before_required.spg 'parameters after one with a default need one too'
 err default_not_literal.spg 'a literal default value'
 err incdec_const.spg 'declared as const'
@@ -654,6 +670,8 @@ err friendly_undefined.spg 'Check the spelling of the name, and declare it befor
 err friendly_parse_eof.spg 'but I found the end of the file'
 err friendly_parse_else.spg 'needs an '"'"'else'"'"' too'
 err friendly_parse_token.spg 'but I found '"'"'='"'"'.'
+err compile_block_scope.spg 'undefined variable' 'x'
+err compile_needs_brace.spg "after 'compile JIT'"
 
 say "multi-file: $pass ok, $fail failed${NOJIT_ONLY:+, $skipped skipped (VM-only: the JIT run covers them)}"
 [ "$fail" = 0 ]

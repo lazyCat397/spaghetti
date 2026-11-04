@@ -39,6 +39,8 @@ pub enum TokenKind {
     From,
     Struct,
     Enum,
+    /// `guard (me.field) { }` / `guard { }` inside a struct body
+    Guard,
 
     // primitive types (type keywords, not plain idents)
     TypeInt,
@@ -148,6 +150,7 @@ pub fn lookup_keyword(word: &str) -> Option<TokenKind> {
         "from" => Some(TokenKind::From),
         "struct" => Some(TokenKind::Struct),
         "enum" => Some(TokenKind::Enum),
+        "guard" => Some(TokenKind::Guard),
         "true" => Some(TokenKind::Bool(true)),
         "false" => Some(TokenKind::Bool(false)),
         "none" => Some(TokenKind::NoneLit),
