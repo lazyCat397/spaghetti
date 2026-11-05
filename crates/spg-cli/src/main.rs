@@ -225,7 +225,7 @@ fn execute_program(bytecode: &Program, spec: &spg_lexer::FileSpec, program_args:
         // the panic hook is silenced for this step only, so the user sees nothing.
         let hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(|_| {}));
-        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| spg_jit::build(src)));
+        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| spg_jit::build(src, &bytecode.struct_defs)));
         std::panic::set_hook(hook);
         let built = match built {
             Ok(r) => r,

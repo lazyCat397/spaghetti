@@ -77,6 +77,18 @@ fn compile_body(
     // per-struct field-name -> position map, so MakeStruct/FieldGet/
     // FieldSet can resolve `def_index`/`field_index` at compile time.
     // the VM never looks a struct or field up by name. good, the VM is busy.
+    // enum name -> its index in `Program.enum_defs`. same order as the pass that fills
+    // `enum_defs` below, so the two indices always agree.
+    let enum_index: HashMap<String, usize> = program
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            TypedStmt::EnumDecl { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .enumerate()
+        .map(|(i, n)| (n, i))
+        .collect();
     let mut struct_defs: Vec<std::rc::Rc<spg_vm::value::StructDef>> = Vec::new();
     let mut struct_name_to_index: HashMap<String, usize> = HashMap::new();
     let mut struct_field_indices: HashMap<String, HashMap<String, usize>> = HashMap::new();
@@ -100,6 +112,7 @@ fn compile_body(
                     Ty::Float => Some(spg_vm::chunk::NativeKind::Float),
                     Ty::Bool => Some(spg_vm::chunk::NativeKind::Bool),
                     Ty::String => Some(spg_vm::chunk::NativeKind::String),
+                    Ty::Named(n) => enum_index.get(&n).map(|i| spg_vm::chunk::NativeKind::Enum(*i)),
                     _ => None,
                 })
                 .collect();
@@ -199,7 +212,10 @@ fn compile_body(
                         TypeExpr::Bool => Some(NativeKind::Bool),
                         TypeExpr::String => Some(NativeKind::String),
                         TypeExpr::Array(inner) => elem(inner).map(NativeKind::Array),
-                        TypeExpr::Named(n) => struct_idx.get(n).map(|i| NativeKind::Struct(*i)),
+                        TypeExpr::Named(n) => struct_idx
+                            .get(n)
+                            .map(|i| NativeKind::Struct(*i))
+                            .or_else(|| enum_index.get(n).map(|i| NativeKind::Enum(*i))),
                         _ => None,
                     };
                     let kind_r = |t: &Ty| match t {
@@ -207,6 +223,12 @@ fn compile_body(
                         Ty::Float => Some(NativeKind::Float),
                         Ty::Bool => Some(NativeKind::Bool),
                         Ty::String => Some(NativeKind::String),
+                        Ty::Void => Some(NativeKind::Void),
+                        // a struct comes back as an owned reference the VM takes over
+                        Ty::Named(n) => struct_idx
+                            .get(n)
+                            .map(|i| NativeKind::Struct(*i))
+                            .or_else(|| enum_index.get(n).map(|i| NativeKind::Enum(*i))),
                         _ => None,
                     };
                     let ps: Option<Vec<NativeKind>> = params.iter().map(|p| kind_t(&p.type_ann)).collect();
@@ -310,6 +332,10 @@ struct FunctionCompiler<'a> {
     /// blocks. keeps slot lookup simple, at the cost of
     /// slightly more stack space than strictly needed. fine.
     next_slot: usize,
+    /// the hidden local that carries the result of `and`/`or`. one per function is enough:
+    /// the result is read right after it is written, and a nested `and`/`or` only runs
+    /// before the outer one writes it. created on first use.
+    logic_temp: Option<usize>,
     function_index: &'a HashMap<String, usize>,
     struct_table: &'a StructTable,
     /// name -> global slot for every root-scope variable of the program
@@ -355,6 +381,7 @@ impl<'a> FunctionCompiler<'a> {
             sink: Default::default(),
             scopes: Vec::new(),
             next_slot: 0,
+            logic_temp: None,
             function_index,
             struct_table,
             globals,
@@ -1529,32 +1556,49 @@ impl<'a> FunctionCompiler<'a> {
         // And/Or short-circuit: the right side is only evaluated when
         // it can still change the result. so these compile to jumps
         // instead of an eager two-value opcode. lazy, and proud of it.
-        if matches!(op, BinaryOp::And) {
+        // And/Or short-circuit, and their result never stays on the operand stack across a
+        // jump: each value goes through one hidden local (SetLocal leaves the value on the
+        // stack, so every store is followed by a Pop). the JIT only compiles jumps that leave
+        // the stack empty, and this keeps `a && b` native wherever it appears. lazy, and proud of it.
+        if matches!(op, BinaryOp::And | BinaryOp::Or) {
+            let t = match self.logic_temp {
+                Some(t) => t,
+                None => {
+                    let t = self.hidden_local();
+                    self.logic_temp = Some(t);
+                    t
+                }
+            };
             self.compile_expr(left)?;
-            // if left is false, short-circuit: jump straight past the
-            // right-hand evaluation, leaving `false` as the result
-            let jump_if_false = self.chunk.emit(OpCode::JumpIfFalse(0));
-            self.compile_expr(right)?;
-            let jump_over_false = self.chunk.emit(OpCode::Jump(0));
-            let push_false_at = self.chunk.next_index();
-            self.chunk.patch_jump(jump_if_false, push_false_at);
-            let idx = self.chunk.add_constant(Value::Bool(false));
-            self.chunk.emit(OpCode::Const(idx));
-            let after = self.chunk.next_index();
-            self.chunk.patch_jump(jump_over_false, after);
-            return Ok(());
-        }
-        if matches!(op, BinaryOp::Or) {
-            self.compile_expr(left)?;
-            let jump_if_false = self.chunk.emit(OpCode::JumpIfFalse(0));
-            let idx = self.chunk.add_constant(Value::Bool(true));
-            self.chunk.emit(OpCode::Const(idx));
-            let jump_over_right = self.chunk.emit(OpCode::Jump(0));
-            let eval_right_at = self.chunk.next_index();
-            self.chunk.patch_jump(jump_if_false, eval_right_at);
-            self.compile_expr(right)?;
-            let after = self.chunk.next_index();
-            self.chunk.patch_jump(jump_over_right, after);
+            self.chunk.emit(OpCode::SetLocal(t));
+            self.chunk.emit(OpCode::Pop);
+            if matches!(op, BinaryOp::And) {
+                // left false: the result is left (false), so jump straight to the read
+                self.chunk.emit(OpCode::GetLocal(t));
+                let skip_right = self.chunk.emit(OpCode::JumpIfFalse(0));
+                self.compile_expr(right)?;
+                self.chunk.emit(OpCode::SetLocal(t));
+                self.chunk.emit(OpCode::Pop);
+                let read = self.chunk.next_index();
+                self.chunk.patch_jump(skip_right, read);
+            } else {
+                // left true: the result is true. left false: the result is right
+                self.chunk.emit(OpCode::GetLocal(t));
+                let eval_right = self.chunk.emit(OpCode::JumpIfFalse(0));
+                let idx = self.chunk.add_constant(Value::Bool(true));
+                self.chunk.emit(OpCode::Const(idx));
+                self.chunk.emit(OpCode::SetLocal(t));
+                self.chunk.emit(OpCode::Pop);
+                let to_read = self.chunk.emit(OpCode::Jump(0));
+                let right_at = self.chunk.next_index();
+                self.chunk.patch_jump(eval_right, right_at);
+                self.compile_expr(right)?;
+                self.chunk.emit(OpCode::SetLocal(t));
+                self.chunk.emit(OpCode::Pop);
+                let read = self.chunk.next_index();
+                self.chunk.patch_jump(to_read, read);
+            }
+            self.chunk.emit(OpCode::GetLocal(t));
             return Ok(());
         }
 

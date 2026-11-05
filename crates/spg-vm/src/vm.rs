@@ -245,6 +245,7 @@ impl<'p> Vm<'p> {
                     | (Value::Array(_), NativeKind::Array(_))
             ) || matches!((v, k), (Value::Struct(s), NativeKind::Struct(d))
                 if Rc::ptr_eq(&s.borrow().0, &self.program.struct_defs[*d]))
+                || matches!((v, k), (Value::Enum(def, _), NativeKind::Enum(d)) if *def as usize == *d)
         });
         if !fits {
             return false;
@@ -260,6 +261,7 @@ impl<'p> Vm<'p> {
                 Value::String(s) => Rc::into_raw(s.clone()) as i64,
                 Value::Array(a) => Rc::into_raw(a.clone()) as i64,
                 Value::Struct(s) => Rc::into_raw(s.clone()) as i64,
+                Value::Enum(_, variant) => *variant as i64,
                 _ => unreachable!("kinds were checked above"),
             };
         }
@@ -271,7 +273,15 @@ impl<'p> Vm<'p> {
                     NativeKind::Bool => Value::Bool(r != 0),
                     NativeKind::Float => Value::Float(f64::from_bits(r as u64)),
                     // arrays never come back from native (native_sig rejects them). thank god.
-                    NativeKind::Array(_) | NativeKind::TArray(_) | NativeKind::Struct(_) => return false,
+                    NativeKind::Array(_) | NativeKind::TArray(_) => return false,
+                    // native returns an owned ref made by Rc::into_raw (a struct it built, or one it was handed)
+                    NativeKind::Struct(_) if r != 0 => {
+                        // SAFETY: same contract as the string below: one owned ref, which the value takes over
+                        Value::Struct(unsafe { Rc::from_raw(r as *const std::cell::RefCell<(Rc<crate::value::StructDef>, Vec<Value>)>) })
+                    }
+                    NativeKind::Struct(_) => return false,
+                    NativeKind::Enum(def) => Value::Enum(*def as u32, r as u32),
+                    NativeKind::Void => Value::Void,
                     NativeKind::String if r != 0 => {
                         // SAFETY: native returns an owned ref made by Rc::into_raw. trust me bro.
                         Value::String(unsafe { Rc::from_raw(r as *const String) })

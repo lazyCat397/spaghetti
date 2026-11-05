@@ -383,6 +383,7 @@ fn value_of(bits: i64, tag: i64) -> Value {
         0 => Value::Int(bits),
         1 => Value::Bool(bits != 0),
         2 => Value::Float(f64::from_bits(bits as u64)),
+        t if t >= 4 => Value::Enum((t - 4) as u32, bits as u32),
         // SAFETY: native code passes an owned reference made by Rc::into_raw
         _ => Value::String(unsafe { Rc::from_raw(bits as *const String) }),
     }
@@ -531,6 +532,7 @@ extern "C" fn spg_struct_get(p: i64, i: i64, tag: i64) -> i64 {
         (Some(Value::Bool(b)), 1) => *b as i64,
         (Some(Value::Float(f)), 2) => f.to_bits() as i64,
         (Some(Value::String(s)), 3) => Rc::into_raw(s.clone()) as i64,
+        (Some(Value::Enum(d, v)), t) if t == 4 + *d as i64 => *v as i64,
         _ => 0,
     }
 }
@@ -547,6 +549,35 @@ extern "C" fn spg_struct_release(p: i64) {
         // SAFETY: as in spg_str_release
         unsafe { drop(Rc::from_raw(p as *const RefCell<(Rc<spg_vm::value::StructDef>, Vec<Value>)>)) }
     }
+}
+
+/// makes a struct of the type behind `def` from `n` field patterns at `buf`, in field order.
+/// `def` is the address of a `StructDef` the native table keeps alive. a string field's owned
+/// reference moves into the struct. native code checked the kinds against the def, so this
+/// can't fail. returns an owned reference.
+extern "C" fn spg_struct_new(def: i64, buf: i64, n: i64) -> i64 {
+    // SAFETY: `def` is Rc::as_ptr of a def that the native table holds a reference to for as long
+    // as the code lives. `buf` holds `n` words the caller wrote just before the call
+    let def = unsafe {
+        Rc::increment_strong_count(def as *const spg_vm::value::StructDef);
+        Rc::from_raw(def as *const spg_vm::value::StructDef)
+    };
+    let words = unsafe { std::slice::from_raw_parts(buf as *const i64, n as usize) };
+    let fields: Vec<Value> = words
+        .iter()
+        .zip(def.field_kinds.iter())
+        .map(|(&bits, k)| match k {
+            Some(K::Int) => Value::Int(bits),
+            Some(K::Bool) => Value::Bool(bits != 0),
+            Some(K::Float) => Value::Float(f64::from_bits(bits as u64)),
+            Some(K::Enum(d)) => Value::Enum(*d as u32, bits as u32),
+            // SAFETY: an owned reference made by Rc::into_raw, as in value_of
+            Some(K::String) => Value::String(unsafe { Rc::from_raw(bits as *const String) }),
+            // unreachable: check() only admits the kinds above
+            _ => Value::Int(0),
+        })
+        .collect();
+    Rc::into_raw(Rc::new(RefCell::new((def, fields)))) as i64
 }
 
 /// the ownership a native-call arg carries, so a bail-out can release it
@@ -790,7 +821,7 @@ fn leaders(chunk: &Chunk) -> BTreeSet<usize> {
                 set.insert(*t);
                 set.insert(i + 1);
             }
-            OpCode::Return => {
+            OpCode::Return | OpCode::Throw => {
                 set.insert(i + 1);
             }
             _ => {}
@@ -829,6 +860,8 @@ pub enum Reason {
     LocalKind,
     /// an operand has the wrong kind for its instruction
     Operands,
+    /// builds a struct with a field native code can't hold (an array, or another struct)
+    StructField,
     /// an instruction needs more values than the stack holds
     Stack,
     /// calls a function that is not native (the function's index)
@@ -914,6 +947,7 @@ fn step(chunk: &Chunk, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::value::Struct
             Value::Float(_) => K::Float,
             Value::Bool(_) => K::Bool,
             Value::String(_) => K::String,
+            Value::Enum(def, _) => K::Enum(*def as usize),
             _ => return Err(Reason::Constant),
         }),
         OpCode::GetLocal(s) => {
@@ -930,6 +964,14 @@ fn step(chunk: &Chunk, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::value::Struct
         OpCode::Pop => {
             st.pop().ok_or(Reason::Stack)?;
         }
+        // the result of a function that returns nothing
+        OpCode::PushVoid => st.push(K::Void),
+        // native code never raises. it fails the whole call, and the VM reruns it and raises the exact
+        // error with its trace. so any kind can be thrown, it is only ever released
+        OpCode::Throw => {
+            st.pop().ok_or(Reason::Stack)?;
+            st.clear();
+        }
         OpCode::AddInt | OpCode::SubInt | OpCode::MulInt | OpCode::DivInt | OpCode::ModInt => {
             bin(st, K::Int, K::Int, K::Int)?
         }
@@ -939,13 +981,34 @@ fn step(chunk: &Chunk, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::value::Struct
         OpCode::NegFloat => un(st, K::Float, K::Float)?,
         OpCode::ConcatString => bin(st, K::String, K::String, K::String)?,
         OpCode::EqString | OpCode::NotEqString => bin(st, K::String, K::String, K::Bool)?,
-        OpCode::LtInt | OpCode::GtInt | OpCode::LtEqInt | OpCode::GtEqInt | OpCode::EqInt | OpCode::NotEqInt => {
+        OpCode::LtInt | OpCode::GtInt | OpCode::LtEqInt | OpCode::GtEqInt => {
             bin(st, K::Int, K::Int, K::Bool)?
+        }
+        // the compiler emits EqInt for `==` on enums (the VM reads a variant as its index).
+        // so an enum compares as an int here, but only with an enum of the same type.
+        OpCode::EqInt | OpCode::NotEqInt => {
+            let y = st.pop().ok_or(Reason::Stack)?;
+            let x = st.pop().ok_or(Reason::Stack)?;
+            match (x, y) {
+                (K::Int, K::Int) => st.push(K::Bool),
+                (K::Enum(a), K::Enum(b)) if a == b => st.push(K::Bool),
+                _ => return Err(Reason::Operands),
+            }
         }
         OpCode::LtFloat | OpCode::GtFloat | OpCode::LtEqFloat | OpCode::GtEqFloat | OpCode::EqFloat
         | OpCode::NotEqFloat => bin(st, K::Float, K::Float, K::Bool)?,
         OpCode::EqBool | OpCode::NotEqBool => bin(st, K::Bool, K::Bool, K::Bool)?,
         OpCode::Not => un(st, K::Bool, K::Bool)?,
+        // deep equality is only native for enums: a variant index compares as an int.
+        // arrays, maps and structs compare by content, which native code can't do.
+        OpCode::EqValue | OpCode::NotEqValue => {
+            let y = st.pop().ok_or(Reason::Stack)?;
+            let x = st.pop().ok_or(Reason::Stack)?;
+            match (x, y) {
+                (K::Enum(a), K::Enum(b)) if a == b => st.push(K::Bool),
+                _ => return Err(Reason::Operands),
+            }
+        }
         OpCode::IndexGet => {
             // stack: array, index
             pop(st, K::Int)?;
@@ -1096,6 +1159,23 @@ fn step(chunk: &Chunk, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::value::Struct
             }
             st.push(array_kind(e, typed));
         }
+        OpCode::MakeStruct { def_index, field_count } => {
+            // stack: the fields, in declaration order. every field must be one native code can hold,
+            // and each value must be of its field's kind
+            let def = structs.get(*def_index).ok_or(Reason::Operands)?;
+            if def.field_kinds.len() != *field_count || st.len() < *field_count {
+                return Err(Reason::Operands);
+            }
+            if def.field_kinds.iter().any(|k| k.is_none()) {
+                return Err(Reason::StructField);
+            }
+            let base = st.len() - *field_count;
+            if st[base..].iter().zip(&def.field_kinds).any(|(k, want)| Some(*k) != *want) {
+                return Err(Reason::Operands);
+            }
+            st.truncate(base);
+            st.push(K::Struct(*def_index));
+        }
         OpCode::JitBlock { .. } => return Err(Reason::JitBlock),
         // globals, maps, the rest of the builtins: still in the VM
         _ => return Err(Reason::Opcode),
@@ -1107,7 +1187,7 @@ fn step(chunk: &Chunk, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::value::Struct
 /// a value on entry, `ret` the kind a `Return` hands back
 fn check_init(chunk: &Chunk, init: &[Option<K>], ret: K, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::value::StructDef>], typed: bool) -> Result<Vec<K>, Refusal> {
     let code = &chunk.code;
-    if code.is_empty() || !matches!(code.last(), Some(OpCode::Return) | Some(OpCode::Jump(_))) {
+    if code.is_empty() || !matches!(code.last(), Some(OpCode::Return) | Some(OpCode::Jump(_)) | Some(OpCode::Throw)) {
         return Err(refusal(Reason::NoEnd));
     }
     // a jump may land one past the end: that's the "after the function" label. such a jump
@@ -1226,6 +1306,7 @@ fn helpers_in(module: &mut JITModule, decls: &[(&'static str, FuncId)], func: &m
         struct_get: declare("spg_struct_get"),
         struct_retain: declare("spg_struct_retain"),
         struct_release: declare("spg_struct_release"),
+        struct_new: declare("spg_struct_new"),
         arr_new: declare("spg_arr_new"),
         arr_add: declare("spg_arr_add"),
         arr_push: declare("spg_arr_push"),
@@ -1266,6 +1347,7 @@ struct Helpers {
     struct_get: FuncRef,
     struct_retain: FuncRef,
     struct_release: FuncRef,
+    struct_new: FuncRef,
     arr_new: FuncRef,
     arr_add: FuncRef,
     arr_push: FuncRef,
@@ -1404,7 +1486,9 @@ fn struct_tag(k: K) -> i64 {
         K::Bool => 1,
         K::Float => 2,
         K::String => 3,
-        _ => unreachable!("check() admits only scalar and string fields"),
+        // enum fields: tag 4 + the enum's def index, so value_of can rebuild Value::Enum
+        K::Enum(d) => 4 + d as i64,
+        _ => unreachable!("check() admits only scalar, string and enum fields"),
     }
 }
 
@@ -1527,6 +1611,7 @@ fn lower(
                         h.retain(b, K::String, p);
                         (p, K::String)
                     }
+                    Value::Enum(def, variant) => (b.ins().iconst(I64, *variant as i64), K::Enum(*def as usize)),
                     _ => unreachable!("check() rejects other constants"),
                 };
                 stack.push(entry);
@@ -1553,6 +1638,19 @@ fn lower(
             OpCode::Pop => {
                 let (v, k) = stack.pop().unwrap();
                 h.release(b, k, v);
+            }
+            OpCode::PushVoid => stack.push((b.ins().iconst(I64, 0), K::Void)),
+            OpCode::Throw => {
+                // the thrown value is ours, and so is whatever else sits on the stack. release it all,
+                // then fail the call: `fail` releases the heap locals and sets the flag
+                let (v, k) = stack.pop().unwrap();
+                h.release(b, k, v);
+                for (t, k) in heap_temps(&stack) {
+                    h.release(b, k, t);
+                }
+                stack.clear();
+                b.ins().jump(fail, &[]);
+                terminated = true;
             }
             OpCode::AddInt | OpCode::SubInt => {
                 let (y, _) = stack.pop().unwrap();
@@ -1798,6 +1896,29 @@ fn lower(
                 guard(b, h, status, fail, temps);
                 h.release(b, sk, s);
             }
+            OpCode::MakeStruct { def_index, field_count } => {
+                // stack: the fields, in order. their values go to a stack buffer and the helper builds
+                // the struct. a string field's ref moves into it, so nothing is left to release
+                let at = stack.len() - field_count;
+                let fields: Vec<(CV, K)> = stack.drain(at..).collect();
+                let slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, (8 * fields.len().max(1)) as u32));
+                for (i, &(v, _)) in fields.iter().enumerate() {
+                    let ty = b.func.dfg.value_type(v);
+                    let bits = if ty == F64 {
+                        b.ins().bitcast(I64, MemFlags::new(), v)
+                    } else if ty == I64 {
+                        v
+                    } else {
+                        b.ins().uextend(I64, v)
+                    };
+                    b.ins().stack_store(bits, slot, Offset32::new((8 * i) as i32));
+                }
+                let buf = b.ins().stack_addr(I64, slot, Offset32::new(0));
+                let def = b.ins().iconst(I64, Rc::as_ptr(&structs[*def_index]) as usize as i64);
+                let n = b.ins().iconst(I64, fields.len() as i64);
+                let inst = b.ins().call(h.struct_new, &[def, buf, n]);
+                stack.push((b.inst_results(inst)[0], K::Struct(*def_index)));
+            }
             OpCode::EqBool | OpCode::NotEqBool => {
                 let (y, _) = stack.pop().unwrap();
                 let (x, _) = stack.pop().unwrap();
@@ -1816,6 +1937,14 @@ fn lower(
                     OpCode::EqInt => IntCC::Equal,
                     _ => IntCC::NotEqual,
                 };
+                let c = b.ins().icmp(cc, x, y);
+                stack.push((b.ins().uextend(I64, c), K::Bool));
+            }
+            OpCode::EqValue | OpCode::NotEqValue => {
+                // enums only (the checker refused everything else): same type, so compare the variant index
+                let (y, _) = stack.pop().unwrap();
+                let (x, _) = stack.pop().unwrap();
+                let cc = if matches!(op, OpCode::EqValue) { IntCC::Equal } else { IntCC::NotEqual };
                 let c = b.ins().icmp(cc, x, y);
                 stack.push((b.ins().uextend(I64, c), K::Bool));
             }
@@ -2053,9 +2182,32 @@ fn lower(
     b.seal_all_blocks();
 }
 
+/// whether two lists of struct types are the same types, in the same order
+fn same_struct_defs(a: &[Rc<spg_vm::value::StructDef>], b: &[Rc<spg_vm::value::StructDef>]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(x, y)| x.name == y.name && x.field_names == y.field_names && x.field_kinds == y.field_kinds)
+}
+
 /// compiles every eligible function of `program`. errors only if Cranelift
 /// refuses the code. the VM then keeps running everything.
-pub fn build(program: &Program) -> Result<NativeTable, String> {
+///
+/// `vm_structs` are the struct types of the program the VM runs (the optimized copy, while
+/// `program` is the plain one). native code builds structs of its own, and the VM tells a
+/// struct's type by identity, so those structs must carry the VM's `StructDef`s. both copies
+/// come from the same source, so the types agree. if they ever don't, native code stays off.
+pub fn build(program: &Program, vm_structs: &[Rc<spg_vm::value::StructDef>]) -> Result<NativeTable, String> {
+    if !same_struct_defs(&program.struct_defs, vm_structs) {
+        return Err("the plain and the optimized program disagree on their struct types".to_string());
+    }
+    let unified;
+    let program: &Program = if program.struct_defs.iter().zip(vm_structs).all(|(a, b)| Rc::ptr_eq(a, b)) {
+        program
+    } else {
+        let mut p = program.clone();
+        p.struct_defs = vm_structs.to_vec();
+        unified = p;
+        &unified
+    };
     let (elig, slots, typed, reasons) = eligible(program);
     let sigs: Vec<Option<Sig>> = (0..program.functions.len())
         .map(|i| if elig[i] { program.functions[i].native_sig.clone() } else { None })
@@ -2105,6 +2257,7 @@ pub fn build(program: &Program) -> Result<NativeTable, String> {
         ("spg_struct_get", spg_struct_get as *const u8),
         ("spg_struct_retain", spg_struct_retain as *const u8),
         ("spg_struct_release", spg_struct_release as *const u8),
+        ("spg_struct_new", spg_struct_new as *const u8),
         ("spg_arr_new", spg_arr_new as *const u8),
         ("spg_arr_add", spg_arr_add as *const u8),
         ("spg_arr_push", spg_arr_push as *const u8),
@@ -2168,6 +2321,7 @@ pub fn build(program: &Program) -> Result<NativeTable, String> {
         ("spg_struct_get", imp(&mut module, "spg_struct_get", &i3i)?),
         ("spg_struct_retain", imp(&mut module, "spg_struct_retain", &i1v)?),
         ("spg_struct_release", imp(&mut module, "spg_struct_release", &i1v)?),
+        ("spg_struct_new", imp(&mut module, "spg_struct_new", &i3i)?),
         ("spg_arr_new", imp(&mut module, "spg_arr_new", &sig(&[], Some(I64)))?),
         ("spg_arr_add", imp(&mut module, "spg_arr_add", &i3i)?),
         ("spg_arr_push", imp(&mut module, "spg_arr_push", &i3i)?),
@@ -2586,6 +2740,7 @@ pub fn explain_refusal(program: &Program, r: &Refusal) -> String {
         Reason::ReturnKind => "returns a value of the wrong kind".to_string(),
         Reason::ArrayElem => "uses an array whose elements native code can't hold (empty arrays, arrays of arrays or structs)".to_string(),
         Reason::HeapAssigned => "assigns a string or array local inside the loop".to_string(),
+        Reason::StructField => "builds a struct that has a field native code can't hold (an array or a struct)".to_string(),
         Reason::JumpOutOfLoop => "jumps out of the loop by another route than its exit".to_string(),
         Reason::NotALoop => "does not end with its backward jump".to_string(),
         Reason::VmBlock => "touches a `compile VM` block, which always runs in the VM".to_string(),

@@ -1,0 +1,14 @@
+fn leaf(n: int) {
+    if (n == 0) {
+        throw "bottom reached"
+    }
+    leaf(n - 1)
+}
+fn mid(n: int) {
+    print("mid")
+    leaf(n)
+}
+fn top() {
+    mid(3)
+}
+top()

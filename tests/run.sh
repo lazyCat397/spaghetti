@@ -659,6 +659,15 @@ ok copy_user_method.spg      '30'
 err static_enum_clash.spg "clashes with the variant"
 err static_enum_on_value.spg "is an associated function of"
 err static_enum_missing.spg "has no associated function"
+
+# ---- native code: enums, structs built and returned, void functions, throw. expected values worked out by hand ----
+ok jit_native_enum.spg           '2100\ntrue\ntrue\n300'
+ok jit_native_struct_return.spg  '59894\n199\ns\n1.5\ntrue\ntrue\n7\nord\n2.5\ntrue\ntrue'
+ok jit_native_struct_fail.spg    '999\nchanged\n999\nchanged\n999\nchanged\n999\nchanged\n999\nchanged\n20'
+ok jit_native_logic.spg 'a\nb\ntrue\na\nb\nfalse\na\nfalse\na\nfalse\na\ntrue\na\ntrue\na\nb\ntrue\na\nb\nfalse\na\nb\nc\ntrue\na\nb\nc\ntrue\na\nb\nc\nfalse\na\nb\nc\nd\ntrue\nx\ny\nz\ntrue\nx\ny\nz\nfalse\nl\nr\nm\nn\ntrue\nc1\nc2\nif-or yes\nc3\nc4\nif-and no\n4\n4\ntrue\nfalse\ntrue\np\nr\ns\ntrue'
+ok jit_refuses_logic_stack.spg '400\ntrue\ntrue\ntrue\ntrue'
+ok jit_native_void_throw.spg     '19\n69\n16\n4\nouter start\n1\nouter end\nouter start\n2\nouter end\nouter start\ncaught: too big: x\ncaught2: prefix temps\nouter start\n3\nouter end\ndone'
+exact1 jit_native_throw_trace.spg 'mid\nruntime error: unhandled exception: bottom reached\n  at leaf (err/jit_native_throw_trace.spg:3)\n  at leaf (err/jit_native_throw_trace.spg:5)\n  ... same line repeated 2 more times\n  at mid (err/jit_native_throw_trace.spg:9)\n  at top (err/jit_native_throw_trace.spg:12)\n  at <main> (err/jit_native_throw_trace.spg:14)'
 err const_push.spg 'cannot modify a const value'
 err const_nested_write.spg 'cannot modify a const value'
 err const_struct_field.spg 'cannot modify a const value'

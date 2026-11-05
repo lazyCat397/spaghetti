@@ -529,6 +529,12 @@ pub enum NativeKind {
     TArray(ElemKind),
     /// a struct of the type `Program.struct_defs[index]`
     Struct(usize),
+    /// the result of a function that returns nothing. native returns 0 and the VM pushes `Value::Void`.
+    /// never a param, and never held in a local
+    Void,
+    /// an enum of the type `Program.enum_defs[index]`. native holds only the variant
+    /// index (`Value::Enum(index, variant)`), a plain i64 with no refcount.
+    Enum(usize),
 }
 
 /// element kinds an array can have in native (no nested arrays, we're not insane)
