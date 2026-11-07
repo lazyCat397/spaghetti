@@ -35,6 +35,7 @@ OPTIONS:
     --dump-bytecode     print the compiled bytecode before running
     --no-opt            skip the superinstruction optimizer (slower; for debugging)
     --no-jit            run everything in the VM (native code for numeric, string and array functions is on by default)
+    --safe-party        run with the safe-party limits on, even if the file does not say #> safe-party
     --jit-report        after the run, print what native code made of each function and loop, and why the rest stays in the VM
     -V, --version       print the version
     -h, --help          print this help
@@ -115,6 +116,8 @@ fn run_cmd(args: &[String], execute: bool) -> i32 {
     let mut jit = true;
     // --jit-report: after the run, print what native code made of each function and loop
     let mut jit_report = false;
+    // --safe-party: the same limits as `#> safe-party`, set by whoever runs the file
+    let mut safe_party = false;
     let mut program_args: Vec<String> = Vec::new();
 
     for (i, a) in args.iter().enumerate() {
@@ -131,6 +134,7 @@ fn run_cmd(args: &[String], execute: bool) -> i32 {
             "--jit" if execute => jit = true,
             "--no-jit" if execute => jit = false,
             "--jit-report" if execute => jit_report = true,
+            "--safe-party" if execute => safe_party = true,
             s if s.starts_with('-') && s.len() > 1 => {
                 return usage_error(&format!("unknown option '{}'", s));
             }
@@ -148,10 +152,14 @@ fn run_cmd(args: &[String], execute: bool) -> i32 {
 
     // the entry file's own header picks the tone of every error it produces.
     // it's read on its own, so a file broken further down still gets it
-    let spec = std::fs::read_to_string(file)
+    let mut spec = std::fs::read_to_string(file)
         .ok()
         .and_then(|src| spg_lexer::read_file_spec(&src).ok())
         .unwrap_or_default();
+    // the flag only tightens: a file cannot switch it off with its own header
+    if safe_party {
+        spec.safe_party = true;
+    }
     // `#> no-jit` in the file: the VM only, same as --no-jit
     if spec.no_jit {
         jit = false;

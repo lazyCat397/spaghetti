@@ -38,7 +38,7 @@ pub struct FileSpec {
     pub friendly_terminal: bool,
     /// `#> strict`: ambiguities become errors (int overflow, hidden names, dead code)
     pub strict: bool,
-    /// `#> safe-party`: `ps.run` / `ps.runFile` stay inside the script's folder, for files
+    /// `#> safe-party`: `ps.run` is off, and `ps.runFile` only takes a .ps1 inside the script's folder
     pub safe_party: bool,
     /// `#> timeout N`: the program gets shot after N milliseconds
     pub timeout_ms: Option<u64>,

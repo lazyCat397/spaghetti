@@ -622,9 +622,23 @@ if [ "$code" = 0 ] && [ "$raw" = "$want" ]; then pass=$((pass+1)); tick; else
     fail=$((fail+1)); tick; say "FAIL ok/ps_missing.spg (exit=$code)"; echo "  got: $raw"; fi
 
 raw=$(timeout 30 env PATH=/nonexistent "$SPG" ok/ps_safe.spg </dev/null 2>&1); code=$?
-want='ps.runFile: blocked by #> safe-party: runFile only takes a .ps1 inside the script'"'"'s folder (no absolute paths, no ..)'
+want='ps.runFile: blocked by safe-party: runFile only takes a .ps1 inside the script'"'"'s folder (no absolute paths, no ..)'
 if [ "$code" = 0 ] && [ "$raw" = "$want" ]; then pass=$((pass+1)); tick; else
     fail=$((fail+1)); tick; say "FAIL ok/ps_safe.spg (exit=$code)"; echo "  got: $raw"; fi
+
+# safe-party also turns ps.run off. the flag does the same from the command line, and it
+# must block before PowerShell is looked for (PATH is empty here, so the other path would say "not found")
+raw=$(timeout 30 env PATH=/nonexistent "$SPG" ok/ps_safe_run.spg </dev/null 2>&1); code=$?
+want='ps.run: blocked by safe-party: ps.run is off (use ps.runFile with a .ps1 inside the script'"'"'s folder)'
+if [ "$code" = 0 ] && [ "$raw" = "$want" ]; then pass=$((pass+1)); tick; else
+    fail=$((fail+1)); tick; say "FAIL ok/ps_safe_run.spg (exit=$code)"; echo "  got: $raw"; fi
+
+raw=$(timeout 30 env PATH=/nonexistent "$SPG" ok/ps_flag.spg --safe-party </dev/null 2>&1); code=$?
+if [ "$code" = 0 ] && [ "$raw" = "$want" ]; then pass=$((pass+1)); tick; else
+    fail=$((fail+1)); tick; say "FAIL ok/ps_flag.spg --safe-party (exit=$code)"; echo "  got: $raw"; fi
+raw=$(timeout 30 env PATH=/nonexistent "$SPG" ok/ps_flag.spg </dev/null 2>&1); code=$?
+if [ "$code" = 0 ] && [ "$raw" = "ps.run: PowerShell not found (tried pwsh and powershell)" ]; then pass=$((pass+1)); tick; else
+    fail=$((fail+1)); tick; say "FAIL ok/ps_flag.spg without the flag (exit=$code)"; echo "  got: $raw"; fi
 err ps_sem_install.spg "'ps' is an installable library, not a variable: it needs \`install #ps\`"
 err ps_arroba.spg "'@ps' is not built in"
 

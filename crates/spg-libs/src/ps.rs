@@ -52,6 +52,14 @@ fn run_script(ctx: &CallCtx, args: Vec<LibValue>, file: bool) -> Result<LibValue
         Some(LibValue::Int(n)) => *n,
         _ => 30,
     };
+    // safe-party: `ps.run` runs any command, so it is off entirely. `runFile` stays,
+    // but only for a .ps1 inside the script's folder (checked below)
+    if safe_party() && !file {
+        return Err(LibError::new(
+            function,
+            "blocked by safe-party: ps.run is off (use ps.runFile with a .ps1 inside the script's folder)",
+        ));
+    }
     let (mode, arg) = if file {
         let path = std::path::Path::new(&text);
         let escapes = path.components().any(|c| {
@@ -60,7 +68,7 @@ fn run_script(ctx: &CallCtx, args: Vec<LibValue>, file: bool) -> Result<LibValue
         if safe_party() && escapes {
             return Err(LibError::new(
                 function,
-                "blocked by #> safe-party: runFile only takes a .ps1 inside the script's folder (no absolute paths, no ..)",
+                "blocked by safe-party: runFile only takes a .ps1 inside the script's folder (no absolute paths, no ..)",
             ));
         }
         // the folder of the script that made the call. relative paths are a pain.

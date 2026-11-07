@@ -56,7 +56,7 @@
       "ui onclose"
     ],
     "body": [
-      "win.onClose(function() -> void {",
+      "win.onClose(fn() -> void {",
       "\t$0",
       "})"
     ],
@@ -68,7 +68,7 @@
       "ui onfocus"
     ],
     "body": [
-      "win.onFocus(function() -> void {",
+      "win.onFocus(fn() -> void {",
       "\t$0",
       "})"
     ],
@@ -80,7 +80,7 @@
       "ui onblur"
     ],
     "body": [
-      "win.onBlur(function() -> void {",
+      "win.onBlur(fn() -> void {",
       "\t$0",
       "})"
     ],
@@ -92,7 +92,7 @@
       "ui onresize"
     ],
     "body": [
-      "win.onResize(function(${1:w}: int, ${2:h}: int) -> void {",
+      "win.onResize(fn(${1:w}: int, ${2:h}: int) -> void {",
       "\t$0",
       "})"
     ],

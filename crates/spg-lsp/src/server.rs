@@ -81,7 +81,7 @@ const DIRECTIVE_DOCS: &[(&str, &str, &str)] = &[
     ("friendly-terminal", "friendly-terminal", "#> friendly-terminal: error messages in a friendlier tone"),
     ("timeout", "timeout ", "#> timeout <ms>: stops the program after <ms> milliseconds (exit code 124)"),
     ("strict", "strict", "#> strict: int overflow, hidden names and unreachable code become errors"),
-    ("safe-party", "safe-party", "#> safe-party: ps.runFile only takes a .ps1 inside the script's folder (no absolute paths, no ..)"),
+    ("safe-party", "safe-party", "#> safe-party: ps.run is off; ps.runFile only takes a .ps1 inside the script's folder (no absolute paths, no ..)"),
     ("no-jit", "no-jit", "#> no-jit: run this file in the VM only, without the native code"),
     ("stack", "stack ", "#> stack <n>: how many nested calls the program may make, from 1 to 100000"),
     ("seed", "seed ", "#> seed <n>: the random numbers start from this seed, so the runs repeat"),

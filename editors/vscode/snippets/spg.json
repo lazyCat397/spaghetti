@@ -124,7 +124,7 @@
       "struct ${1:Name} {",
       "\t${2:field}: ${3:int}",
       "",
-      "\tfunction ${4:method}() -> ${5:int} {",
+      "\tfn ${4:method}() -> ${5:int} {",
       "\t\treturn me.${2:field}",
       "\t}",
       "}"
@@ -187,7 +187,7 @@
       "fnv"
     ],
     "body": [
-      "function(${1:x}: ${2:int}) -> ${3:int} {",
+      "fn(${1:x}: ${2:int}) -> ${3:int} {",
       "\t$0",
       "}"
     ],
@@ -198,7 +198,7 @@
       "fntype"
     ],
     "body": [
-      "function(${1:int}) -> ${2:int}"
+      "fn(${1:int}) -> ${2:int}"
     ],
     "description": "Type of a function value"
   },
