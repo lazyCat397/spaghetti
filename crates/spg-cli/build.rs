@@ -52,28 +52,35 @@ fn embed_window_icon() {
     let object = if env == "msvc" {
         let res = out.join("spgw.res");
         let rc = std::env::var("RC").unwrap_or_else(|_| "rc".to_string());
-        run(&rc, &["/nologo".into(), format!("/fo{}", res.display()), rc_file.display().to_string()]);
+        if !run(&rc, &["/nologo".into(), format!("/fo{}", res.display()), rc_file.display().to_string()]) {
+            return;
+        }
         res
     } else {
         let obj = out.join("spgw.o");
         let windres = std::env::var("WINDRES").unwrap_or_else(|_| "windres".to_string());
-        run(&windres, &[rc_file.display().to_string(), "-O".into(), "coff".into(), "-o".into(), obj.display().to_string()]);
+        if !run(&windres, &[rc_file.display().to_string(), "-O".into(), "coff".into(), "-o".into(), obj.display().to_string()]) {
+            return;
+        }
         obj
     };
     // only the window build gets the icon: the console one stays as it is
     println!("cargo:rustc-link-arg-bin=spgw={}", object.display());
 }
 
-fn run(tool: &str, args: &[String]) {
-    let status = Command::new(tool).args(args).status().unwrap_or_else(|e| {
-        panic!(
-            "could not run '{}' to build the icon of spgw ({}). Install the Windows SDK \
-             (rc.exe, or set RC) or mingw's windres (or set WINDRES)",
-            tool, e
-        )
-    });
-    if !status.success() {
-        panic!("'{}' failed to compile the icon resource of spgw", tool);
+/// runs the resource compiler. a missing tool only costs the icon: a warning, and the build goes
+/// on without it. a tool that runs and fails is a real error. returns false when it did not run
+fn run(tool: &str, args: &[String]) -> bool {
+    match Command::new(tool).args(args).status() {
+        Err(e) => {
+            println!(
+                "cargo:warning=spgw is built without its icon: could not run '{}' ({}). \
+                 Install the Windows SDK (rc.exe, or set RC) or mingw's windres (or set WINDRES)",
+                tool, e
+            );
+            false
+        }
+        Ok(status) if status.success() => true,
+        Ok(_) => panic!("'{}' failed to compile the icon resource of spgw", tool),
     }
 }
-

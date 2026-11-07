@@ -27,6 +27,14 @@ jobs:
           TAG="${GITHUB_REF_NAME#v}"
           grep -qE "^version = \"$TAG\"$" Cargo.toml || { echo "Cargo.toml version is not $TAG"; exit 1; }
 
+      - name: Locate the Windows resource compiler
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $rc = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\rc.exe" | Sort-Object FullName | Select-Object -Last 1
+          if (-not $rc) { throw 'rc.exe not found: the Windows SDK is needed for the spgw icon' }
+          "RC=$($rc.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Rust tests
         run: cargo test --workspace
 
@@ -100,14 +108,6 @@ jobs:
         with:
           name: vsix
           path: vsix
-
-      - name: Locate the Windows resource compiler
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $rc = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\rc.exe" | Sort-Object FullName | Select-Object -Last 1
-          if (-not $rc) { throw 'rc.exe not found: the Windows SDK is needed for the spgw icon' }
-          "RC=$($rc.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Build spg
         run: cargo build --release
