@@ -8,6 +8,14 @@ edition.workspace = true
 name = "spg"
 path = "src/main.rs"
 
+[lib]
+name = "spg_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "spgw"
+path = "src/bin/spgw.rs"
+
 [dependencies]
 spg-lexer = { path = "../spg-lexer" }
 spg-parser = { path = "../spg-parser" }
