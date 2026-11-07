@@ -64,7 +64,6 @@ pub static MODULE: NativeModule = NativeModule {
                 NativeField { name: "mouseInside", get: "_getMouseInside", set: None },
                 NativeField { name: "typed", get: "_getTyped", set: None },
                 NativeField { name: "antialias", get: "_getAntialias", set: Some("_setAntialias") },
-                NativeField { name: "windowIcon", get: "_getWindowIcon", set: Some("_setWindowIcon") },
             ],
             methods: &[("rect", "rect"), ("ellipse", "ellipse"), ("line", "line"), ("polygon", "polygon"), ("nextFrame", "nextFrame"), ("isDown", "isDown"), ("wasPressed", "wasPressed"), ("wasReleased", "wasReleased"), ("close", "close"), ("onClose", "onClose"), ("onFocus", "onFocus"), ("onBlur", "onBlur"), ("onResize", "onResize"), ("mouseDown", "mouseDown"), ("mousePressed", "mousePressed"), ("mouseReleased", "mouseReleased"), ("label", "label"), ("image", "image")],
         },
@@ -225,8 +224,6 @@ pub static MODULE: NativeModule = NativeModule {
         NativeFn { name: "_setBackground", sig: "(Window, int) -> void", doc: "internal: win.background = color", call: set_background },
         NativeFn { name: "_getAntialias", sig: "(Window) -> bool", doc: "internal: win.antialias", call: get_antialias },
         NativeFn { name: "_setAntialias", sig: "(Window, bool) -> void", doc: "internal: win.antialias = value", call: set_antialias },
-        NativeFn { name: "_getWindowIcon", sig: "(Window) -> string", doc: "internal: win.windowIcon", call: get_window_icon },
-        NativeFn { name: "_setWindowIcon", sig: "(Window, string) -> void", doc: "internal: win.windowIcon = path", call: set_window_icon },
         NativeFn { name: "_getWidth", sig: "(Window) -> int", doc: "internal: win.width", call: get_width },
         NativeFn { name: "_getHeight", sig: "(Window) -> int", doc: "internal: win.height", call: get_height },
         NativeFn { name: "_getX", sig: "(Shape) -> float", doc: "internal: shape.x", call: get_x },
@@ -1046,39 +1043,6 @@ fn set_antialias(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError>
     Ok(LibValue::Void)
 }
 
-/// `win.windowIcon`: the file the icon of the window comes from, as resolved; `""` before any is set
-fn get_window_icon(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
-    const F: &str = "Window.windowIcon";
-    let id = window_id(F, &args)?;
-    let value = with_window(F, id, |w| Ok(w.icon().to_string()))?;
-    Ok(LibValue::Str(value))
-}
-
-/// `win.windowIcon = "./icon.ico"`: an `.ico` file, relative to the script like a font or a picture.
-/// the file is read now, so a wrong path or a file that is not an icon is an error here
-fn set_window_icon(ctx: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
-    const F: &str = "Window.windowIcon";
-    let id = window_id(F, &args)?;
-    let path = text_arg(F, &args, 1)?;
-    if path.is_empty() {
-        return Err(LibError::new(F, "the icon path cannot be empty"));
-    }
-    let resolved = resolve_path(ctx, &path);
-    let bytes = std::fs::read(&resolved)
-        .map_err(|e| LibError::new(F, format!("cannot read the icon \"{path}\": {e}")))?;
-    if !is_ico(&bytes) {
-        return Err(LibError::new(F, format!("the icon \"{path}\" is not an .ico file")));
-    }
-    let text = resolved.to_string_lossy().into_owned();
-    with_window(F, id, |w| w.set_icon(&text))?;
-    Ok(LibValue::Void)
-}
-
-/// an `.ico` file starts with the reserved zero, the type 1 (icon) and the number of images
-fn is_ico(bytes: &[u8]) -> bool {
-    bytes.len() >= 6 && bytes[..4] == [0, 0, 1, 0]
-}
-
 fn get_width(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
     const F: &str = "Window.width";
     let id = window_id(F, &args)?;
@@ -1854,24 +1818,5 @@ mod tests {
         assert_eq!(get_antialias(&ctx(), vec![win.clone()]).unwrap(), LibValue::Bool(false));
         set_antialias(&ctx(), vec![win.clone(), LibValue::Bool(true)]).unwrap();
         assert_eq!(get_antialias(&ctx(), vec![win]).unwrap(), LibValue::Bool(true));
-    }
-
-    #[test]
-    fn window_icon_must_be_an_ico_file() {
-        let win = open("icon", 8, 8);
-        let dir = std::env::temp_dir();
-        let png = dir.join("spg_ui_test_icon.png");
-        std::fs::write(&png, [0x89, b'P', b'N', b'G', 0, 0, 0, 0]).unwrap();
-        let err = set_window_icon(&ctx(), vec![win.clone(), s(png.to_str().unwrap())]).unwrap_err();
-        assert!(err.reason.contains("not an .ico file"), "got: {}", err.reason);
-
-        let ico = dir.join("spg_ui_test_icon.ico");
-        std::fs::write(&ico, [0, 0, 1, 0, 1, 0, 16, 16, 0, 0]).unwrap();
-        let path = ico.to_str().unwrap().to_string();
-        set_window_icon(&ctx(), vec![win.clone(), s(&path)]).unwrap();
-        assert_eq!(get_window_icon(&ctx(), vec![win.clone()]).unwrap(), s(&path));
-
-        assert!(set_window_icon(&ctx(), vec![win.clone(), s("")]).is_err(), "an empty path is refused");
-        assert!(set_window_icon(&ctx(), vec![win, s("no/such/file.ico")]).is_err(), "a missing file is refused");
     }
 }

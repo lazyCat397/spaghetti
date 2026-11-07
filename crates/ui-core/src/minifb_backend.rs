@@ -201,20 +201,4 @@ impl Backend for MinifbBackend {
     fn close(&mut self) {
         self.window = None;
     }
-
-    fn set_icon(&mut self, path: &str) -> Result<(), String> {
-        // only Windows takes an icon file here; minifb reads it from a path that must stay alive
-        // for the call, so the wide string is kept in this frame. other systems keep their icon
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::ffi::OsStrExt;
-            let window = self.window.as_mut().ok_or("the window is not open")?;
-            let mut wide: Vec<u16> = std::ffi::OsStr::new(path).encode_wide().collect();
-            wide.push(0);
-            window.set_icon(minifb::Icon::Path(wide.as_ptr()));
-        }
-        #[cfg(not(target_os = "windows"))]
-        let _ = path;
-        Ok(())
-    }
 }

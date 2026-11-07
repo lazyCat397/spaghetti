@@ -1583,10 +1583,3 @@ fn antialias_is_off_by_default_and_keeps_plain_shapes_exact() {
     assert!(frame.iter().all(|p| *p == BG || *p == RED), "a plain rect has square edges either way");
 }
 
-#[test]
-fn the_window_icon_is_handed_to_the_backend_and_remembered() {
-    let mut s = session(10, 10);
-    assert_eq!(s.icon(), "", "no icon until the program sets one");
-    s.set_icon("icons/app.ico").unwrap();
-    assert_eq!(s.icon(), "icons/app.ico");
-}

@@ -64,8 +64,6 @@ pub struct Session<B: Backend> {
     shape_down: HashSet<(ShapeId, Button)>,
     shape_pressed: HashSet<(ShapeId, Button)>,
     shape_released: HashSet<(ShapeId, Button)>,
-    /// the icon file last set on the window, as the program gave it (empty: the default icon)
-    icon: String,
 }
 
 fn closed() -> String {
@@ -108,23 +106,7 @@ impl<B: Backend> Session<B> {
             shape_down: HashSet::new(),
             shape_pressed: HashSet::new(),
             shape_released: HashSet::new(),
-            icon: String::new(),
         })
-    }
-
-    /// the icon file last set, as the program wrote it. empty when none was set
-    pub fn icon(&self) -> &str {
-        &self.icon
-    }
-
-    /// sets the icon of the window from the `.ico` file `path` (see `Backend::set_icon`)
-    pub fn set_icon(&mut self, path: &str) -> Result<(), String> {
-        if self.state == State::Closed {
-            return Err(closed());
-        }
-        self.backend.set_icon(path)?;
-        self.icon = path.to_string();
-        Ok(())
     }
 
     pub fn state(&self) -> State {
