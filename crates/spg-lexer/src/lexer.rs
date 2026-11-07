@@ -68,7 +68,7 @@ impl fmt::Display for LexError {
                 write!(f, "unterminated string, started at line {}, column {}", line, col)
             }
             LexError::UnterminatedBlockComment { line, col } => {
-                write!(f, "unterminated block comment, started at line {}, column {} (close it with //]])", line, col)
+                write!(f, "unterminated block comment, started at line {}, column {} (close it with }}/)", line, col)
             }
             LexError::UnknownNamespace { name, line, col } if crate::is_install_namespace(name) => write!(
                 f,
@@ -133,7 +133,7 @@ impl LexError {
                 file, line, col
             ),
             LexError::UnterminatedBlockComment { line, col } => format!(
-                "Oops! The block comment that starts at line {}, column {} in `{}` is never closed. Add `//]]` where it should end.",
+                "Oops! The block comment that starts at line {}, column {} in `{}` is never closed. Add `}}/` where it should end.",
                 line, col, file
             ),
             LexError::UnterminatedString { line, col } => format!(
@@ -480,18 +480,18 @@ impl<'a> Lexer<'a> {
                 Some(c) if c.is_whitespace() => {
                     self.advance();
                 }
-                // block comment: //[[ ... //]]  (no nesting. the first //]] closes it, no questions)
-                Some('/') if self.at(0, "//[[") => {
+                // block comment: /{ ... }/  (no nesting. the first }/ closes it, no questions)
+                Some('/') if self.at(0, "/{") => {
                     let (line, col) = (self.line, self.col);
-                    for _ in 0..4 {
+                    for _ in 0..2 {
                         self.advance();
                     }
                     loop {
                         if self.peek().is_none() {
                             return Err(LexError::UnterminatedBlockComment { line, col });
                         }
-                        if self.at(0, "//]]") {
-                            for _ in 0..4 {
+                        if self.at(0, "}/") {
+                            for _ in 0..2 {
                                 self.advance();
                             }
                             break;
@@ -1207,7 +1207,7 @@ mod directive_args_tests {
 
     #[test]
     fn block_comments_hide_code_across_lines() {
-        let src = "print(1)\n//[[ print(2)\n  // inner line comment, no nesting //[[\n//]]\nprint(3) //[[ tail //]] print(4)";
+        let src = "print(1)\n/{ print(2)\n  // inner line comment, no nesting /{\n}/\nprint(3) /{ tail }/ print(4)";
         let toks: Vec<TokenKind> = Lexer::new(src).tokenize().unwrap().into_iter().map(|t| t.kind).collect();
         let text = format!("{:?}", toks);
         assert!(text.contains("Int(1)") && text.contains("Int(3)") && text.contains("Int(4)"));
@@ -1216,15 +1216,15 @@ mod directive_args_tests {
 
     #[test]
     fn unterminated_block_comment_is_an_error_with_its_start() {
-        match Lexer::new("print(1)\n  //[[ never closed\nprint(2)").tokenize() {
+        match Lexer::new("print(1)\n  /{ never closed\nprint(2)").tokenize() {
             Err(LexError::UnterminatedBlockComment { line, col }) => assert_eq!((line, col), (2, 3)),
             other => panic!("expected UnterminatedBlockComment, got {:?}", other),
         }
     }
 
     #[test]
-    fn a_closing_marker_alone_is_just_a_line_comment() {
-        let toks: Vec<TokenKind> = Lexer::new("print(1) //]] nothing to close\nprint(2)").tokenize().unwrap().into_iter().map(|t| t.kind).collect();
+    fn block_marker_inside_a_line_comment_opens_nothing() {
+        let toks: Vec<TokenKind> = Lexer::new("print(1) // note /{ is not a block\nprint(2)").tokenize().unwrap().into_iter().map(|t| t.kind).collect();
         let text = format!("{:?}", toks);
         assert!(text.contains("Int(2)"), "{}", text);
     }
