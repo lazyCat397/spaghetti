@@ -1,0 +1,9 @@
+// #> safe-party turns cmd.run off, but cmd.exists still works: it starts nothing
+#> safe-party
+install #cmd
+try {
+    cmd.run("echo", ["ola"])
+} catch (e: string) {
+    print(e)
+}
+print(cmd.exists("programa-que-nao-existe-xyz"))

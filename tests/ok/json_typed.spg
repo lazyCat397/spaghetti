@@ -1,0 +1,10 @@
+// the typed getters read each kind as the kind asked for, and fall back on a missing path or null
+let doc = "{\"name\": \"spg\", \"n\": 3, \"pi\": 1.50, \"ok\": true, \"none\": null, \"tags\": [\"a\", \"b\"]}"
+print(@json.getString(doc, "name", "x"), @json.getInt(doc, "n", 0), @json.getFloat(doc, "pi", 0.0))
+print(@json.getBool(doc, "ok", false), @json.getFloat(doc, "n", 0.0))
+print(@json.getInt(doc, "nope", 7), @json.getString(doc, "none", "fallback"), @json.getInt(doc, "tags.9", 5))
+try {
+    print(@json.getInt(doc, "name", 0))
+} catch (e: string) {
+    print(e)
+}

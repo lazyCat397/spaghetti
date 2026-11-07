@@ -565,6 +565,16 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             let removed = map.borrow_mut().remove(&args[0]);
             Value::Bool(removed)
         }
+        MapSet => {
+            let map = as_map(args.remove(0));
+            let key = args.remove(0);
+            let value = args.remove(0);
+            crate::frozen::check_map(&map)?;
+            if !map.borrow_mut().insert(key.clone(), value) {
+                return Err(RuntimeError::TypeMismatch { expected: "int, string, bool or enum key", found: key.type_name() });
+            }
+            Value::Void
+        }
         MapLen => Value::Int(as_map(args.remove(0)).borrow().len() as i64),
         MapKeys => {
             let map = as_map(args.remove(0));

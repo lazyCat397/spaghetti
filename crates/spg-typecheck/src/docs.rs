@@ -62,6 +62,7 @@ pub fn builtin_doc(name: &str) -> Option<&'static str> {
         "@map.has" => "true if the key exists",
         "@map.get" => "the value for a key, or the fallback if it's missing",
         "@map.remove" => "remove a key, true if it was there",
+        "@map.set" => "set the value for a key: adds the key, or replaces its value. same as m[key] = value",
         "@map.keys" => "every key, as an array",
         "@map.values" => "every value, as an array",
         "@map.keysOf" => "every key that maps to the value",

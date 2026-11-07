@@ -1,0 +1,7 @@
+// run with --safe-party: cmd.run is off, even though this file has no #> safe-party header
+install #cmd
+try {
+    cmd.run("programa-que-nao-existe-xyz", [])
+} catch (e: string) {
+    print(e)
+}

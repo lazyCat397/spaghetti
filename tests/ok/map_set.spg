@@ -1,0 +1,11 @@
+// @map.set adds a key, or replaces its value. a const map can not be changed
+let ages: map<string, int> = ["ana": 30]
+@map.set(ages, "bia", 25)
+@map.set(ages, "ana", 31)
+print(ages, @map.len(ages))
+const cfg: map<string, int> = ["a": 1]
+try {
+    @map.set(cfg, "b", 2)
+} catch (e: string) {
+    print(e)
+}

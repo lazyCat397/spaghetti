@@ -20,7 +20,7 @@ count_tests() {
         case "$f" in *time_test*|*sleep*|*ps_missing*) continue;; esac
         loopn=$((loopn+1))
     done
-    avul=4                                   # build, fmt, ps_missing, ps_safe
+    avul=7                                   # build, fmt, ps_missing, ps_safe, cmd_safe, cmd_flag x2
     if [[ "$OSTYPE" != msys* && "$OSTYPE" != cygwin* ]] && command -v python3 >/dev/null 2>&1; then
         avul=$((avul+1))                     # timing/flush_latency
     fi
@@ -639,6 +639,22 @@ if [ "$code" = 0 ] && [ "$raw" = "$want" ]; then pass=$((pass+1)); tick; else
 raw=$(timeout 30 env PATH=/nonexistent "$SPG" ok/ps_flag.spg </dev/null 2>&1); code=$?
 if [ "$code" = 0 ] && [ "$raw" = "ps.run: PowerShell not found (tried pwsh and powershell)" ]; then pass=$((pass+1)); tick; else
     fail=$((fail+1)); tick; say "FAIL ok/ps_flag.spg without the flag (exit=$code)"; echo "  got: $raw"; fi
+# cmd.run is off under safe-party too, from the directive and from the flag. cmd.exists still answers.
+raw=$(timeout 30 env PATH=/nonexistent "$SPG" ok/cmd_safe.spg </dev/null 2>&1); code=$?
+want=$(printf 'cmd.run: blocked by safe-party: cmd runs other programs, so it is off (cmd.exists still works)\nfalse')
+if [ "$code" = 0 ] && [ "$raw" = "$want" ]; then pass=$((pass+1)); tick; else
+    fail=$((fail+1)); tick; say "FAIL ok/cmd_safe.spg (exit=$code)"; echo "  got: $raw"; fi
+raw=$(timeout 30 env PATH=/nonexistent "$SPG" ok/cmd_flag.spg --safe-party </dev/null 2>&1); code=$?
+want=$(printf 'cmd.run: blocked by safe-party: cmd runs other programs, so it is off (cmd.exists still works)')
+if [ "$code" = 0 ] && [ "$raw" = "$want" ]; then pass=$((pass+1)); tick; else
+    fail=$((fail+1)); tick; say "FAIL ok/cmd_flag.spg --safe-party (exit=$code)"; echo "  got: $raw"; fi
+raw=$(timeout 30 "$SPG" ok/cmd_flag.spg </dev/null 2>&1); code=$?
+if [ "$code" = 0 ] && [ "$raw" = "cmd.run: could not start 'programa-que-nao-existe-xyz': no such program" ]; then pass=$((pass+1)); tick; else
+    fail=$((fail+1)); tick; say "FAIL ok/cmd_flag.spg without the flag (exit=$code)"; echo "  got: $raw"; fi
+ok crypto_basic.spg "$(printf '%s\n' ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8 Pz8- segredo false 'crypto.decrypt: wrong password, or the text was changed')"
+ok json_typed.spg "spg 3 1.5\ntrue 3.0\n7 fallback 5\n@json.getInt: the value at 'name' is a string, not an integer"
+ok map_set.spg "[ana: 31, bia: 25] 2\ncannot modify a const value (it is read-only); use .copy() to change a copy"
+err map_set_type.spg "@map.set' argument #3 expects int, got string"
 err ps_sem_install.spg "'ps' is an installable library, not a variable: it needs \`install #ps\`"
 err ps_arroba.spg "'@ps' is not built in"
 

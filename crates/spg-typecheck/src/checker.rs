@@ -2135,6 +2135,11 @@ impl Checker {
                 want(1, &value, &mut self.errors);
                 Ty::Array(Box::new(key.clone()))
             }
+            BuiltinId::MapSet => {
+                want(1, &key, &mut self.errors);
+                want(2, &value, &mut self.errors);
+                Ty::Void
+            }
             BuiltinId::MapLen => Ty::Int,
             BuiltinId::MapKeys => Ty::Array(Box::new(key.clone())),
             _ => Ty::Array(Box::new(value.clone())), // MapValues

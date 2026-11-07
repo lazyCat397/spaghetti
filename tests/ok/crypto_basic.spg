@@ -1,0 +1,13 @@
+// hashes, HMAC, encodings and password encryption, checked against known answers
+install #crypto
+print(crypto.sha256("abc"))
+print(crypto.hmacSha256("key", "The quick brown fox jumps over the lazy dog"))
+print(crypto.base64UrlEncode("??>"))
+let sealed = crypto.encrypt("segredo", "senha")
+print(crypto.decrypt(sealed, "senha"))
+print(sealed == crypto.encrypt("segredo", "senha"))
+try {
+    print(crypto.decrypt(sealed, "errada"))
+} catch (e: string) {
+    print(e)
+}

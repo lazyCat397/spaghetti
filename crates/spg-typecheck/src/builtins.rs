@@ -146,6 +146,7 @@ pub enum BuiltinId {
     MapHas,
     MapGet,
     MapRemove,
+    MapSet,
     MapLen,
     MapKeys,
     MapValues,
@@ -224,6 +225,7 @@ impl BuiltinId {
             BuiltinId::MapHas
                 | BuiltinId::MapGet
                 | BuiltinId::MapRemove
+                | BuiltinId::MapSet
                 | BuiltinId::MapLen
                 | BuiltinId::MapKeys
                 | BuiltinId::MapValues
@@ -585,6 +587,7 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
         BuiltinSig { id: BuiltinId::MapGet, params: vec![Ty::AnyMap, Ty::Any, Ty::Any], return_type: Ty::Any },
     );
     add("@map.remove", BuiltinSig { id: BuiltinId::MapRemove, params: vec![Ty::AnyMap, Ty::Any], return_type: Ty::Bool });
+    add("@map.set", BuiltinSig { id: BuiltinId::MapSet, params: vec![Ty::AnyMap, Ty::Any, Ty::Any], return_type: Ty::Void });
     add("@map.len", BuiltinSig { id: BuiltinId::MapLen, params: vec![Ty::AnyMap], return_type: Ty::Int });
     add("@map.keys", BuiltinSig { id: BuiltinId::MapKeys, params: vec![Ty::AnyMap], return_type: Ty::AnyArray });
     add("@map.values", BuiltinSig { id: BuiltinId::MapValues, params: vec![Ty::AnyMap], return_type: Ty::AnyArray });

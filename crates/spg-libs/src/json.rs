@@ -26,6 +26,10 @@ pub static MODULE: NativeModule = NativeModule {
         NativeFn { name: "type", sig: "(string, string) -> string", doc: "the JSON type at a path: object, array, string, number, bool or null", call: type_call },
         NativeFn { name: "len", sig: "(string, string) -> int", doc: "number of items of the array or object at a path", call: len_call },
         NativeFn { name: "keys", sig: "(string, string) -> array<string>", doc: "the keys of the object at a path", call: keys_call },
+        NativeFn { name: "getString", sig: "(string, string, string) -> string", doc: "the text at the path, or the fallback if the path is not there or holds null", call: get_string_call },
+        NativeFn { name: "getInt", sig: "(string, string, int) -> int", doc: "the whole number at the path, or the fallback", call: get_int_call },
+        NativeFn { name: "getFloat", sig: "(string, string, float) -> float", doc: "the number at the path (a whole number counts too), or the fallback", call: get_float_call },
+        NativeFn { name: "getBool", sig: "(string, string, bool) -> bool", doc: "the true or false at the path, or the fallback", call: get_bool_call },
         NativeFn { name: "valid", sig: "(string) -> bool", doc: "true if the text is valid JSON", call: valid_call },
         NativeFn { name: "set", sig: "(string, string, any) -> string", doc: "a new JSON text with the value written at a path", call: set_call },
     ],
@@ -68,6 +72,74 @@ fn keys_call(_: &CallCtx, a: Vec<LibValue>) -> Out {
     keys(text(&a, 0), text(&a, 1))
         .map(|ks| LibValue::Array(ks.into_iter().map(LibValue::Str).collect()))
         .map_err(|m| LibError::new("@json.keys", m))
+}
+
+/// `@json.getString(text, path, fallback)` and its siblings: the value at the path read as the
+/// kind the program asked for. a missing path, or null, gives back the fallback. a value of
+/// another kind is an error, so a wrong type is never silently replaced by the fallback
+fn get_string_call(_: &CallCtx, a: Vec<LibValue>) -> Out {
+    let found = typed("@json.getString", &a, "a string", |j| match j {
+        Json::Str(s) => Some(LibValue::Str(s.clone())),
+        _ => None,
+    })?;
+    Ok(found.unwrap_or_else(|| fallback(&a, LibValue::Str(String::new()))))
+}
+
+fn get_int_call(_: &CallCtx, a: Vec<LibValue>) -> Out {
+    let found = typed("@json.getInt", &a, "an integer", |j| match j {
+        Json::Number(n) => n.parse::<i64>().ok().map(LibValue::Int),
+        _ => None,
+    })?;
+    Ok(found.unwrap_or_else(|| fallback(&a, LibValue::Int(0))))
+}
+
+fn get_float_call(_: &CallCtx, a: Vec<LibValue>) -> Out {
+    let found = typed("@json.getFloat", &a, "a number", |j| match j {
+        Json::Number(n) => n.parse::<f64>().ok().map(LibValue::Float),
+        _ => None,
+    })?;
+    Ok(found.unwrap_or_else(|| fallback(&a, LibValue::Float(0.0))))
+}
+
+fn get_bool_call(_: &CallCtx, a: Vec<LibValue>) -> Out {
+    let found = typed("@json.getBool", &a, "a boolean", |j| match j {
+        Json::Bool(b) => Some(LibValue::Bool(*b)),
+        _ => None,
+    })?;
+    Ok(found.unwrap_or_else(|| fallback(&a, LibValue::Bool(false))))
+}
+
+/// the fallback the program passed (the third argument), or the type's zero if it is missing
+fn fallback(a: &[LibValue], zero: LibValue) -> LibValue {
+    a.get(2).cloned().unwrap_or(zero)
+}
+
+/// the value at the path, read as the kind the caller asked for. `None` when the path is not
+/// there or holds null. the pick function returns None for a value of another kind
+fn typed(function: &'static str, a: &[LibValue], wanted: &str, pick: fn(&Json) -> Option<LibValue>) -> Result<Option<LibValue>, LibError> {
+    let path = text(a, 1);
+    let found = find(text(a, 0), path).map_err(|m| LibError::new(function, m))?;
+    match found {
+        None | Some(Json::Null) => Ok(None),
+        Some(v) => pick(&v).map(Some).ok_or_else(|| {
+            LibError::new(function, format!("the value at '{}' is {}, not {}", path, article(type_name(&v)), wanted))
+        }),
+    }
+}
+
+/// the value at the path, or None when the path is not there. this is the same test `has` makes:
+/// a text that is not JSON, or a malformed path, is still an error
+fn find(text: &str, path: &str) -> Result<Option<Json>, String> {
+    let root = parse(text)?;
+    let segs = split_path(path)?;
+    Ok(lookup(&root, &segs).ok().cloned())
+}
+
+/// "a string" / "an object", for the messages
+fn article(type_name: &str) -> String {
+    let first = type_name.chars().next().unwrap_or('x');
+    let a = if "aeiou".contains(first) { "an" } else { "a" };
+    format!("{} {}", a, type_name)
 }
 
 fn valid_call(_: &CallCtx, a: Vec<LibValue>) -> Out {
@@ -877,5 +949,48 @@ mod tests {
         assert!(set(r#"{"a":[1]}"#, "a.5", &LibValue::Int(1)).unwrap_err().contains("out of range"));
         assert!(set(r#"{"a":1}"#, "a.b", &LibValue::Int(1)).unwrap_err().contains("not an object or an array"));
         assert!(set("{oops", "a", &LibValue::Int(1)).unwrap_err().contains("invalid JSON"));
+    }
+
+    fn call(f: fn(&CallCtx, Vec<LibValue>) -> Out, args: Vec<LibValue>) -> Out {
+        f(&CallCtx { caller_file: None, caller_line: 0 }, args)
+    }
+
+    fn typed_args(text: &str, path: &str, fallback: LibValue) -> Vec<LibValue> {
+        vec![s(text), s(path), fallback]
+    }
+
+    #[test]
+    fn typed_getters_read_each_kind() {
+        assert_eq!(call(get_string_call, typed_args(DOC, "name", s("x"))).unwrap(), s("spg"));
+        assert_eq!(call(get_int_call, typed_args(DOC, "n", LibValue::Int(0))).unwrap(), LibValue::Int(3));
+        assert_eq!(call(get_float_call, typed_args(DOC, "pi", LibValue::Float(0.0))).unwrap(), LibValue::Float(1.5));
+        // a whole number reads as a float too
+        assert_eq!(call(get_float_call, typed_args(DOC, "n", LibValue::Float(0.0))).unwrap(), LibValue::Float(3.0));
+        assert_eq!(call(get_bool_call, typed_args(DOC, "ok", LibValue::Bool(false))).unwrap(), LibValue::Bool(true));
+        assert_eq!(call(get_string_call, typed_args(DOC, "nested.a\\.b", s("x"))).unwrap(), s("dot"));
+    }
+
+    #[test]
+    fn a_missing_path_or_null_gives_the_fallback() {
+        assert_eq!(call(get_int_call, typed_args(DOC, "nope", LibValue::Int(7))).unwrap(), LibValue::Int(7));
+        assert_eq!(call(get_string_call, typed_args(DOC, "none", s("padrão"))).unwrap(), s("padrão"));
+        assert_eq!(call(get_bool_call, typed_args(DOC, "tags.9", LibValue::Bool(true))).unwrap(), LibValue::Bool(true));
+    }
+
+    #[test]
+    fn a_wrong_kind_is_an_error_not_the_fallback() {
+        let err = call(get_int_call, typed_args(DOC, "name", LibValue::Int(0))).unwrap_err();
+        assert_eq!(err.function, "@json.getInt");
+        assert!(err.reason.contains("a string, not an integer"), "{}", err.reason);
+        // 1.50 is a number, but not a whole one
+        let err = call(get_int_call, typed_args(DOC, "pi", LibValue::Int(0))).unwrap_err();
+        assert!(err.reason.contains("a number, not an integer"), "{}", err.reason);
+    }
+
+    #[test]
+    fn bad_json_or_a_bad_path_is_still_an_error() {
+        let err = call(get_int_call, typed_args("[1,", "0", LibValue::Int(0))).unwrap_err();
+        assert!(err.reason.starts_with("invalid JSON"), "{}", err.reason);
+        assert!(call(get_int_call, typed_args(DOC, "a..b", LibValue::Int(0))).is_err());
     }
 }

@@ -1,0 +1,3 @@
+// @map.set checks the value against the map's type
+let m: map<string, int> = ["a": 1]
+@map.set(m, "b", "dois")

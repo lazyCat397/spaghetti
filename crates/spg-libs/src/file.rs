@@ -19,7 +19,6 @@ pub static MODULE: NativeModule = NativeModule {
         NativeFn { name: "read", sig: "(string) -> string", doc: "the whole text of a file", call: read },
         NativeFn { name: "write", sig: "(string, string) -> void", doc: "replace the file's content with the text", call: write },
         NativeFn { name: "append", sig: "(string, string) -> void", doc: "add the text at the end of the file", call: append },
-        NativeFn { name: "lines", sig: "(string) -> array<string>", doc: "the lines of a file, as an array of strings", call: lines },
         NativeFn { name: "readLines", sig: "(string) -> array<string>", doc: "the lines of a file, as an array of strings", call: read_lines },
         NativeFn { name: "writeLines", sig: "(string, array<string>) -> void", doc: "replace the file's content with the lines, each ended with a newline", call: write_lines },
         NativeFn { name: "appendLine", sig: "(string, string) -> void", doc: "add the line (plus a newline) at the end of the file", call: append_line },
@@ -89,17 +88,10 @@ fn append(_: &CallCtx, a: Vec<LibValue>) -> Out {
     Ok(LibValue::Void)
 }
 
-fn lines_of(function: &'static str, p: &str) -> Out {
-    let text = std::fs::read_to_string(p).map_err(|e| io(function, p, e))?;
-    Ok(str_array(text.lines().map(String::from)))
-}
-
-fn lines(_: &CallCtx, a: Vec<LibValue>) -> Out {
-    lines_of("@file.lines", s(&a, 0))
-}
-
 fn read_lines(_: &CallCtx, a: Vec<LibValue>) -> Out {
-    lines_of("@file.readLines", s(&a, 0))
+    let p = s(&a, 0);
+    let text = std::fs::read_to_string(p).map_err(|e| io("@file.readLines", p, e))?;
+    Ok(str_array(text.lines().map(String::from)))
 }
 
 fn write_lines(_: &CallCtx, a: Vec<LibValue>) -> Out {

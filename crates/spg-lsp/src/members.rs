@@ -1086,7 +1086,7 @@ mod tests {
         let st = names(&after_dot(&t, at, &["s".into()], &d));
         assert!(st.iter().any(|n| n == "trim") && st.iter().any(|n| n == "padStart") && !st.iter().any(|n| n == "push"));
         let mp = names(&after_dot(&t, at, &["m".into()], &d));
-        assert_eq!(mp, ["get", "has", "keys", "keysOf", "len", "remove", "values", "copy", "string"]);
+        assert_eq!(mp, ["get", "has", "keys", "keysOf", "len", "remove", "set", "values", "copy", "string"]);
         assert_eq!(names(&after_dot(&t, at, &["e".into()], &d)), mp, "`[:]` is a map");
         // a struct field of type array<string>
         assert_eq!(names(&after_dot(&t, at, &["l".into(), "tag".into()], &d)), arr);
@@ -1143,7 +1143,7 @@ mod tests {
         let (t, at, d) = dot_at_end("let xs = [1, 2].");
         assert!(names(&after_dot_expr(&t, at, &d)).iter().any(|n| n == "push"));
         let (t, at, d) = dot_at_end("let m = [\"a\": 1].");
-        assert_eq!(names(&after_dot_expr(&t, at, &d)), ["get", "has", "keys", "keysOf", "len", "remove", "values", "copy", "string"]);
+        assert_eq!(names(&after_dot_expr(&t, at, &d)), ["get", "has", "keys", "keysOf", "len", "remove", "set", "values", "copy", "string"]);
     }
 
     #[test]

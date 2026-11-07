@@ -81,7 +81,7 @@ const DIRECTIVE_DOCS: &[(&str, &str, &str)] = &[
     ("friendly-terminal", "friendly-terminal", "#> friendly-terminal: error messages in a friendlier tone"),
     ("timeout", "timeout ", "#> timeout <ms>: stops the program after <ms> milliseconds (exit code 124)"),
     ("strict", "strict", "#> strict: int overflow, hidden names and unreachable code become errors"),
-    ("safe-party", "safe-party", "#> safe-party: ps.run is off; ps.runFile only takes a .ps1 inside the script's folder (no absolute paths, no ..)"),
+    ("safe-party", "safe-party", "#> safe-party: ps.run and cmd.run are off (cmd.exists still works); ps.runFile only takes a .ps1 inside the script's folder (no absolute paths, no ..)"),
     ("no-jit", "no-jit", "#> no-jit: run this file in the VM only, without the native code"),
     ("stack", "stack ", "#> stack <n>: how many nested calls the program may make, from 1 to 100000"),
     ("seed", "seed ", "#> seed <n>: the random numbers start from this seed, so the runs repeat"),
@@ -1672,10 +1672,10 @@ mod tests {
     fn at_map_dot_offers_the_map_members() {
         let items = complete_at("compl_map", "let a = @map.\n", 0, 13);
         let labels = labels_of(&items);
-        for member in ["has", "get", "remove", "len", "keys", "values", "keysOf", "map", "filter"] {
+        for member in ["has", "get", "remove", "set", "len", "keys", "values", "keysOf", "map", "filter"] {
             assert!(labels.iter().any(|l| l == member), "missing {} in {:?}", member, labels);
         }
-        assert_eq!(items.len(), 9, "{:?}", labels);
+        assert_eq!(items.len(), 10, "{:?}", labels);
     }
 
     #[test]
