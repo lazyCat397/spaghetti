@@ -1,0 +1,36 @@
+let ascii = "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789"
+let mixed = "açúcar ação café — naïve résumé 😀 olá mundo, coração e ação! bem-vindo ao teste longo"
+let emoji = "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+
+print(@str.charAt(ascii, 0))
+print(@str.charAt(ascii, 70))
+print(@str.charAt(ascii, 3))
+print(@str.charAt(mixed, 0))
+print(@str.charAt(mixed, 1))
+print(@str.charAt(mixed, 7))
+print(@str.charAt(mixed, 25))
+print(@str.charAt(emoji, 2))
+print(@str.charAt(emoji, 39))
+print(@str.substring(ascii, 10, 20))
+print(@str.substring(mixed, 0, 10))
+print(@str.substring(mixed, 6, 14))
+print(@str.substring(emoji, 3, 6))
+print(@str.len(mixed))
+print(@str.len(emoji))
+let i = 0
+let n = @str.len(mixed)
+let acc = ""
+while (i < n) {
+    acc = acc + @str.charAt(mixed, i)
+    i = i + 1
+}
+print(acc == mixed)
+i = 0
+let ok = 0
+while (i < 80) {
+    if (@str.charAt(ascii, i) == @str.substring(ascii, i, i + 1)) {
+        ok = ok + 1
+    }
+    i = i + 1
+}
+print(ok)

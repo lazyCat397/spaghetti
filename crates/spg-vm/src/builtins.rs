@@ -164,6 +164,33 @@ pub fn flush_stdout_in_panic() {
 // tiny helpers so each arm reads as "the shape I expect". they panic only on a
 // real compiler/checker bug (wrong Value variant reaching a builtin that
 // the typechecker already constrained). if this fires, blame the checker. or me.
+thread_local! {
+    /// the last long string whose ASCII-ness was checked. a scanner calls charAt and substring on
+    /// the same source over and over, and each call used to re-scan the whole string. the entry holds
+    /// the Rc itself, so a freed string's address can't be reused and fool the pointer check
+    static ASCII_LAST: std::cell::RefCell<Option<(Rc<String>, bool)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// `s.is_ascii()`, remembered for the last long string asked about. short strings are checked
+/// directly: they'd only evict the long one (the source) from the cache
+fn is_ascii_cached(s: &Rc<String>) -> bool {
+    const LONG: usize = 64;
+    if s.len() < LONG {
+        return s.is_ascii();
+    }
+    ASCII_LAST.with(|cell| {
+        let mut last = cell.borrow_mut();
+        if let Some((cached, ascii)) = last.as_ref() {
+            if Rc::ptr_eq(cached, s) {
+                return *ascii;
+            }
+        }
+        let ascii = s.is_ascii();
+        *last = Some((s.clone(), ascii));
+        ascii
+    })
+}
+
 #[inline(always)]
 fn as_string(v: Value) -> Rc<String> {
     match v {
@@ -286,6 +313,49 @@ pub(crate) fn call_builtin_on_stack(stack: &mut Vec<Value>, id: BuiltinId, argc:
     Ok(())
 }
 
+/// `s.substring(start, end)` as the VM computes it, shared with the native backend.
+/// None where the VM raises IndexOutOfBounds (the caller decides how to report it)
+pub fn str_substring(s: &Rc<String>, start: i64, end: i64) -> Option<Rc<String>> {
+    // ASCII: char index == byte index. no per-char walk, no Vec<char>. pure joy.
+    let ascii = is_ascii_cached(s);
+    let len = if ascii { s.len() } else { s.chars().count() };
+    if start < 0 || end < start || end > len as i64 {
+        return None;
+    }
+    let (start, end) = (start as usize, end as usize);
+    let slice: String = if ascii {
+        s[start..end].to_string()
+    } else {
+        s.chars().skip(start).take(end - start).collect()
+    };
+    Some(Rc::new(slice))
+}
+
+/// `s.charAt(idx)` as the VM computes it, shared with the native backend. None where the VM
+/// raises IndexOutOfBounds
+pub fn str_char_at(s: &Rc<String>, idx: i64) -> Option<Rc<String>> {
+    // ASCII string: char `u` is byte `u`, found in O(1) once the string is known to be ASCII
+    if idx >= 0 && is_ascii_cached(s) {
+        if let Some(&b) = s.as_bytes().get(idx as usize) {
+            return Some(Rc::new((b as char).to_string()));
+        }
+    }
+    if idx >= 0 {
+        let u = idx as usize;
+        // if every byte up to and including `u` is ASCII, char `u` is byte `u`.
+        // (the old version built a whole Vec<char> per call. embarrassing.)
+        if let Some(prefix) = s.as_bytes().get(..=u) {
+            if prefix.is_ascii() {
+                return Some(Rc::new((prefix[u] as char).to_string()));
+            }
+        }
+        if let Some(c) = s.chars().nth(u) {
+            return Some(Rc::new(c.to_string()));
+        }
+    }
+    None
+}
+
 pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, RuntimeError> {
     use BuiltinId::*;
 
@@ -328,37 +398,18 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
             let s = as_string(args.remove(0));
             let start = as_int(args.remove(0));
             let end = as_int(args.remove(0));
-            // ASCII: char index == byte index. no per-char walk, no Vec<char>. pure joy.
-            let ascii = s.is_ascii();
-            let len = if ascii { s.len() } else { s.chars().count() };
-            if start < 0 || end < start || end > len as i64 {
-                return Err(RuntimeError::IndexOutOfBounds { index: end, len });
+            match str_substring(&s, start, end) {
+                Some(sub) => Value::String(sub),
+                None => return Err(RuntimeError::IndexOutOfBounds { index: end, len: s.chars().count() }),
             }
-            let (start, end) = (start as usize, end as usize);
-            let slice: String = if ascii {
-                s[start..end].to_string()
-            } else {
-                s.chars().skip(start).take(end - start).collect()
-            };
-            Value::String(Rc::new(slice))
         }
         CharAt => {
             let s = as_string(args.remove(0));
             let idx = as_int(args.remove(0));
-            if idx >= 0 {
-                let u = idx as usize;
-                // if every byte up to and including `u` is ASCII, char `u` is byte `u`.
-                // (the old version built a whole Vec<char> per call. embarrassing.)
-                if let Some(prefix) = s.as_bytes().get(..=u) {
-                    if prefix.is_ascii() {
-                        return Ok(Value::String(Rc::new((prefix[u] as char).to_string())));
-                    }
-                }
-                if let Some(c) = s.chars().nth(u) {
-                    return Ok(Value::String(Rc::new(c.to_string())));
-                }
+            match str_char_at(&s, idx) {
+                Some(c) => Value::String(c),
+                None => return Err(RuntimeError::IndexOutOfBounds { index: idx, len: s.chars().count() }),
             }
-            return Err(RuntimeError::IndexOutOfBounds { index: idx, len: s.chars().count() });
         }
         StrContains => {
             let s = as_string(args.remove(0));

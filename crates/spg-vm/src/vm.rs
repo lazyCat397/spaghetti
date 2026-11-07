@@ -126,6 +126,12 @@ pub enum LoopOutcome {
 pub trait NativeCalls {
     /// does this function have native code at all? checked before any arg work.
     fn has(&self, func_index: usize) -> bool;
+    /// could native code ever take this function? cheap and it doesn't count the call: a fused call
+    /// checks it before pushing its args, so a function native can never run costs one check.
+    fn may_have(&self, func_index: usize) -> bool {
+        let _ = func_index;
+        false
+    }
     fn call(&self, func_index: usize, args: &[i64]) -> Option<i64>;
     /// runs the loop that the instruction at `entry` (plain code) belongs to, up to `exit` (plain code),
     /// natively. `chunk` is the chunk's index (`functions.len()` for main). true when the loop ran
@@ -854,6 +860,16 @@ impl<'p> Vm<'p> {
                 frame.push(result);
             }
             OpCode::CallLocals2 { func_index, a, b } => {
+                // fused calls go native too, like a plain Call (args pushed, then undone if native refuses)
+                if self.native.as_ref().is_some_and(|n| n.may_have(func_index)) {
+                    frame.push(frame.locals[a].clone());
+                    frame.push(frame.locals[b].clone());
+                    if self.try_native(frame, func_index, 2) {
+                        return Ok(None);
+                    }
+                    frame.pop()?;
+                    frame.pop()?;
+                }
                 let callee =
                     self.program.functions.get(func_index).ok_or(RuntimeError::InvalidFunctionIndex(func_index))?;
                 let mut locals = self.pool.pop().unwrap_or_default();
@@ -864,6 +880,13 @@ impl<'p> Vm<'p> {
                 frame.push(result);
             }
             OpCode::CallLocal1 { func_index, a } => {
+                if self.native.as_ref().is_some_and(|n| n.may_have(func_index)) {
+                    frame.push(frame.locals[a].clone());
+                    if self.try_native(frame, func_index, 1) {
+                        return Ok(None);
+                    }
+                    frame.pop()?;
+                }
                 let callee =
                     self.program.functions.get(func_index).ok_or(RuntimeError::InvalidFunctionIndex(func_index))?;
                 let mut locals = self.pool.pop().unwrap_or_default();
@@ -880,9 +903,17 @@ impl<'p> Vm<'p> {
                     Value::Int(n) => *n,
                     other => return Err(RuntimeError::TypeMismatch { expected: "int", found: other.type_name() }),
                 };
+                let arg = Value::Int(arith::sub(n, k)?);
+                if self.native.as_ref().is_some_and(|n| n.may_have(func_index)) {
+                    frame.push(arg.clone());
+                    if self.try_native(frame, func_index, 1) {
+                        return Ok(None);
+                    }
+                    frame.pop()?;
+                }
                 let mut locals = self.pool.pop().unwrap_or_default();
                 locals.reserve(callee.num_locals);
-                locals.push(Value::Int(arith::sub(n, k)?));
+                locals.push(arg);
                 let result = self.run_chunk(callee, locals, frame.value_stack)?;
                 frame.push(result);
             }

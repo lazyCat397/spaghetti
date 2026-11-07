@@ -1,0 +1,25 @@
+struct P {
+    flag: bool,
+    num: float,
+    text: string,
+    n: int,
+}
+fn mk(n: int, s: string) -> P {
+    return P { flag: n > 2, num: 1.5, text: s, n: n }
+}
+fn pass(p: P) -> P {
+    return p
+}
+fn twice(n: int) -> int {
+    let p = mk(n, "x")
+    let q = pass(mk(p.n + 1, "yy"))
+    return p.n + q.n
+}
+let i = 0
+let total = 0
+while (i < 3000000) {
+    let r = pass(mk(i, "s"))
+    total = total + r.n + twice(i)
+    i = i + 1
+}
+print(total)

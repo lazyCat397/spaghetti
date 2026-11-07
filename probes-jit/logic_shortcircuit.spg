@@ -1,0 +1,43 @@
+fn t(tag: string, v: bool) -> bool {
+    print(tag)
+    return v
+}
+// every and/or shape: a side effect on each operand shows whether it was evaluated
+print(t("a", true) and t("b", true))
+print(t("a", true) and t("b", false))
+print(t("a", false) and t("b", true))
+print(t("a", false) and t("b", false))
+print(t("a", true) or t("b", true))
+print(t("a", true) or t("b", false))
+print(t("a", false) or t("b", true))
+print(t("a", false) or t("b", false))
+// nested, both sides
+print((t("a", false) or t("b", true)) and (t("c", true) or t("d", false)))
+print(t("a", true) and (t("b", false) or t("c", true)))
+print(t("a", false) or (t("b", true) and t("c", false)))
+print((t("a", true) and t("b", false)) or (t("c", false) or t("d", true)))
+// chains, the parser's shape
+print(t("x", false) or t("y", false) or t("z", true) or t("w", false))
+print(t("x", true) and t("y", true) and t("z", false) and t("w", true))
+// as call arguments and inside arithmetic-free expressions
+fn pick(p: bool, q: bool) -> bool { return p == q }
+print(pick(t("l", true) and t("r", true), t("m", false) or t("n", true)))
+// in conditions, while loops and returns
+if (t("c1", false) or t("c2", true)) { print("if-or yes") } else { print("if-or no") }
+if (t("c3", true) and t("c4", false)) { print("if-and yes") } else { print("if-and no") }
+let i = 0
+let hits = 0
+while (i < 6 and i != 4 or i == 5) {
+    hits = hits + 1
+    i = i + 1
+}
+print(hits)
+print(i)
+// and/or results are real booleans, usable anywhere a bool is
+let r = (1 < 2) and (2 < 3)
+let s = (1 > 2) or (2 > 3)
+print(r)
+print(s)
+print(r == true and s == false)
+// deep nesting, to exercise the shared temporary
+print(((t("p", true) or t("q", false)) and ((t("r", false) or t("s", true)) or t("u", false))) or t("v", true))

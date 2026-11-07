@@ -3,11 +3,17 @@
 ../examples/09_errors.spg
 ../examples/10_pipes.spg
 ../examples/12_modules.spg
+err/charat_neg.spg
+err/charat_oob.spg
+err/charat_oob_utf8.spg
 err/const_param_mutates.spg
 err/index_fused_oob_head.spg
 err/jit_native_throw_trace.spg
 err/opt_div_zero.spg
 err/opt_index_oob.spg
+err/substring_neg.spg
+err/substring_oob_utf8.spg
+err/substring_range.spg
 err/throw_in_function_uncaught.spg
 err/trace_cadeia.spg
 err/trace_lambda.spg
@@ -48,6 +54,8 @@ ok/match_basic.spg
 ok/multiline_expr.spg
 ok/newline_statements.spg
 ok/ns_free_names.spg
+ok/ns_lib.spg
+ok/ns_modulo.spg
 ok/opt_jump_targets.spg
 ok/opt_loops.spg
 ok/opt_ops.spg
@@ -62,6 +70,7 @@ ok/same_name.spg
 ok/shadowing.spg
 ok/static_basic.spg
 ok/static_enum.spg
+ok/str_chars_utf8.spg
 ok/struct_forms.spg
 ok/struct_methods.spg
 ok/struct_methods_multi.spg

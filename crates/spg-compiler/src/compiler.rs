@@ -89,6 +89,18 @@ fn compile_body(
         .enumerate()
         .map(|(i, n)| (n, i))
         .collect();
+    // struct name -> its index in `Program.struct_defs`. same order as the pass that fills
+    // `struct_defs` below, so a field can name a struct declared later in the file
+    let struct_index: HashMap<String, usize> = program
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            TypedStmt::StructDecl { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .enumerate()
+        .map(|(i, n)| (n, i))
+        .collect();
     let mut struct_defs: Vec<std::rc::Rc<spg_vm::value::StructDef>> = Vec::new();
     let mut struct_name_to_index: HashMap<String, usize> = HashMap::new();
     let mut struct_field_indices: HashMap<String, HashMap<String, usize>> = HashMap::new();
@@ -112,7 +124,17 @@ fn compile_body(
                     Ty::Float => Some(spg_vm::chunk::NativeKind::Float),
                     Ty::Bool => Some(spg_vm::chunk::NativeKind::Bool),
                     Ty::String => Some(spg_vm::chunk::NativeKind::String),
-                    Ty::Named(n) => enum_index.get(&n).map(|i| spg_vm::chunk::NativeKind::Enum(*i)),
+                    Ty::Named(n) => enum_index
+                        .get(&n)
+                        .map(|i| spg_vm::chunk::NativeKind::Enum(*i))
+                        .or_else(|| struct_index.get(&n).map(|i| spg_vm::chunk::NativeKind::Struct(*i))),
+                    // arrays of structs only, for now: scalar arrays in fields still refuse
+                    Ty::Array(elem) => match *elem {
+                        Ty::Named(n) => struct_index
+                            .get(&n)
+                            .map(|i| spg_vm::chunk::NativeKind::Array(spg_vm::chunk::ElemKind::Struct(*i))),
+                        _ => None,
+                    },
                     _ => None,
                 })
                 .collect();
@@ -1392,11 +1414,16 @@ impl<'a> FunctionCompiler<'a> {
                 if items.is_empty() {
                     // an empty literal has no items to tell its type, so the type travels in the opcode
                     let tag = match ty {
-                        Ty::Array(elem) => match **elem {
+                        Ty::Array(elem) => match &**elem {
                             Ty::Int => 0,
                             Ty::Bool => 1,
                             Ty::Float => 2,
                             Ty::String => 3,
+                            // a struct element: 16 + the struct's index (255 is the "other" tag)
+                            Ty::Named(n) => match self.struct_table.name_to_index.get(n) {
+                                Some(&i) if i < 239 => 16 + i as u8,
+                                _ => 255,
+                            },
                             _ => 255,
                         },
                         _ => 255,

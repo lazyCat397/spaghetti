@@ -1,0 +1,19 @@
+// logic operators with a value below them on the stack: the JIT must refuse, the VM must be right
+fn h(x: bool, a: bool, b: bool) -> bool {
+    return x == (a or b)
+}
+fn k(n: int, a: bool) -> bool {
+    return (n > 1) == (a and n > 2)
+}
+let i = 0
+let hits = 0
+while (i < 400) {
+    if (h(i > 100, i > 200, i == 5)) { hits = hits + 1 }
+    if (k(i, i > 300)) { hits = hits + 1 }
+    i = i + 1
+}
+print(hits)
+print(h(true, false, true))
+print(h(false, false, false))
+print(k(3, true))
+print(k(1, true))

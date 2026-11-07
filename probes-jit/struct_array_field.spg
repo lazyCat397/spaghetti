@@ -1,0 +1,37 @@
+struct Item {
+    n: int,
+}
+
+struct Bag {
+    items: array<Item>,
+    count: int,
+}
+
+fn total(b: Bag) -> int {
+    return @array.len(b.items) + b.count
+}
+
+fn reset(b: Bag) {
+    b.items = []
+}
+
+fn build(k: int) -> int {
+    let items: array<Item> = []
+    let b = Bag { items: items, count: k }
+    let before = total(b)
+    reset(b)
+    return before + total(b)
+}
+
+fn run(rounds: int) -> int {
+    let sum = 0
+    let i = 0
+    while (i < rounds) {
+        sum = sum + build(i)
+        i = i + 1
+    }
+    return sum
+}
+
+print(run(10))
+print(run(2000000))

@@ -1,0 +1,23 @@
+fn churn(s: string, i: int) -> int {
+    let c = @str.charAt(s, i % 60)
+    let t = @str.substring(s, i % 40, i % 40 + 3)
+    let u = @str.toUpper(t)
+    let w = @str.trim(u)
+    let hits = 0
+    if (@str.contains(w, "A")) {
+        hits = hits + 1
+    }
+    if (@str.startsWith(c, "a")) {
+        hits = hits + 1
+    }
+    return hits + @str.len(w)
+}
+
+let base = "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789"
+let total = 0
+let i = 0
+while (i < 1000000) {
+    total = total + churn(base, i)
+    i = i + 1
+}
+print(total)

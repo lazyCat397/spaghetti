@@ -234,7 +234,7 @@ fn execute_program(bytecode: &Program, spec: &spg_lexer::FileSpec, program_args:
         match built {
             Ok(table) => {
                 if show_time {
-                    eprintln!("--- native: {} function(s) compiled ---", table.compiled);
+                    eprintln!("--- native: {} function(s) can be compiled on demand ---", table.compiled);
                 }
                 vm.set_native(Box::new(table));
             }

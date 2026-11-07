@@ -1,0 +1,129 @@
+fn floats(x: float) {
+    let a = @math.floor(x)
+    let b = @math.ceil(x)
+    let c = @math.round(x)
+    let d = @math.sign(x)
+    let e = @math.sqrt(x)
+    let f = @math.abs(x)
+    print(a)
+    print(" ")
+    print(b)
+    print(" ")
+    print(c)
+    print(" ")
+    print(d)
+    print(" ")
+    print(e)
+    print(" ")
+    print(f)
+}
+
+fn trig(x: float) {
+    let s = @math.sin(x)
+    let c = @math.cos(x)
+    let t = @math.tan(x)
+    let at = @math.atan(x)
+    let ex = @math.exp(x)
+    let lg = @math.log(x)
+    let l2 = @math.log2(x)
+    let l10 = @math.log10(x)
+    print(s)
+    print(" ")
+    print(c)
+    print(" ")
+    print(t)
+    print(" ")
+    print(at)
+    print(" ")
+    print(ex)
+    print(" ")
+    print(lg)
+    print(" ")
+    print(l2)
+    print(" ")
+    print(l10)
+}
+
+fn conv(x: float) {
+    print(@math.toRadians(x))
+    print(" ")
+    print(@math.toDegrees(x))
+    print(" ")
+    print(@math.asin(x))
+    print(" ")
+    print(@math.acos(x))
+}
+
+fn two(a: float, b: float) {
+    print(@math.pow(a, b))
+    print(" ")
+    print(@math.atan2(a, b))
+    print(" ")
+    print(@math.min(a, b))
+    print(" ")
+    print(@math.max(a, b))
+}
+
+fn ints(a: int, b: int) {
+    print(@math.min(a, b))
+    print(" ")
+    print(@math.max(a, b))
+    print(" ")
+    print(@math.sign(a))
+}
+
+fn absInt(x: int) -> int {
+    return @math.abs(x)
+}
+
+fn clampI(x: int, lo: int, hi: int) -> int {
+    return @math.clamp(x, lo, hi)
+}
+
+fn clampF(x: float, lo: float, hi: float) -> float {
+    return @math.clamp(x, lo, hi)
+}
+
+let nan = @math.sqrt(-1.0)
+let big = 1e308 * 10.0
+let minI = -9223372036854775807 - 1
+
+let fs = [0.0, -0.0, 0.5, 2.5, -2.5, -0.5, 1.5, -1.5, 1e300, -1e300, 3.7, -3.7]
+let k = 0
+while (k < 12) {
+    print(floats(fs[k]))
+    print(trig(fs[k]))
+    print(conv(fs[k]))
+    k = k + 1
+}
+print(floats(nan))
+print(floats(big))
+print(floats(-big))
+print(two(2.0, 10.0))
+print(two(nan, 1.0))
+print(two(1.0, nan))
+print(two(-8.0, 0.5))
+print(ints(3, -4))
+print(ints(-9223372036854775807, 9223372036854775807))
+print(clampI(5, 0, 3))
+print(clampI(-2, 0, 3))
+print(clampI(2, 0, 3))
+print(clampF(5.0, 0.0, 3.0))
+print(clampF(nan, 0.0, 3.0))
+print(clampF(-1.0, 0.0, 3.0))
+try {
+    print(absInt(minI))
+} catch (e) {
+    print("abs caught")
+}
+try {
+    print(clampI(1, 5, 2))
+} catch (e) {
+    print("clamp int caught")
+}
+try {
+    print(clampF(1.0, 5.0, 2.0))
+} catch (e) {
+    print("clamp float caught")
+}
+print(absInt(-42))

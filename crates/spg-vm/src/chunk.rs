@@ -544,6 +544,8 @@ pub enum ElemKind {
     Float,
     Bool,
     String,
+    /// an array of structs of the type `Program.struct_defs[index]`. native code holds one ref per element
+    Struct(usize),
 }
 
 impl ElemKind {
@@ -554,6 +556,7 @@ impl ElemKind {
             ElemKind::Float => NativeKind::Float,
             ElemKind::Bool => NativeKind::Bool,
             ElemKind::String => NativeKind::String,
+            ElemKind::Struct(i) => NativeKind::Struct(i),
         }
     }
 }

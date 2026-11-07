@@ -1,0 +1,601 @@
+// A small Lox interpreter written in Spaghetti.
+// Usage: spg run lox.spg -- program.lox
+// Reads the file from disk, scans it, parses it into a tree, then walks the tree.
+// Supported: numbers, strings, true/false/nil, + - * /, comparisons, == !=,
+// ! - unary, and/or, print, var, assignment, blocks, if/else, while.
+
+enum TokenKind { Number, Text, Name, Symbol, End }
+
+enum ValueKind { Nil, Bool, Number, Text }
+
+enum NodeKind { Literal, Variable, Assign, Unary, Binary, Logical, Group, Print, ExprStmt, VarDecl, Block, If, While }
+
+struct Token {
+    kind: TokenKind,
+    text: string,
+    num: float,
+    line: int,
+}
+
+struct Value {
+    kind: ValueKind,
+    flag: bool,
+    num: float,
+    text: string,
+}
+
+struct Node {
+    kind: NodeKind,
+    op: string,
+    name: string,
+    value: Value,
+    kids: array<Node>,
+}
+
+fn nilValue() -> Value {
+    return Value { kind: ValueKind.Nil, flag: false, num: 0.0, text: "" }
+}
+
+fn boolValue(b: bool) -> Value {
+    return Value { kind: ValueKind.Bool, flag: b, num: 0.0, text: "" }
+}
+
+fn numberValue(n: float) -> Value {
+    return Value { kind: ValueKind.Number, flag: false, num: n, text: "" }
+}
+
+fn textValue(s: string) -> Value {
+    return Value { kind: ValueKind.Text, flag: false, num: 0.0, text: s }
+}
+
+fn makeNode(kind: NodeKind, op: string, name: string, kids: array<Node>) -> Node {
+    return Node { kind: kind, op: op, name: name, value: nilValue(), kids: kids }
+}
+
+fn literalNode(v: Value) -> Node {
+    let node = makeNode(NodeKind.Literal, "", "", [])
+    node.value = v
+    return node
+}
+
+// ---------- scanner ----------
+
+fn isDigit(c: string) -> bool {
+    return @str.contains("0123456789", c)
+}
+
+fn isNameChar(c: string) -> bool {
+    return @str.contains("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789", c)
+}
+
+fn scan(source: string) -> array<Token> {
+    let tokens: array<Token> = []
+    let n = @str.len(source)
+    let i = 0
+    let line = 1
+
+    while (i < n) {
+        let c = @str.charAt(source, i)
+
+        if (c == "\n") {
+            line += 1
+            i += 1
+        } elif (c == " " || c == "\t" || c == "\r") {
+            i += 1
+        } elif (c == "/" && i + 1 < n && @str.charAt(source, i + 1) == "/") {
+            while (i < n && @str.charAt(source, i) != "\n") {
+                i += 1
+            }
+        } elif (c == "\"") {
+            let start = i + 1
+            i += 1
+            while (i < n && @str.charAt(source, i) != "\"") {
+                if (@str.charAt(source, i) == "\n") {
+                    line += 1
+                }
+                i += 1
+            }
+            if (i >= n) {
+                throw "[line " + @into.string(line) + "] Unterminated string."
+            }
+            let text = @str.substring(source, start, i)
+            tokens.push(Token { kind: TokenKind.Text, text: text, num: 0.0, line: line })
+            i += 1
+        } elif (isDigit(c)) {
+            let start = i
+            while (i < n && isDigit(@str.charAt(source, i))) {
+                i += 1
+            }
+            if (i + 1 < n && @str.charAt(source, i) == "." && isDigit(@str.charAt(source, i + 1))) {
+                i += 1
+                while (i < n && isDigit(@str.charAt(source, i))) {
+                    i += 1
+                }
+            }
+            let text = @str.substring(source, start, i)
+            tokens.push(Token { kind: TokenKind.Number, text: text, num: @into.float(text), line: line })
+        } elif (isNameChar(c)) {
+            let start = i
+            while (i < n && isNameChar(@str.charAt(source, i))) {
+                i += 1
+            }
+            let text = @str.substring(source, start, i)
+            tokens.push(Token { kind: TokenKind.Name, text: text, num: 0.0, line: line })
+        } else {
+            let pair = ""
+            if (i + 1 < n) {
+                pair = @str.substring(source, i, i + 2)
+            }
+            if (pair == "==" || pair == "!=" || pair == "<=" || pair == ">=") {
+                tokens.push(Token { kind: TokenKind.Symbol, text: pair, num: 0.0, line: line })
+                i += 2
+            } elif (@str.contains("(){};,+-*/!=<>.", c)) {
+                tokens.push(Token { kind: TokenKind.Symbol, text: c, num: 0.0, line: line })
+                i += 1
+            } else {
+                throw "[line " + @into.string(line) + "] Unexpected character '" + c + "'."
+            }
+        }
+    }
+
+    tokens.push(Token { kind: TokenKind.End, text: "", num: 0.0, line: line })
+    return tokens
+}
+
+// ---------- parser ----------
+
+struct Parser {
+    tokens: array<Token>,
+    pos: int,
+
+    fn peek() -> Token {
+        return me.tokens[me.pos]
+    }
+
+    fn previous() -> Token {
+        return me.tokens[me.pos - 1]
+    }
+
+    fn atEnd() -> bool {
+        return me.peek().kind == TokenKind.End
+    }
+
+    fn check(text: string) -> bool {
+        let t = me.peek()
+        return t.kind != TokenKind.Text && t.text == text
+    }
+
+    fn accept(text: string) -> bool {
+        if (me.check(text)) {
+            me.pos += 1
+            return true
+        }
+        return false
+    }
+
+    fn expect(text: string) -> void {
+        if (!me.accept(text)) {
+            throw "[line " + @into.string(me.peek().line) + "] Expect '" + text + "'."
+        }
+    }
+
+    fn consumeName() -> string {
+        let t = me.peek()
+        if (t.kind != TokenKind.Name) {
+            throw "[line " + @into.string(t.line) + "] Expect variable name."
+        }
+        me.pos += 1
+        return t.text
+    }
+
+    fn program() -> array<Node> {
+        let items: array<Node> = []
+        while (!me.atEnd()) {
+            items.push(me.declaration())
+        }
+        return items
+    }
+
+    fn declaration() -> Node {
+        if (me.accept("var")) {
+            let name = me.consumeName()
+            let kids: array<Node> = []
+            if (me.accept("=")) {
+                kids.push(me.expression())
+            }
+            me.expect(";")
+            return makeNode(NodeKind.VarDecl, "", name, kids)
+        }
+        return me.statement()
+    }
+
+    fn statement() -> Node {
+        if (me.accept("print")) {
+            let value = me.expression()
+            me.expect(";")
+            return makeNode(NodeKind.Print, "", "", [value])
+        }
+        if (me.accept("{")) {
+            return makeNode(NodeKind.Block, "", "", me.blockBody())
+        }
+        if (me.accept("if")) {
+            me.expect("(")
+            let cond = me.expression()
+            me.expect(")")
+            let thenBranch = me.statement()
+            let kids: array<Node> = [cond, thenBranch]
+            if (me.accept("else")) {
+                kids.push(me.statement())
+            }
+            return makeNode(NodeKind.If, "", "", kids)
+        }
+        if (me.accept("while")) {
+            me.expect("(")
+            let cond = me.expression()
+            me.expect(")")
+            let body = me.statement()
+            return makeNode(NodeKind.While, "", "", [cond, body])
+        }
+        let expr = me.expression()
+        me.expect(";")
+        return makeNode(NodeKind.ExprStmt, "", "", [expr])
+    }
+
+    fn blockBody() -> array<Node> {
+        let items: array<Node> = []
+        while (!me.check("}") && !me.atEnd()) {
+            items.push(me.declaration())
+        }
+        me.expect("}")
+        return items
+    }
+
+    fn expression() -> Node {
+        return me.assignment()
+    }
+
+    fn assignment() -> Node {
+        let target = me.logicOr()
+        if (me.accept("=")) {
+            let value = me.assignment()
+            if (target.kind == NodeKind.Variable) {
+                return makeNode(NodeKind.Assign, "", target.name, [value])
+            }
+            throw "[line " + @into.string(me.previous().line) + "] Invalid assignment target."
+        }
+        return target
+    }
+
+    fn logicOr() -> Node {
+        let node = me.logicAnd()
+        while (me.accept("or")) {
+            node = makeNode(NodeKind.Logical, "or", "", [node, me.logicAnd()])
+        }
+        return node
+    }
+
+    fn logicAnd() -> Node {
+        let node = me.equality()
+        while (me.accept("and")) {
+            node = makeNode(NodeKind.Logical, "and", "", [node, me.equality()])
+        }
+        return node
+    }
+
+    fn equality() -> Node {
+        let node = me.comparison()
+        while (me.check("==") || me.check("!=")) {
+            let op = me.advance().text
+            node = makeNode(NodeKind.Binary, op, "", [node, me.comparison()])
+        }
+        return node
+    }
+
+    fn comparison() -> Node {
+        let node = me.term()
+        while (me.check("<") || me.check("<=") || me.check(">") || me.check(">=")) {
+            let op = me.advance().text
+            node = makeNode(NodeKind.Binary, op, "", [node, me.term()])
+        }
+        return node
+    }
+
+    fn term() -> Node {
+        let node = me.factor()
+        while (me.check("+") || me.check("-")) {
+            let op = me.advance().text
+            node = makeNode(NodeKind.Binary, op, "", [node, me.factor()])
+        }
+        return node
+    }
+
+    fn factor() -> Node {
+        let node = me.unary()
+        while (me.check("*") || me.check("/")) {
+            let op = me.advance().text
+            node = makeNode(NodeKind.Binary, op, "", [node, me.unary()])
+        }
+        return node
+    }
+
+    fn unary() -> Node {
+        if (me.check("!") || me.check("-")) {
+            let op = me.advance().text
+            return makeNode(NodeKind.Unary, op, "", [me.unary()])
+        }
+        return me.primary()
+    }
+
+    fn primary() -> Node {
+        let t = me.peek()
+        if (t.kind == TokenKind.Number) {
+            me.pos += 1
+            return literalNode(numberValue(t.num))
+        }
+        if (t.kind == TokenKind.Text) {
+            me.pos += 1
+            return literalNode(textValue(t.text))
+        }
+        if (me.accept("true")) {
+            return literalNode(boolValue(true))
+        }
+        if (me.accept("false")) {
+            return literalNode(boolValue(false))
+        }
+        if (me.accept("nil")) {
+            return literalNode(nilValue())
+        }
+        if (t.kind == TokenKind.Name && !me.isKeyword(t.text)) {
+            me.pos += 1
+            return makeNode(NodeKind.Variable, "", t.text, [])
+        }
+        if (me.accept("(")) {
+            let inner = me.expression()
+            me.expect(")")
+            return makeNode(NodeKind.Group, "", "", [inner])
+        }
+        throw "[line " + @into.string(t.line) + "] Expect expression."
+    }
+
+    fn isKeyword(text: string) -> bool {
+        return text == "var" || text == "print" || text == "if" || text == "else" || text == "while" || text == "and" || text == "or"
+    }
+
+    fn advance() -> Token {
+        me.pos += 1
+        return me.previous()
+    }
+}
+
+// ---------- interpreter ----------
+
+fn isTruthy(v: Value) -> bool {
+    if (v.kind == ValueKind.Nil) {
+        return false
+    }
+    if (v.kind == ValueKind.Bool) {
+        return v.flag
+    }
+    return true
+}
+
+fn isEqual(a: Value, b: Value) -> bool {
+    if (a.kind != b.kind) {
+        return false
+    }
+    if (a.kind == ValueKind.Nil) {
+        return true
+    }
+    if (a.kind == ValueKind.Bool) {
+        return a.flag == b.flag
+    }
+    if (a.kind == ValueKind.Number) {
+        return a.num == b.num
+    }
+    return a.text == b.text
+}
+
+fn stringify(v: Value) -> string {
+    if (v.kind == ValueKind.Nil) {
+        return "nil"
+    }
+    if (v.kind == ValueKind.Bool) {
+        if (v.flag) {
+            return "true"
+        }
+        return "false"
+    }
+    if (v.kind == ValueKind.Number) {
+        // Lox prints 3 for 3.0
+        let whole = @into.int(v.num)
+        if (@into.float(whole) == v.num) {
+            return @into.string(whole)
+        }
+        return @into.string(v.num)
+    }
+    return v.text
+}
+
+fn checkNumbers(a: Value, b: Value) -> void {
+    if (a.kind != ValueKind.Number || b.kind != ValueKind.Number) {
+        throw "Operands must be numbers."
+    }
+}
+
+fn applyBinary(op: string, a: Value, b: Value) -> Value {
+    if (op == "==") {
+        return boolValue(isEqual(a, b))
+    }
+    if (op == "!=") {
+        return boolValue(!isEqual(a, b))
+    }
+    if (op == "+") {
+        if (a.kind == ValueKind.Text && b.kind == ValueKind.Text) {
+            return textValue(a.text + b.text)
+        }
+        checkNumbers(a, b)
+        return numberValue(a.num + b.num)
+    }
+    checkNumbers(a, b)
+    if (op == "-") {
+        return numberValue(a.num - b.num)
+    }
+    if (op == "*") {
+        return numberValue(a.num * b.num)
+    }
+    if (op == "/") {
+        return numberValue(a.num / b.num)
+    }
+    if (op == "<") {
+        return boolValue(a.num < b.num)
+    }
+    if (op == "<=") {
+        return boolValue(a.num <= b.num)
+    }
+    if (op == ">") {
+        return boolValue(a.num > b.num)
+    }
+    return boolValue(a.num >= b.num)
+}
+
+struct Interp {
+    scopes: array<map<string, Value>>
+
+    fn run(program: array<Node>) -> void {
+        for stmt in program {
+            me.execute(stmt)
+        }
+    }
+
+    fn execute(node: Node) -> void {
+        if (node.kind == NodeKind.Print) {
+            print(stringify(me.evaluate(node.kids[0])))
+        } elif (node.kind == NodeKind.ExprStmt) {
+            let ignored = me.evaluate(node.kids[0])
+        } elif (node.kind == NodeKind.VarDecl) {
+            let value = nilValue()
+            if (@array.len(node.kids) == 1) {
+                value = me.evaluate(node.kids[0])
+            }
+            me.define(node.name, value)
+        } elif (node.kind == NodeKind.Block) {
+            me.executeBlock(node.kids)
+        } elif (node.kind == NodeKind.If) {
+            if (isTruthy(me.evaluate(node.kids[0]))) {
+                me.execute(node.kids[1])
+            } elif (@array.len(node.kids) == 3) {
+                me.execute(node.kids[2])
+            }
+        } elif (node.kind == NodeKind.While) {
+            while (isTruthy(me.evaluate(node.kids[0]))) {
+                me.execute(node.kids[1])
+            }
+        } else {
+            throw "Internal error: unknown statement."
+        }
+    }
+
+    fn executeBlock(stmts: array<Node>) -> void {
+        let fresh: map<string, Value> = [:]
+        me.scopes.push(fresh)
+        for stmt in stmts {
+            me.execute(stmt)
+        }
+        me.scopes.pop()
+    }
+
+    fn evaluate(node: Node) -> Value {
+        if (node.kind == NodeKind.Literal) {
+            return node.value
+        }
+        if (node.kind == NodeKind.Variable) {
+            return me.lookup(node.name)
+        }
+        if (node.kind == NodeKind.Group) {
+            return me.evaluate(node.kids[0])
+        }
+        if (node.kind == NodeKind.Assign) {
+            let value = me.evaluate(node.kids[0])
+            me.assignVar(node.name, value)
+            return value
+        }
+        if (node.kind == NodeKind.Unary) {
+            let right = me.evaluate(node.kids[0])
+            if (node.op == "-") {
+                if (right.kind != ValueKind.Number) {
+                    throw "Operand must be a number."
+                }
+                return numberValue(-right.num)
+            }
+            return boolValue(!isTruthy(right))
+        }
+        if (node.kind == NodeKind.Logical) {
+            let left = me.evaluate(node.kids[0])
+            if (node.op == "or" && isTruthy(left)) {
+                return left
+            }
+            if (node.op == "and" && !isTruthy(left)) {
+                return left
+            }
+            return me.evaluate(node.kids[1])
+        }
+        if (node.kind == NodeKind.Binary) {
+            let a = me.evaluate(node.kids[0])
+            let b = me.evaluate(node.kids[1])
+            return applyBinary(node.op, a, b)
+        }
+        throw "Internal error: unknown expression."
+    }
+
+    fn define(name: string, value: Value) -> void {
+        let top = me.scopes[@array.len(me.scopes) - 1]
+        top[name] = value
+    }
+
+    fn lookup(name: string) -> Value {
+        let i = @array.len(me.scopes) - 1
+        while (i >= 0) {
+            let scope = me.scopes[i]
+            if (name in scope) {
+                return scope[name]
+            }
+            i -= 1
+        }
+        throw "Undefined variable '" + name + "'."
+    }
+
+    fn assignVar(name: string, value: Value) -> void {
+        let i = @array.len(me.scopes) - 1
+        while (i >= 0) {
+            let scope = me.scopes[i]
+            if (name in scope) {
+                scope[name] = value
+                return
+            }
+            i -= 1
+        }
+        throw "Undefined variable '" + name + "'."
+    }
+}
+
+// ---------- main ----------
+
+let args = @sys.args()
+if (@array.len(args) != 1) {
+    print("usage: spg run lox.spg -- program.lox")
+    @sys.exit(64)
+}
+
+let source = @file.read(args[0])
+let globals: map<string, Value> = [:]
+let interp = Interp { scopes: [globals] }
+
+try {
+    let tokens = scan(source)
+    let parser = Parser { tokens: tokens, pos: 0 }
+    let program = parser.program()
+    interp.run(program)
+} catch (e) {
+    print("error: " + e)
+    @sys.exit(65)
+}

@@ -1,0 +1,29 @@
+enum K { A, B, C }
+struct S {
+    k: K,
+    n: int
+}
+fn setk(s: S, v: K) -> int {
+    s.k = v
+    return s.n
+}
+fn readk(s: S) -> bool {
+    return s.k == K.C
+}
+let s = S { k: K.A, n: 7 }
+let i = 0
+let total = 0
+while (i < 300) {
+    total = total + setk(s, K.C)
+    i = i + 1
+}
+print(total)
+print(readk(s))
+print(s.k == K.C)
+let j = 0
+let flips = 0
+while (j < 300) {
+    if (readk(s)) { flips = flips + 1 }
+    j = j + 1
+}
+print(flips)

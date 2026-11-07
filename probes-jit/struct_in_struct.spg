@@ -1,0 +1,38 @@
+struct Inner {
+    tag: string,
+    n: int,
+}
+
+struct Outer {
+    id: int,
+    inner: Inner,
+    label: string,
+}
+
+fn mkInner(n: int) -> Inner {
+    return Inner { tag: "t", n: n }
+}
+
+fn bump(o: Outer) -> int {
+    o.inner.n = o.inner.n + 1
+    return o.inner.n
+}
+
+fn swap(o: Outer, n: int) {
+    o.inner = mkInner(n)
+}
+
+fn run(rounds: int) -> int {
+    let o = Outer { id: 1, inner: mkInner(0), label: "x" }
+    let total = 0
+    let i = 0
+    while (i < rounds) {
+        swap(o, i)
+        total = total + bump(o) + o.inner.n + o.id
+        i = i + 1
+    }
+    return total
+}
+
+print(run(10))
+print(run(2000000))

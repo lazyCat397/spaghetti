@@ -1,0 +1,99 @@
+fn probe(s: string, n: string) -> bool {
+    return @str.contains(s, n) and @str.startsWith(s, n) == @str.endsWith(s, n)
+}
+
+fn preds(s: string, n: string) -> bool {
+    return @str.contains(s, n)
+}
+
+fn starts(s: string, n: string) -> bool {
+    return @str.startsWith(s, n)
+}
+
+fn ends(s: string, n: string) -> bool {
+    return @str.endsWith(s, n)
+}
+
+fn up(s: string) -> string {
+    return @str.toUpper(s)
+}
+
+fn low(s: string) -> string {
+    return @str.toLower(s)
+}
+
+fn trimmed(s: string) -> string {
+    return @str.trim(s)
+}
+
+fn at(s: string, i: int) -> string {
+    return @str.charAt(s, i)
+}
+
+fn sub(s: string, a: int, b: int) -> string {
+    return @str.substring(s, a, b)
+}
+
+fn walk(s: string) -> int {
+    let n = @str.len(s)
+    let i = 0
+    let count = 0
+    while (i < n) {
+        if (@str.charAt(s, i) == "a") {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    return count
+}
+
+let ascii = "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789"
+let mixed = "açúcar ação café — naïve résumé 😀 olá mundo, coração e ação! bem-vindo"
+let emoji = "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+let spaces = "   \t  olá mundo\u{00a0}\u{2003}  "
+
+print(preds(ascii, "xyz0"))
+print(preds(mixed, "coração"))
+print(preds(mixed, ""))
+print(preds(mixed, "não existe"))
+print(starts(mixed, "açúcar"))
+print(starts(mixed, ""))
+print(ends(mixed, "ação!"))
+print(ends(emoji, "😀"))
+print(ends(ascii, "9"))
+print(up("straße olá"))
+print(low("ÇA Ñ ΑΒΓ"))
+print(up(mixed))
+print("[" + trimmed(spaces) + "]")
+print("[" + trimmed("") + "]")
+print(at(ascii, 0))
+print(at(ascii, 71))
+print(at(mixed, 0))
+print(at(mixed, 9))
+print(at(mixed, 25))
+print(at(emoji, 33))
+print(sub(ascii, 0, 0))
+print(sub(ascii, 10, 20))
+print(sub(ascii, 71, 72))
+print(sub(mixed, 0, 6))
+print(sub(mixed, 8, 13))
+print(sub(emoji, 30, 34))
+print(walk(ascii))
+print(walk(mixed))
+
+try {
+    print(at(ascii, 72))
+} catch (e) {
+    print("charAt caught")
+}
+try {
+    print(sub(mixed, 5, 1000))
+} catch (e) {
+    print("substring caught")
+}
+try {
+    print(at("", 0))
+} catch (e) {
+    print("empty charAt caught")
+}
+print(at(mixed, 3))
