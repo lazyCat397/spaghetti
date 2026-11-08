@@ -36,6 +36,8 @@ pub struct Decls {
     /// `fn Type.name(...) -> R` declarations, as (type, name, signature). they travel
     /// with `merge`, so an imported type's associated functions are listed too
     pub associated: Vec<(String, String, String)>,
+    /// `fn string.name(s: string) -> R` declarations on value types, as (type, name, signature)
+    pub value_methods: Vec<(String, String, String)>,
 }
 
 pub struct Member {
@@ -57,6 +59,23 @@ impl Decls {
             {
                 if let Some((sig, _)) = signature_at(tokens, i + 4) {
                     d.associated.push((ty.clone(), name.clone(), sig));
+                }
+            }
+        }
+        // `fn string.name(...)`: a method on a value type. the type is a keyword token, not an identifier
+        for i in 0..tokens.len() {
+            let ty = match kind(tokens, i) {
+                Some(T::TypeInt) => "int",
+                Some(T::TypeFloat) => "float",
+                Some(T::TypeBool) => "bool",
+                Some(T::TypeString) => "string",
+                _ => continue,
+            };
+            if let (Some(T::Function), Some(T::Dot), Some(T::Ident(name)), Some(T::LParen)) =
+                (i.checked_sub(1).and_then(|k| kind(tokens, k)), kind(tokens, i + 1), kind(tokens, i + 2), kind(tokens, i + 3))
+            {
+                if let Some((sig, _)) = signature_at(tokens, i + 3) {
+                    d.value_methods.push((ty.to_string(), name.clone(), sig));
                 }
             }
         }
@@ -131,6 +150,7 @@ impl Decls {
         }
         self.enums.extend(other.enums);
         self.associated.extend(other.associated);
+        self.value_methods.extend(other.value_methods);
         for (k, v) in other.functions {
             self.functions.entry(k).or_insert(v);
         }
@@ -581,7 +601,14 @@ fn resolve_head(tokens: &[Token], depth: &[i32], at: usize, head: &str, decls: &
 /// shortcuts every value has (`x.string()`), and `x.int()` / `x.float()` on
 /// numbers (`@into.int` / `@into.float` take them)
 fn members_of(ty: &str, decls: &Decls) -> Vec<Member> {
-    let mut out = members_of_own(ty, decls);
+    // the user's methods on this value type come first, then the built-in ones
+    let mut out: Vec<Member> = decls
+        .value_methods
+        .iter()
+        .filter(|(t, _, _)| t == ty)
+        .map(|(_, name, sig)| Member { name: name.clone(), detail: sig.clone(), kind: KIND_METHOD, insert: None, doc: None })
+        .collect();
+    out.extend(members_of_own(ty, decls));
     // a name starting with `_` is private to its struct. never offered after a dot
     out.retain(|m| !m.name.starts_with('_'));
     let mut shortcut = |name: &str, detail: &str| {
@@ -1124,6 +1151,16 @@ mod tests {
         let at = tokens.iter().rposition(|t| t.kind == T::Dot).unwrap() + 1;
         let decls = Decls::from_tokens(&tokens);
         (tokens, at, decls)
+    }
+
+    #[test]
+    fn value_type_methods_of_the_file_are_offered_after_a_literal() {
+        let src = "fn string.shout(s: string) -> string { return \"${s}!\" }\nfn int.double(n: int) -> int { return n * 2 }\nlet s = \"abc\".";
+        let (tokens, at, d) = dot_at_end(src);
+        let got = names(&after_dot_expr(&tokens, at, &d));
+        assert!(got.iter().any(|n| n == "shout"), "{:?}", got);
+        assert!(!got.iter().any(|n| n == "double"), "an int method is not offered after a string: {:?}", got);
+        assert!(got.iter().any(|n| n == "trim"), "the built-in string methods stay: {:?}", got);
     }
 
     #[test]

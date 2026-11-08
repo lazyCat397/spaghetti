@@ -1,0 +1,24 @@
+// methods on value types: the first parameter's type is the receiver
+fn string.shout(s: string) -> string {
+    return "${s}!"
+}
+fn int.double(n: int) -> int {
+    return n * 2
+}
+fn float.half(x: float) -> float {
+    return x / 2.0
+}
+fn bool.flip(b: bool) -> bool {
+    return not b
+}
+print("hello".shout())
+print(21.double())
+print(3.0.half())
+print(true.flip())
+let name = "spg"
+print(name.shout().shout())
+// the receiver's name is free
+fn string.twice(text: string) -> string {
+    return "${text}${text}"
+}
+print("ab".twice())

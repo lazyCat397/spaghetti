@@ -190,6 +190,10 @@ pub enum TypeError {
     AssociatedCalledOnValue { type_name: String, name: String, pos: Pos },
     /// `Type.bar()` where `Type` is a struct with no associated function `bar`
     NoAssociatedFunction { type_name: String, name: String, pos: Pos },
+    /// `fn string.name(...)` whose first parameter is not a `string`: the value it is called on must come first
+    ValueMethodNeedsReceiver { type_name: String, name: String, pos: Pos },
+    /// `fn string.len(...)` where `len` is already a method of `string` (built-in or shorthand)
+    ValueMethodClash { type_name: String, name: String, pos: Pos },
     /// `function Cor.Vermelho()` where `Vermelho` is already a variant of enum `Cor`
     AssociatedNameIsVariant { type_name: String, name: String, pos: Pos },
 
@@ -272,6 +276,8 @@ impl TypeError {
             | TypeError::AssociatedCalledOnValue { pos, .. }
             | TypeError::NoAssociatedFunction { pos, .. }
             | TypeError::AssociatedNameIsVariant { pos, .. }
+            | TypeError::ValueMethodNeedsReceiver { pos, .. }
+            | TypeError::ValueMethodClash { pos, .. }
             | TypeError::MethodNotCalled { pos, .. }
             | TypeError::NoSuchNativeMethod { pos, .. }
             | TypeError::ThrowNotString { pos, .. }
@@ -568,6 +574,16 @@ impl TypeError {
                 f,
                 "'{}' is an associated function of '{}': call it as {}.{}(), not on a value",
                 name, type_name, type_name, name
+            ),
+            TypeError::ValueMethodNeedsReceiver { type_name, name, .. } => write!(
+                f,
+                "method '{}.{}' needs a first parameter of type {}: the value it is called on",
+                type_name, name, type_name
+            ),
+            TypeError::ValueMethodClash { type_name, name, .. } => write!(
+                f,
+                "'{}.{}' clashes with the built-in method '{}' of {}: pick another name",
+                type_name, name, name, type_name
             ),
             TypeError::AssociatedNameIsVariant { type_name, name, .. } => write!(
                 f,

@@ -1,0 +1,3 @@
+fn int() -> int {
+    return 1
+}

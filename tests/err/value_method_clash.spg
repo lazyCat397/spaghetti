@@ -1,0 +1,3 @@
+fn string.len(s: string) -> int {
+    return 0
+}

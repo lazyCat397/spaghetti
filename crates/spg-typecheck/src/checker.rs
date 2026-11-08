@@ -238,7 +238,28 @@ impl Checker {
         // struct of this program; the names are remembered so calls can be told apart
         for stmt in stmts {
             if let Stmt::FunctionDecl { name, params, pos, .. } = stmt {
-                if let Some((type_name, _)) = name.split_once('.') {
+                if let Some((type_name, member)) = name.split_once('.') {
+                    // `fn string.name(s: string)`: a method on a value type. its first parameter
+                    // is the value it is called on, so it is a plain function, not an associated one
+                    if let Some(value_ty) = value_type_of(type_name) {
+                        let receiver_ok = params.first().map_or(false, |p| resolve_type_expr(&p.type_ann) == value_ty);
+                        if !receiver_ok {
+                            self.errors.push(TypeError::ValueMethodNeedsReceiver {
+                                type_name: type_name.to_string(),
+                                name: member.to_string(),
+                                pos: pos.clone(),
+                            });
+                        } else if member == "string" || member == "int" || member == "float" || member == "copy"
+                            || method_namespace(&value_ty, member).is_some()
+                        {
+                            self.errors.push(TypeError::ValueMethodClash {
+                                type_name: type_name.to_string(),
+                                name: member.to_string(),
+                                pos: pos.clone(),
+                            });
+                        }
+                        continue;
+                    }
                     let is_method = params.first().map_or(false, |p| p.name == "me");
                     if !is_method {
                         if !self.is_type_name(type_name) {
@@ -818,20 +839,26 @@ impl Checker {
         // `s.len()`, `xs.push(1)`, `m.has(k)`, `n.abs()`, `f.sqrt()`: the methods of a
         // value are the builtins of the method namespaces that take it first
         let receiver_ty = typed_object.ty().clone();
-        if let Some(ns) = method_namespace(&receiver_ty, method) {
-            return self.check_native_method(typed_object, ns, method, args, pos);
+        // a user method on a value type (`fn string.shout(s: string)`): it is a plain call with
+        // the value first. its name cannot clash with a built-in (checked at its declaration)
+        let value_method = value_type_of_ty(&receiver_ty).filter(|t| self.functions.contains_key(&format!("{}.{}", t, method)));
+        if value_method.is_none() {
+            if let Some(ns) = method_namespace(&receiver_ty, method) {
+                return self.check_native_method(typed_object, ns, method, args, pos);
+            }
+            if matches!(receiver_ty, Ty::String | Ty::Array(_) | Ty::Map(..) | Ty::Int | Ty::Float) {
+                self.errors.push(TypeError::NoSuchNativeMethod {
+                    found: receiver_ty,
+                    method: method.to_string(),
+                    pos: pos.clone(),
+                });
+                return None;
+            }
         }
-        if matches!(receiver_ty, Ty::String | Ty::Array(_) | Ty::Map(..) | Ty::Int | Ty::Float) {
-            self.errors.push(TypeError::NoSuchNativeMethod {
-                found: receiver_ty,
-                method: method.to_string(),
-                pos: pos.clone(),
-            });
-            return None;
-        }
-        let struct_name = match typed_object.ty() {
-            Ty::Named(n) => n.clone(),
-            other => {
+        let struct_name = match (value_method, typed_object.ty()) {
+            (Some(t), _) => t.to_string(),
+            (None, Ty::Named(n)) => n.clone(),
+            (None, other) => {
                 self.errors.push(TypeError::NoMethodsOnType {
                     found: other.clone(),
                     method: method.to_string(),
@@ -3394,5 +3421,27 @@ fn is_name_path(expr: &p::Expr) -> bool {
 fn push_unique(list: &mut Vec<Ty>, t: Ty) {
     if !list.contains(&t) {
         list.push(t);
+    }
+}
+
+/// the name of a value type's method namespace, when `ty` is one of them
+fn value_type_of_ty(ty: &Ty) -> Option<&'static str> {
+    match ty {
+        Ty::Int => Some("int"),
+        Ty::Float => Some("float"),
+        Ty::Bool => Some("bool"),
+        Ty::String => Some("string"),
+        _ => None,
+    }
+}
+
+/// the value type a method can be declared on: `fn int.x`, `fn float.x`, `fn bool.x`, `fn string.x`
+fn value_type_of(name: &str) -> Option<Ty> {
+    match name {
+        "int" => Some(Ty::Int),
+        "float" => Some(Ty::Float),
+        "bool" => Some(Ty::Bool),
+        "string" => Some(Ty::String),
+        _ => None,
     }
 }

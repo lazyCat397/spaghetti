@@ -747,7 +747,23 @@ impl Parser {
         let pos = self.peek_pos();
         self.advance(); // function
 
-        let mut name = self.parse_binding_name()?;
+        // `fn int.name(...)`, `fn string.name(...)`: a method on a value type. the type
+        // keyword is the name here, and the dot after it is required
+        let mut name = match self.peek().kind.clone() {
+            TokenKind::TypeInt => { self.advance(); "int".to_string() }
+            TokenKind::TypeFloat => { self.advance(); "float".to_string() }
+            TokenKind::TypeBool => { self.advance(); "bool".to_string() }
+            TokenKind::TypeString => { self.advance(); "string".to_string() }
+            _ => self.parse_binding_name()?,
+        };
+        if matches!(name.as_str(), "int" | "float" | "bool" | "string") && !self.check(&TokenKind::Dot) {
+            return Err(ParseError::Unexpected {
+                expected: "a dot after the type name (fn string.name(...)); a value type cannot be a function name".to_string(),
+                found: self.peek().kind.clone(),
+                line: pos.line,
+                col: pos.col,
+            });
+        }
         // `function Type.name(...)`: an associated function (no `me`). the name keeps the
         // dot, so the typechecker and the VM see it as `Type.name`, like a method
         if self.match_kind(&TokenKind::Dot) {
