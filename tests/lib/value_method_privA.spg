@@ -1,0 +1,6 @@
+fn string.tag(s: string) -> string {
+    return "A"
+}
+export fn useA() -> string {
+    return "x".tag()
+}

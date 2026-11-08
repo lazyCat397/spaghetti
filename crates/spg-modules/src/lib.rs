@@ -571,6 +571,7 @@ impl Resolver {
 /// symbol. `None` for everything else
 fn declared_symbol(stmt: &Stmt) -> Option<(String, bool, &spg_parser::ast::Pos)> {
     match stmt {
+        Stmt::FunctionDecl { name, exported: true, .. } if spg_parser::ast::value_method_type(name).is_some() => None,
         Stmt::FunctionDecl { name, exported, pos, .. } => Some((name.clone(), *exported, pos)),
         Stmt::StructDecl { name, exported, pos, .. } => Some((name.clone(), *exported, pos)),
         Stmt::EnumDecl { name, exported, pos, .. } => Some((name.clone(), *exported, pos)),

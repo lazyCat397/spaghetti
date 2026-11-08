@@ -364,6 +364,8 @@ diag method_mangled_notcalled.spg 1 "'len2' is a method of struct 'Vec', not a f
 # file annotation (a real finding during development: the
 # first version only stamped the Pos of the ArrayLit, not each item's)
 diag arraylit_error.spg 1 "type error in lib/array_literal_error.spg" "undefined variable 'doesNotExist'"
+diag value_method_dup.spg 1 "'string.nice' is declared more than once"
+diag value_method_private_outside.spg 1 "type string has no method 'tag'"
 
 # enums: `enum E { A, B }`, `E.A`, == / != only, `for x in E`, printed by variant name
 ok enum_basic.spg  'Green\ncolor: Green Green\ntrue false false\nRed hot\nGreen natural\nBlue cool\n[Blue, Red]\nCar { name: fusca, color: Blue }\ntrue false\n3 Red'
@@ -390,6 +392,8 @@ diag enum_mangled_cmp.spg     1 "operator Eq not supported for Color and Color"
 
 # install "file.spg": every export, lowest priority; a clash between two installs only fails when the name is USED
 ok install_basic.spg          '15 1 Slow\nFast\nSlow'
+ok install_value_method.spg  '1 2 3'
+ok install_value_method_private.spg  'A\nB'
 ok install_priority.spg       '2 77 20'
 ok install_unused_clash.spg   '30'
 err install_clash_used.spg    "'helper' is installed from both" "line 1" "line 2" "import it by name"

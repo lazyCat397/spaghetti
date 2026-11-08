@@ -194,6 +194,8 @@ pub enum TypeError {
     ValueMethodNeedsReceiver { type_name: String, name: String, pos: Pos },
     /// `fn string.len(...)` where `len` is already a method of `string` (built-in or shorthand)
     ValueMethodClash { type_name: String, name: String, pos: Pos },
+    /// the same value method declared twice in the program (e.g. by two installed modules)
+    ValueMethodDuplicate { type_name: String, name: String, pos: Pos },
     /// `function Cor.Vermelho()` where `Vermelho` is already a variant of enum `Cor`
     AssociatedNameIsVariant { type_name: String, name: String, pos: Pos },
 
@@ -278,6 +280,7 @@ impl TypeError {
             | TypeError::AssociatedNameIsVariant { pos, .. }
             | TypeError::ValueMethodNeedsReceiver { pos, .. }
             | TypeError::ValueMethodClash { pos, .. }
+            | TypeError::ValueMethodDuplicate { pos, .. }
             | TypeError::MethodNotCalled { pos, .. }
             | TypeError::NoSuchNativeMethod { pos, .. }
             | TypeError::ThrowNotString { pos, .. }
@@ -577,13 +580,18 @@ impl TypeError {
             ),
             TypeError::ValueMethodNeedsReceiver { type_name, name, .. } => write!(
                 f,
-                "method '{}.{}' needs a first parameter of type {}: the value it is called on",
-                type_name, name, type_name
+                "{}method '{}.{}' needs a first parameter of type {}: the value it is called on",
+                self.location(), type_name, name, type_name
+            ),
+            TypeError::ValueMethodDuplicate { type_name, name, .. } => write!(
+                f,
+                "{}'{}.{}' is declared more than once: a value method has one definition in the program",
+                self.location(), type_name, name
             ),
             TypeError::ValueMethodClash { type_name, name, .. } => write!(
                 f,
-                "'{}.{}' clashes with the built-in method '{}' of {}: pick another name",
-                type_name, name, name, type_name
+                "{}'{}.{}' clashes with the built-in method '{}' of {}: pick another name",
+                self.location(), type_name, name, name, type_name
             ),
             TypeError::AssociatedNameIsVariant { type_name, name, .. } => write!(
                 f,

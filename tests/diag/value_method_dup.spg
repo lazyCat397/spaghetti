@@ -1,0 +1,4 @@
+// two installed modules declaring the same value method: one definition only
+install "../lib/value_method_export.spg"
+install "../lib/value_method_other.spg"
+print("x".nice())

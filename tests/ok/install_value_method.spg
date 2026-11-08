@@ -1,0 +1,3 @@
+// a value-type method declared with `export` in an installed module works here
+install "../lib/value_method_export.spg"
+print("[1, 2, 3]".nice())

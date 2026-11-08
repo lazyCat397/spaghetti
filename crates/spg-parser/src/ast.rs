@@ -15,6 +15,15 @@
 /// undo it. keeping both halves next to each other is the whole point.
 pub const MANGLE_SEP: &str = "::";
 
+/// the value type of a method declared as `fn string.name(...)`, `int`, `float` or `bool`.
+/// such methods are program-wide and never get a module tag, so they are not mangled.
+pub fn value_method_type(name: &str) -> Option<&str> {
+    match display_name(name).split_once('.') {
+        Some((ty @ ("int" | "float" | "bool" | "string"), _)) => Some(ty),
+        _ => None,
+    }
+}
+
 /// what the user actually wrote: strips the module tag from a mangled
 /// name (`errmod#c29b::Point` -> `Point`). ordinary names: left alone.
 pub fn display_name(name: &str) -> &str {

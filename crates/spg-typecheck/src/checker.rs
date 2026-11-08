@@ -49,8 +49,19 @@ struct VarInfo {
     narrowed_from: Option<Ty>,
 }
 
+/// one declaration of a value-type method (`fn string.nice`). `internal` is the name the
+/// function is compiled under: `string.nice` when exported, module-tagged otherwise
+#[derive(Debug, Clone)]
+struct ValueMethod {
+    internal: String,
+    exported: bool,
+    file: Option<String>,
+}
+
 pub struct Checker {
     functions: HashMap<String, FunctionSig>,
+    /// `"string.nice"` -> every declaration of that method in the program
+    value_methods: HashMap<String, Vec<ValueMethod>>,
     /// struct name -> its fields in declaration order (order matters for
     /// error messages, and maybe a future positional-literal
     /// syntax (even though today's `Name { field: value }` is
@@ -128,6 +139,7 @@ pub fn type_check_with(program: p::Program, strict: bool) -> Result<TypedProgram
     let mut checker = Checker {
         native_objects,
         functions: HashMap::new(),
+        value_methods: HashMap::new(),
         struct_defs: HashMap::new(),
         guarded_structs: std::collections::HashSet::new(),
         guard_literals: std::collections::HashSet::new(),
@@ -237,8 +249,10 @@ impl Checker {
         // associated functions: `function Type.name(...)` with no `me`. the type must be a
         // struct of this program; the names are remembered so calls can be told apart
         for stmt in stmts {
-            if let Stmt::FunctionDecl { name, params, pos, .. } = stmt {
-                if let Some((type_name, member)) = name.split_once('.') {
+            if let Stmt::FunctionDecl { name, params, pos, exported, .. } = stmt {
+                // a module-tagged name (`main#9e60::string.nice`) is the same method as `string.nice`
+                let shown = spg_parser::ast::display_name(name);
+                if let Some((type_name, member)) = shown.split_once('.') {
                     // `fn string.name(s: string)`: a method on a value type. its first parameter
                     // is the value it is called on, so it is a plain function, not an associated one
                     if let Some(value_ty) = value_type_of(type_name) {
@@ -256,6 +270,25 @@ impl Checker {
                                 type_name: type_name.to_string(),
                                 name: member.to_string(),
                                 pos: pos.clone(),
+                            });
+                        } else {
+                            // two declarations clash when one of them is exported (seen everywhere)
+                            // or both live in the same file. a private method of another module is no clash
+                            let key = format!("{}.{}", type_name, member);
+                            let clash = self.value_methods.get(&key).map_or(false, |es| {
+                                es.iter().any(|e| e.exported || *exported || e.file == pos.file)
+                            });
+                            if clash {
+                                self.errors.push(TypeError::ValueMethodDuplicate {
+                                    type_name: type_name.to_string(),
+                                    name: member.to_string(),
+                                    pos: pos.clone(),
+                                });
+                            }
+                            self.value_methods.entry(key).or_default().push(ValueMethod {
+                                internal: name.clone(),
+                                exported: *exported,
+                                file: pos.file.clone(),
                             });
                         }
                         continue;
@@ -729,6 +762,16 @@ impl Checker {
     /// typed node, no opcode. `obj` is evaluated first and exactly once (it's
     /// just arg #0). arity and arg errors count only the args the
     /// caller wrote, never `me`. `me` is free. it's always there.
+    /// the compiled name of the value method `type.method` that a call at `pos` may use:
+    /// an exported one anywhere, or a private one declared in the caller's own file
+    fn visible_value_method(&self, type_name: &str, method: &str, pos: &p::Pos) -> Option<String> {
+        self.value_methods
+            .get(&format!("{}.{}", type_name, method))?
+            .iter()
+            .find(|m| m.exported || m.file == pos.file)
+            .map(|m| m.internal.clone())
+    }
+
     fn check_method_call(&mut self, object: &Expr, method: &str, args: &[Expr], pos: &p::Pos) -> Option<TypedExpr> {
         // `Type.name(args)`: a call to an associated function. the object is a struct NAME,
         // not a value. a local variable with that name wins (then it's a plain method call)
@@ -841,7 +884,9 @@ impl Checker {
         let receiver_ty = typed_object.ty().clone();
         // a user method on a value type (`fn string.shout(s: string)`): it is a plain call with
         // the value first. its name cannot clash with a built-in (checked at its declaration)
-        let value_method = value_type_of_ty(&receiver_ty).filter(|t| self.functions.contains_key(&format!("{}.{}", t, method)));
+        let value_method = value_type_of_ty(&receiver_ty)
+            .and_then(|t| self.visible_value_method(t, method, pos).map(|internal| (t, internal)));
+        let value_internal = value_method.as_ref().map(|(_, internal)| internal.clone());
         if value_method.is_none() {
             if let Some(ns) = method_namespace(&receiver_ty, method) {
                 return self.check_native_method(typed_object, ns, method, args, pos);
@@ -856,7 +901,7 @@ impl Checker {
             }
         }
         let struct_name = match (value_method, typed_object.ty()) {
-            (Some(t), _) => t.to_string(),
+            (Some((t, _)), _) => t.to_string(),
             (None, Ty::Named(n)) => n.clone(),
             (None, other) => {
                 self.errors.push(TypeError::NoMethodsOnType {
@@ -869,7 +914,7 @@ impl Checker {
         };
 
         // the method's declared params (after `self`) tell each argument its expected type
-        let full_name = format!("{}.{}", struct_name, method);
+        let full_name = value_internal.unwrap_or_else(|| format!("{}.{}", struct_name, method));
         let method_params: Vec<Ty> = self
             .functions
             .get(&full_name)
