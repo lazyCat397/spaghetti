@@ -373,7 +373,7 @@ diag method_mangled_notcalled.spg 1 "'len2' is a method of struct 'Vec', not a f
 # first version only stamped the Pos of the ArrayLit, not each item's)
 diag arraylit_error.spg 1 "type error in lib/array_literal_error.spg" "undefined variable 'doesNotExist'"
 diag value_method_dup.spg 1 "'string.nice' is declared more than once"
-diag value_method_private_outside.spg 1 "type string has no method 'tag'"
+diag value_method_private_outside.spg 1 "declared in another file, and it is not exported"
 
 # enums: `enum E { A, B }`, `E.A`, == / != only, `for x in E`, printed by variant name
 ok enum_basic.spg  'Green\ncolor: Green Green\ntrue false false\nRed hot\nGreen natural\nBlue cool\n[Blue, Red]\nCar { name: fusca, color: Blue }\ntrue false\n3 Red'
