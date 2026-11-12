@@ -1,3 +1,3 @@
-export fn string.nice(t: string) {
-    return t.replace("[", "").replace("]", "").replace(",", "")
-}
+export string::methods.add(fn nice() {
+    return me.replace("[", "").replace("]", "").replace(",", "")
+})

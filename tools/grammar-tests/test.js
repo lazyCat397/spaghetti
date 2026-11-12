@@ -50,6 +50,11 @@ const cases = [
   ['as in a guard is a keyword', '    guard (me.grade as g) {', 'as', 0, 'keyword.control.guard.spg'],
   ['guard alias is a definition', '    guard (me.grade as g) {', 'g)', 0, 'variable.other.definition.spg'],
   ['guard without alias still works', '    guard (me.grade) {', 'grade', 0, 'variable.other.property.spg'],
+  // type properties: `::` is an operator, the name after it is a constant
+  ['double colon is an operator', 'print(int::max)', '::', 0, 'keyword.operator.type-property.spg'],
+  ['int before :: is the type', 'print(int::max)', 'int', 1, 'support.type.primitive.spg'], // 0 is inside `print`
+  ['max after :: is a constant', 'print(int::max)', 'max', 0, 'constant.other.type-property.spg'],
+  ['single colon is not the operator', 'let a: int = 1', ':', 0, null, 'keyword.operator.type-property.spg'],
   // compile: the word and its target, with or without braces
   ['compile is a keyword', 'compile JIT {', 'compile', 0, 'keyword.control.compile.spg'],
   ['compile JIT target', 'compile JIT {', 'JIT', 0, 'keyword.control.compile.target.spg'],

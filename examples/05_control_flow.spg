@@ -19,7 +19,7 @@ while (n > 0) {
 
 // for walks over a range: 1..4 stops BEFORE 4
 for i in 1..4 {
-    if (i == 2) { continue }   // skip 2
+    if (i == 2) { continue }  // skip 2
     print("step", i)
 }
 

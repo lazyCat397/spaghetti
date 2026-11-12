@@ -35,6 +35,9 @@ pub enum TypeError {
     /// callee isn't a function (or isn't defined at all)
     UndefinedFunction { name: String, pos: Pos },
 
+    /// `int::foo`: the type exists, the property doesn't
+    UnknownTypeProperty { ty: String, name: String, pos: Pos },
+
     /// an old builtin name (`sqrt`, `toUpper`, `clock`, ...) from before
     /// namespaces. `replacement` is the new name. we moved stuff around.
     RemovedBuiltin { name: String, replacement: String, pos: Pos },
@@ -191,7 +194,6 @@ pub enum TypeError {
     /// `Type.bar()` where `Type` is a struct with no associated function `bar`
     NoAssociatedFunction { type_name: String, name: String, pos: Pos },
     /// `fn string.name(...)` whose first parameter is not a `string`: the value it is called on must come first
-    ValueMethodNeedsReceiver { type_name: String, name: String, pos: Pos },
     /// `fn string.len(...)` where `len` is already a method of `string` (built-in or shorthand)
     ValueMethodClash { type_name: String, name: String, pos: Pos },
     /// the same value method declared twice in the program (e.g. by two installed modules)
@@ -206,6 +208,8 @@ pub enum TypeError {
     /// `s.nope()` / `xs.nope()` / `m.nope()`: no builtin of `@str`/`@array`/`@map` with that
     /// name takes the value first. nope.
     NoSuchNativeMethod { found: Ty, method: String, pos: Pos },
+    /// `"x".tag()` where `tag` is a method of this type declared in another file without `export`
+    ValueMethodNotVisible { type_name: String, method: String, pos: Pos },
 
     /// `p.f` (no call) where `f` is a METHOD, not a field. add the parentheses.
     MethodNotCalled { struct_name: String, method: String, pos: Pos },
@@ -228,6 +232,7 @@ impl TypeError {
             | TypeError::MatchDuplicateCase { pos, .. }
             | TypeError::UndefinedVariable { pos, .. }
             | TypeError::UndefinedFunction { pos, .. }
+            | TypeError::UnknownTypeProperty { pos, .. }
             | TypeError::RemovedBuiltin { pos, .. }
             | TypeError::OldNamespace { pos, .. }
             | TypeError::NeedsInstall { pos, .. }
@@ -278,11 +283,11 @@ impl TypeError {
             | TypeError::AssociatedCalledOnValue { pos, .. }
             | TypeError::NoAssociatedFunction { pos, .. }
             | TypeError::AssociatedNameIsVariant { pos, .. }
-            | TypeError::ValueMethodNeedsReceiver { pos, .. }
             | TypeError::ValueMethodClash { pos, .. }
             | TypeError::ValueMethodDuplicate { pos, .. }
             | TypeError::MethodNotCalled { pos, .. }
             | TypeError::NoSuchNativeMethod { pos, .. }
+            | TypeError::ValueMethodNotVisible { pos, .. }
             | TypeError::ThrowNotString { pos, .. }
             | TypeError::CatchNotString { pos, .. } => pos,
         }
@@ -399,6 +404,10 @@ impl TypeError {
             TypeError::CaptureAssign { name, .. } => write!(
                 f, "{}a lambda cannot assign '{}': it is a copy of a variable from the function it was written in",
                 self.location(), shown(name)
+            ),
+            TypeError::UnknownTypeProperty { ty, name, .. } => write!(
+                f, "{}type '{}' has no property '{}'",
+                self.location(), ty, name
             ),
             TypeError::UndefinedFunction { name, .. } => match name.split_once('.') {
                 // `@math.foo`: the namespace exists, the member doesn't. sad.
@@ -578,11 +587,6 @@ impl TypeError {
                 "'{}' is an associated function of '{}': call it as {}.{}(), not on a value",
                 name, type_name, type_name, name
             ),
-            TypeError::ValueMethodNeedsReceiver { type_name, name, .. } => write!(
-                f,
-                "{}method '{}.{}' needs a first parameter of type {}: the value it is called on",
-                self.location(), type_name, name, type_name
-            ),
             TypeError::ValueMethodDuplicate { type_name, name, .. } => write!(
                 f,
                 "{}'{}.{}' is declared more than once: a value method has one definition in the program",
@@ -612,6 +616,10 @@ impl TypeError {
             TypeError::CatchNotString { found, .. } => write!(
                 f, "{}'catch' receives the thrown string, so its variable is a string; write 'catch (e)' or 'catch (e: string)', not {}",
                 self.location(), found
+            ),
+            TypeError::ValueMethodNotVisible { type_name, method, .. } => write!(
+                f, "{}'{}' is a method of {} declared in another file, and it is not exported: add 'export' in front of its declaration to call it from here",
+                self.location(), method, type_name
             ),
             TypeError::NoSuchNativeMethod { found, method, .. } => match found {
                 Ty::Int | Ty::Float => write!(
@@ -684,12 +692,14 @@ impl TypeError {
             TypeError::ArityMismatch { .. } => spg_lexer::HINT_ARITY,
             TypeError::UndefinedVariable { .. }
             | TypeError::UndefinedFunction { .. }
+            | TypeError::UnknownTypeProperty { .. }
             | TypeError::UndefinedStruct { .. }
             | TypeError::RemovedBuiltin { .. }
             | TypeError::OldNamespace { .. }
             | TypeError::NoSuchField { .. }
             | TypeError::NoSuchMethod { .. }
             | TypeError::NoSuchNativeMethod { .. }
+            | TypeError::ValueMethodNotVisible { .. }
             | TypeError::NoSuchVariant { .. }
             | TypeError::DuplicateDeclaration { .. }
             | TypeError::AssociatedOnUnknownType { .. }

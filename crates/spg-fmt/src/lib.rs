@@ -45,9 +45,9 @@ const KEYWORDS: &[&str] = &[
 
 /// keywords followed by a space when a `(` comes after them: `if (x)`,
 /// but a call `f(x)` and a lambda or type `function(x)` take none
-const SPACED_PAREN_KEYWORDS: &[&str] = &["if", "elif", "while", "for", "return", "catch", "when", "else", "in", "try", "throw", "guard"];
+const SPACED_PAREN_KEYWORDS: &[&str] = &["if", "elif", "while", "for", "return", "catch", "when", "else", "in", "try", "throw", "guard", "import"];
 
-const TWO_CHAR: &[&str] = &["==", "!=", "<=", ">=", "->", "+=", "-=", "*=", "/=", "**", "..", "&&", "||", "??", "|>"];
+const TWO_CHAR: &[&str] = &["==", "!=", "<=", ">=", "->", "+=", "-=", "*=", "/=", "%=", "**", "..", "&&", "||", "??", "|>", "::", "++", "--"];
 
 /// the end (exclusive) of the `"..."` string that starts at `i`
 fn scan_double_quoted(c: &[char], mut i: usize) -> usize {
@@ -235,11 +235,22 @@ fn needs_space(prev: &Atom, next: &Atom, prev_unary: bool, generic: usize) -> bo
     if matches!(p, "(" | "[") || matches!(n, ")" | "]" | "," | ";" | ":" | ".") {
         return false;
     }
+    // `n++`, `++n`: the increment hugs its operand (after a name, a number or a closing bracket)
+    if p == "++" || p == "--" {
+        return false;
+    }
+    if (n == "++" || n == "--") && (matches!(prev.class, Class::Ident | Class::Namespace) || matches!(p, "]" | ")")) {
+        return false;
+    }
     // `int?`: the question mark of an optional type hugs its type
     if n == "?" {
         return false;
     }
     if p == "." || n == ".." || p == ".." {
+        return false;
+    }
+    // `int::max`: the property operator hugs both sides
+    if p == "::" || n == "::" {
         return false;
     }
     if n == "(" {
@@ -273,6 +284,9 @@ pub fn format_source(src: &str) -> String {
     let mut pending_blank = false;
     let mut brace: i64 = 0;
     let mut paren: i64 = 0;
+    // the paren depth at each open `{`: a block inside `f(fn() { ... })` is indented by its braces,
+    // not by the call's parens that were already open when the block began
+    let mut open_paren: Vec<i64> = Vec::new();
     let mut generic: usize = 0;
     let mut prev: Option<Atom> = None;
     let mut prev_unary = false;
@@ -294,7 +308,7 @@ pub fn format_source(src: &str) -> String {
                     started = true;
                 }
                 if at_line_start {
-                    emit_indent(&mut out, brace, paren, None, pending_blank, &mut started);
+                    emit_indent(&mut out, brace, paren - open_paren.last().copied().unwrap_or(0), None, pending_blank, &mut started);
                     pending_blank = false;
                     at_line_start = false;
                     out.push_str(&text);
@@ -306,7 +320,7 @@ pub fn format_source(src: &str) -> String {
             }
             Piece::Atom(atom) => {
                 if at_line_start {
-                    emit_indent(&mut out, brace, paren, Some(&atom.text), pending_blank, &mut started);
+                    emit_indent(&mut out, brace, paren - open_paren.last().copied().unwrap_or(0), Some(&atom.text), pending_blank, &mut started);
                     pending_blank = false;
                     at_line_start = false;
                 } else if let Some(p) = &prev {
@@ -317,8 +331,14 @@ pub fn format_source(src: &str) -> String {
                 out.push_str(&atom.text);
 
                 match atom.text.as_str() {
-                    "{" => brace += 1,
-                    "}" => brace -= 1,
+                    "{" => {
+                        brace += 1;
+                        open_paren.push(paren);
+                    }
+                    "}" => {
+                        brace -= 1;
+                        open_paren.pop();
+                    }
                     "(" | "[" => paren += 1,
                     ")" | "]" => paren -= 1,
                     _ => {}

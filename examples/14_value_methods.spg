@@ -1,0 +1,22 @@
+// int, float, bool and string can have methods of your own.
+// declare one with `type::methods.add(fn name(...) { ... })`
+// the function is named, and `me` is the value it is called on (always there, never written)
+string::methods.add(fn shout() -> string {
+    return "${me}!"
+})
+
+int::methods.add(fn double() -> int {
+    return me * 2
+})
+
+// other parameters come after the name, as usual
+string::methods.add(fn repeated(times: int) -> string {
+    return @str.repeat(me, times)
+})
+
+print("hello".shout())  // hello!
+print(21.double())  // 42
+print("ab".repeated(3))  // ababab
+
+// `type::methods` lists the methods of the type: the built-in ones, then yours
+print(int::methods)

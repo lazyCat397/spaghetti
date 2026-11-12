@@ -278,59 +278,93 @@ impl Value {
 }
 
 impl fmt::Display for Value {
+    /// how a value is PRINTED: floats use `print_float` (scientific when huge or tiny)
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Value::Int(n) => write!(f, "{}", n),
-            Value::Float(n) => write!(f, "{}", format_float(*n)),
-            Value::Bool(b) => write!(f, "{}", b),
-            Value::String(s) => write!(f, "{}", s),
-            Value::Array(items) => {
-                write!(f, "[")?;
-                for (i, item) in items.borrow().iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{}", item)?;
-                }
-                write!(f, "]")
-            }
-            Value::Map(m) => {
-                let m = m.borrow();
-                if m.len() == 0 {
-                    return write!(f, "[:]");
-                }
-                write!(f, "[")?;
-                for (i, (k, v)) in m.entries().iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{}: {}", k, v)?;
-                }
-                write!(f, "]")
-            }
-            Value::Void => write!(f, "void"),
-            Value::Nil => write!(f, "none"),
-            Value::Func(_) => write!(f, "<fn>"),
-            Value::Task(_) => write!(f, "<task>"),
-            Value::Enum(def, variant) => ENUM_DEFS.with(|d| {
-                match d.borrow().get(*def as usize).and_then(|e| e.variants.get(*variant as usize)) {
-                    Some(name) => write!(f, "{}", name),
-                    None => write!(f, "<enum {}.{}>", def, variant),
-                }
-            }),
-            Value::Struct(s) => {
-                let (def, values) = &*s.borrow();
-                write!(f, "{} {{ ", def.name)?;
-                for (i, (name, value)) in def.field_names.iter().zip(values.iter()).enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{}: {}", name, value)?;
-                }
-                write!(f, " }}")
-            }
+        write_value(f, self, print_float)
+    }
+}
+
+/// the text of a value for `@into.string` (and the string conversions): the same
+/// layout as printing, but every float keeps its old text (`format_float`).
+pub fn plain_text(v: &Value) -> String {
+    struct Plain<'a>(&'a Value);
+    impl fmt::Display for Plain<'_> {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write_value(f, self.0, format_float)
         }
     }
+    Plain(v).to_string()
+}
+
+/// one value, the layout shared by printing and string conversion. `float` picks
+/// the text of every float inside it (arrays, maps and structs included).
+fn write_value(f: &mut fmt::Formatter<'_>, v: &Value, float: fn(f64) -> String) -> fmt::Result {
+    match v {
+        Value::Int(n) => write!(f, "{}", n),
+        Value::Float(n) => write!(f, "{}", float(*n)),
+        Value::Bool(b) => write!(f, "{}", b),
+        Value::String(s) => write!(f, "{}", s),
+        Value::Array(items) => {
+            write!(f, "[")?;
+            for (i, item) in items.borrow().iter().enumerate() {
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                write_value(f, item, float)?;
+            }
+            write!(f, "]")
+        }
+        Value::Map(m) => {
+            let m = m.borrow();
+            if m.len() == 0 {
+                return write!(f, "[:]");
+            }
+            write!(f, "[")?;
+            for (i, (k, v)) in m.entries().iter().enumerate() {
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                write_value(f, k, float)?;
+                write!(f, ": ")?;
+                write_value(f, v, float)?;
+            }
+            write!(f, "]")
+        }
+        Value::Void => write!(f, "void"),
+        Value::Nil => write!(f, "none"),
+        Value::Func(_) => write!(f, "<fn>"),
+        Value::Task(_) => write!(f, "<task>"),
+        Value::Enum(def, variant) => ENUM_DEFS.with(|d| {
+            match d.borrow().get(*def as usize).and_then(|e| e.variants.get(*variant as usize)) {
+                Some(name) => write!(f, "{}", name),
+                None => write!(f, "<enum {}.{}>", def, variant),
+            }
+        }),
+        Value::Struct(s) => {
+            let (def, values) = &*s.borrow();
+            write!(f, "{} {{ ", def.name)?;
+            for (i, (name, value)) in def.field_names.iter().zip(values.iter()).enumerate() {
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{}: ", name)?;
+                write_value(f, value, float)?;
+            }
+            write!(f, " }}")
+        }
+    }
+}
+
+/// how a float is PRINTED (`print`, arrays and maps inside it, error messages).
+/// very large and very small floats use scientific notation, so `float::max`
+/// shows as `1.7976931348623157e308`, not 309 digits. only the text changes: the
+/// number is the same. `format_float` below (the `@into.string` path) is untouched.
+pub fn print_float(n: f64) -> String {
+    let a = n.abs();
+    if n.is_finite() && a != 0.0 && (a >= 1e16 || a < 1e-4) {
+        return format!("{:e}", n);
+    }
+    format_float(n)
 }
 
 /// how a float shows up on screen. Rust prints `2.0` as `2`, which looks

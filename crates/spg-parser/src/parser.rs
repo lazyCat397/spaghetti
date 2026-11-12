@@ -149,6 +149,15 @@ impl Parser {
             if self.check(&TokenKind::Eof) {
                 break;
             }
+            if self.check(&TokenKind::Export) && self.method_add_at(1) {
+                self.advance(); // export
+                stmts.push(self.parse_method_add(true)?);
+                continue;
+            }
+            if self.at_method_add() {
+                stmts.push(self.parse_method_add(false)?);
+                continue;
+            }
             stmts.push(self.parse_stmt()?);
             stmts.append(&mut self.pending);
         }
@@ -225,6 +234,17 @@ impl Parser {
 
     fn parse_stmt(&mut self) -> Result<Stmt, ParseError> {
         match &self.peek().kind {
+            // `int::methods.add(...)` only at the top of the file: the list of methods
+            // must be known to the checker before any code runs
+            _ if self.at_method_add() => {
+                let pos = self.peek_pos();
+                Err(ParseError::Unexpected {
+                    expected: "int::methods.add(...) only at the top level of a file (not inside a function or block)".to_string(),
+                    found: self.peek().kind.clone(),
+                    line: pos.line,
+                    col: pos.col,
+                })
+            }
             TokenKind::Let => self.parse_let(false, false),
             TokenKind::Const => self.parse_let(true, false),
             TokenKind::If => self.parse_if_stmt(),
@@ -743,11 +763,79 @@ impl Parser {
         Ok((names, from))
     }
 
+    /// `int::methods.add(` / `string::methods.add(` ...: the start of a method
+    /// registration. `methods` is only a member of a value type here.
+    fn at_method_add(&self) -> bool {
+        self.method_add_at(0)
+    }
+
+    /// the same check, `off` tokens ahead of the current one (`export` sits in front)
+    fn method_add_at(&self, off: usize) -> bool {
+        let at = |k: usize| self.tokens.get(self.pos + off + k).map(|t| &t.kind);
+        matches!(at(0), Some(TokenKind::TypeInt | TokenKind::TypeFloat | TokenKind::TypeBool | TokenKind::TypeString))
+            && matches!(at(1), Some(TokenKind::DoubleColon))
+            && matches!(at(2), Some(TokenKind::Ident(n)) if n == "methods")
+            && matches!(at(3), Some(TokenKind::Dot))
+    }
+
+    /// `int::methods.add(fn dobro() -> int { return me * 2 })`, top level only.
+    /// lowered to the plain function `int.dobro(me: int) -> int { .. }`, the same
+    /// shape a struct method gets. so the checker, the VM and the modules see
+    /// nothing new. `me` is implicit: it is always the first parameter, typed as the value.
+    fn parse_method_add(&mut self, exported: bool) -> Result<Stmt, ParseError> {
+        let pos = self.peek_pos();
+        let (ty, type_ann) = match self.advance().kind {
+            TokenKind::TypeInt => ("int", TypeExpr::Int),
+            TokenKind::TypeFloat => ("float", TypeExpr::Float),
+            TokenKind::TypeBool => ("bool", TypeExpr::Bool),
+            _ => ("string", TypeExpr::String),
+        };
+        self.advance(); // ::
+        self.advance(); // methods
+        self.advance(); // .
+        match self.peek().kind.clone() {
+            TokenKind::Ident(n) if n == "add" => { self.advance(); }
+            _ => {
+                return Err(ParseError::Unexpected {
+                    expected: "'add' (int::methods.add(fn ...))".to_string(),
+                    found: self.peek().kind.clone(),
+                    line: pos.line,
+                    col: pos.col,
+                });
+            }
+        }
+        self.expect(TokenKind::LParen, "'('")?;
+        if !self.check(&TokenKind::Function) {
+            return Err(ParseError::Unexpected {
+                expected: "a named function: int::methods.add(fn nome(...) { ... }) (no anonymous functions here)".to_string(),
+                found: self.peek().kind.clone(),
+                line: pos.line,
+                col: pos.col,
+            });
+        }
+        let decl = self.parse_function_decl(exported)?;
+        self.expect(TokenKind::RParen, "')'")?;
+        match decl {
+            Stmt::FunctionDecl { name, mut params, return_type, body, exported, pos: fpos } => {
+                params.insert(0, Param { name: "me".to_string(), type_ann, default: None });
+                Ok(Stmt::FunctionDecl {
+                    name: format!("{}.{}", ty, name),
+                    params,
+                    return_type,
+                    body,
+                    exported,
+                    pos: fpos,
+                })
+            }
+            _ => unreachable!("parse_function_decl always returns a FunctionDecl"),
+        }
+    }
+
     fn parse_function_decl(&mut self, exported: bool) -> Result<Stmt, ParseError> {
         let pos = self.peek_pos();
         self.advance(); // function
 
-        // `fn int.name(...)`, `fn string.name(...)`: a method on a value type. the type
+        // `int::methods.add(fn name(...))` is lowered to `int.name`: a method on a value type. the type
         // keyword is the name here, and the dot after it is required
         let mut name = match self.peek().kind.clone() {
             TokenKind::TypeInt => { self.advance(); "int".to_string() }
@@ -756,9 +844,9 @@ impl Parser {
             TokenKind::TypeString => { self.advance(); "string".to_string() }
             _ => self.parse_binding_name()?,
         };
-        if matches!(name.as_str(), "int" | "float" | "bool" | "string") && !self.check(&TokenKind::Dot) {
+        if matches!(name.as_str(), "int" | "float" | "bool" | "string") {
             return Err(ParseError::Unexpected {
-                expected: "a dot after the type name (fn string.name(...)); a value type cannot be a function name".to_string(),
+                expected: "a method on a value type is declared as int::methods.add(fn nome(...) { ... })".to_string(),
                 found: self.peek().kind.clone(),
                 line: pos.line,
                 col: pos.col,
@@ -1645,6 +1733,14 @@ impl Parser {
         Ok(Expr::Ident(format!("@{}.{}", ns, member), pos))
     }
 
+    /// `int::max`: the type's name and position were already eaten by `parse_primary`.
+    /// the property name is checked later, by the typechecker, against the type's list.
+    fn parse_type_prop(&mut self, ty: &str, pos: Pos) -> Result<Expr, ParseError> {
+        self.advance(); // ::
+        let name = self.parse_ident_name()?;
+        Ok(Expr::TypeProp { ty: ty.to_string(), name, pos })
+    }
+
     fn parse_primary(&mut self) -> Result<Expr, ParseError> {
         let pos = self.peek_pos();
         match self.advance().kind {
@@ -1668,6 +1764,10 @@ impl Parser {
                 let body = self.parse_block()?;
                 Ok(Expr::Lambda { params, return_type, body, pos })
             }
+            TokenKind::TypeInt if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("int", pos),
+            TokenKind::TypeFloat if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("float", pos),
+            TokenKind::TypeBool if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("bool", pos),
+            TokenKind::TypeString if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("string", pos),
             TokenKind::TypeString if self.check(&TokenKind::Dot) => {
                 self.advance(); // .
                 let member = match &self.peek().kind {
@@ -1827,6 +1927,7 @@ fn symbol_text(k: &TokenKind) -> &'static str {
         TokenKind::Colon => ":",
         TokenKind::Comma => ",",
         TokenKind::Dot => ".",
+        TokenKind::DoubleColon => "::",
         TokenKind::DotDot => "..",
         TokenKind::LParen => "(",
         TokenKind::RParen => ")",

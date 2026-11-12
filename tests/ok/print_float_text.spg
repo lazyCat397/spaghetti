@@ -1,0 +1,10 @@
+// print shows huge floats in scientific notation; string conversions keep the old text
+let a: float = 1e20
+print(a)
+print("${a}")
+print(@into.string(a))
+print([a])
+print(@into.string([a]))
+let f: float = float::max
+print(f)
+print(@str.len(@into.string(f)))

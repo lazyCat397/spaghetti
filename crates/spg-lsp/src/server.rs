@@ -142,7 +142,7 @@ impl<W: Write> Server<W> {
                             ("save", Json::obj(vec![("includeText", Json::Bool(false))])),
                         ]),
                     ),
-                    ("completionProvider", Json::obj(vec![("resolveProvider", Json::Bool(false)), ("triggerCharacters", Json::Arr(vec![Json::str("."), Json::str("@")]))])),
+                    ("completionProvider", Json::obj(vec![("resolveProvider", Json::Bool(false)), ("triggerCharacters", Json::Arr(vec![Json::str("."), Json::str("@"), Json::str(":")]))])),
                     ("hoverProvider", Json::Bool(true)),
                     ("documentFormattingProvider", Json::Bool(true)),
                     ("definitionProvider", Json::Bool(true)),
@@ -253,7 +253,13 @@ impl<W: Write> Server<W> {
                     let col = p.get("character").and_then(Json::as_f64)? as usize;
                     Some((line, col))
                 });
-                let items = self.completion(uri, cursor);
+                // `:` also opens completion, but only `int::` uses it: a lone `:` (struct field, map entry) offers nothing
+                let by_colon = params.get("context").and_then(|c| c.get("triggerCharacter")).and_then(Json::as_str) == Some(":");
+                let items = if by_colon && !matches!(self.dot_context(uri, cursor), DotContext::TypeProp(_)) {
+                    Vec::new()
+                } else {
+                    self.completion(uri, cursor)
+                };
                 self.reply(id, Json::Arr(items));
             }
             _ => {
@@ -403,6 +409,18 @@ impl<W: Write> Server<W> {
         // `@` or `@par`: the namespace name itself is being typed
         if word_free.ends_with('@') {
             return DotContext::NamespaceName;
+        }
+        // `int::` / `float::`: the name before `::` is the type whose property is picked
+        if let Some(head) = word_free.strip_suffix("::") {
+            let ty: String = head
+                .chars()
+                .rev()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            return DotContext::TypeProp(ty);
         }
         let before = match word_free.strip_suffix('.') {
             Some(b) => b,
@@ -648,6 +666,13 @@ impl<W: Write> Server<W> {
         // dumping the global list. while the name after an `@` is being
         // typed, only the namespaces themselves are offered.
         match self.dot_context(uri, pos) {
+            DotContext::TypeProp(ty) => {
+                // `int::`: its constants and `methods`, with the value printed as detail
+                return spg_typecheck::docs::type_properties(&ty)
+                    .into_iter()
+                    .map(|(name, value, doc)| item(name, 21, Some(value.to_string()), Some(doc)))
+                    .collect();
+            }
             DotContext::NamespaceName => {
                 return spg_lexer::namespaces().iter().map(|ns| namespace_item(ns)).collect();
             }
@@ -1140,6 +1165,8 @@ enum DotContext {
     /// right after `@` (plus any partial name): a namespace is being typed
     NamespaceName,
     Namespace(String),
+    /// right after `int::` or `float::` (any name before `::`): a type's property
+    TypeProp(String),
     /// right after `Name.` where `Name` is an enum declared in the document
     Enum(String),
     /// right after `ps.` in a document that runs `install #powershell`
@@ -1475,6 +1502,26 @@ mod tests {
             assert!(global.iter().any(|l| l == want), "missing {} in global completion", want);
         }
         assert!(!global.iter().any(|l| l.contains('.')), "qualified names must not be offered globally");
+    }
+
+    #[test]
+    fn completion_after_type_colons_lists_its_properties() {
+        // `int::` offers its constants, with the value as detail; no global names leak in
+        let items = complete_at("compl_int_prop", "let x = int::\n", 0, 13);
+        let labels = labels_of(&items);
+        assert!(labels.iter().any(|l| l == "max") && labels.iter().any(|l| l == "min"), "{:?}", labels);
+        assert!(!labels.iter().any(|l| l == "print"), "global names leaked: {:?}", labels);
+        let max = items.iter().find(|i| i.get("label").and_then(Json::as_str) == Some("max")).unwrap();
+        assert_eq!(max.get("detail").and_then(Json::as_str), Some("9223372036854775807"));
+        // `float::` has three
+        let labels = labels_of(&complete_at("compl_float_prop", "let x = float::\n", 0, 15));
+        for want in ["max", "min", "epsilon"] {
+            assert!(labels.iter().any(|l| l == want), "missing {want}: {:?}", labels);
+        }
+        // every value type offers `methods`, and only that: no global names leak in
+        assert!(labels_of(&items).iter().any(|l| l == "methods"), "int:: lacks methods");
+        let labels = labels_of(&complete_at("compl_string_prop", "let x = string::\n", 0, 16));
+        assert_eq!(labels, vec!["methods".to_string()], "string:: offers only methods");
     }
 
     #[test]

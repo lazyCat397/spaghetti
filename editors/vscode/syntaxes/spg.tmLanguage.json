@@ -387,6 +387,14 @@
     "operators": {
       "patterns": [
         {
+          "match": "::",
+          "name": "keyword.operator.type-property.spg"
+        },
+        {
+          "match": "(?<=::)\\s*[\\p{L}_][\\p{L}\\p{N}_]*",
+          "name": "constant.other.type-property.spg"
+        },
+        {
           "match": "\\|>",
           "name": "keyword.operator.pipe.spg"
         },

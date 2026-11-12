@@ -1,0 +1,40 @@
+// float::inf, float::nan and @math.isNaN (also as x.isNaN())
+print(float::inf)
+print(-float::inf)
+print(float::nan)
+print(float::inf > float::max)
+print(float::nan == float::nan)
+print(float::nan != float::nan)
+print(@math.isNaN(float::nan))
+print(float::nan.isNaN())
+let x: float = 2.5
+print(x.isNaN())
+print(float::inf.isNaN())
+let zero: float = 0.0
+print((zero / zero).isNaN())
+
+// looking for a minimum: start from float::inf
+let best = float::inf
+for v in [3.0, 1.5, 2.0] {
+    if (v < best) {
+        best = v
+    }
+}
+print(best)
+
+// the same check in compiled code (JIT)
+let bad = 0
+compile JIT {
+    let i = 0
+    while (i < 4) {
+        let v = 1.0
+        if (i == 2) {
+            v = float::nan
+        }
+        if (v.isNaN()) {
+            bad = bad + 1
+        }
+        i = i + 1
+    }
+}
+print(bad)

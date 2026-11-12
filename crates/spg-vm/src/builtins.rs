@@ -297,6 +297,7 @@ pub(crate) fn call_builtin_on_stack(stack: &mut Vec<Value>, id: BuiltinId, argc:
         Ceil => Value::Int(as_float(pop!()).ceil() as i64),
         Round => Value::Int(as_float(pop!()).round() as i64),
         Sqrt => Value::Float(as_float(pop!()).sqrt()),
+        IsNaN => Value::Bool(as_float(pop!()).is_nan()),
         IntToFloat => Value::Float(as_int(pop!()) as f64),
         FloatToInt => Value::Int(as_float(pop!()) as i64),
         _ => {
@@ -522,7 +523,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
         // the variant's name (`Value`'s Display prints that, so the name is the name)
         EnumToString => Value::String(Rc::new(args.remove(0).to_string())),
         TypeOf => Value::String(Rc::new(args.remove(0).type_label())),
-        AnyToString => Value::String(Rc::new(args.remove(0).to_string())),
+        AnyToString => Value::String(Rc::new(crate::value::plain_text(&args.remove(0)))),
         BoolToString => Value::String(Rc::new(match args.remove(0) {
             Value::Bool(b) => b.to_string(),
             other => panic!("VM bug: builtin expected bool, got {}", other.type_name()),
@@ -736,6 +737,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
         Ceil => Value::Int(as_float(args.remove(0)).ceil() as i64),
         Round => Value::Int(as_float(args.remove(0)).round() as i64),
         Sqrt => Value::Float(as_float(args.remove(0)).sqrt()),
+        IsNaN => Value::Bool(as_float(args.remove(0)).is_nan()),
         PowFloat => {
             let base = as_float(args.remove(0));
             let exp = as_float(args.remove(0));

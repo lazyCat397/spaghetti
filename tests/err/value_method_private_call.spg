@@ -1,0 +1,2 @@
+install "../lib/value_method_privA.spg"
+print("x".tag())

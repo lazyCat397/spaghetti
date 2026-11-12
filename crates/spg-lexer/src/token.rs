@@ -87,6 +87,7 @@ pub enum TokenKind {
     Not,
     Arrow,     // ->
     Colon,     // :
+    DoubleColon, // `::`: type properties (`int::max`)
     Comma,
     Dot,
     DotDot, // `..` (ranges: `for i in 1..4`)

@@ -4,26 +4,26 @@
 let n = 0
 n++
 ++n
-print(n)              // 2
+print(n)  // 2
 
-let a = n++           // a gets the old value, n is now 3
-let b = ++n           // b gets the new value, n is now 4
-print(a, b, n)       // 2 4 4
+let a = n++  // a gets the old value, n is now 3
+let b = ++n  // b gets the new value, n is now 4
+print(a, b, n)  // 2 4 4
 
 // compound assignment, including modulo
 let m = 17
 m %= 5
-print(m)              // 2
+print(m)  // 2
 
 // let without a value starts at the zero of its type
 let count: int
 let label: string
-print(count, "[${label}]")   // 0 []
+print(count, "[${label}]")  // 0 []
 
 // index and field targets work too
 let scores = [10, 20, 30]
 scores[1]++
-print(scores[1])      // 21
+print(scores[1])  // 21
 
 // for with an index, over an array
 let names = ["ana", "bia", "caio"]
@@ -46,15 +46,15 @@ do {
     tries++
 } while (tries < 3)
 
-print(tries)         // 3
+print(tries)  // 3
 
 // membership with in
-print("bia" in names, "bob" in ages)   // true false
+print("bia" in names, "bob" in ages)  // true false
 
 // first and last give none for an empty array
 let empty: array<int> = []
-print(@array.first(names), @array.last(scores))   // ana 30
-print(@array.first(empty) == none)                // true
+print(@array.first(names), @array.last(scores))  // ana 30
+print(@array.first(empty) == none)  // true
 
 // map and filter over arrays and maps
 let doubled = @array.map(scores, fn(x: int) -> int {
@@ -77,4 +77,4 @@ let cheap = @map.filter(prices, fn(k: string, v: int) -> bool {
     return v < 6
 })
 
-print(@map.len(cheap))           // 1
+print(@map.len(cheap))  // 1

@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use spg_parser::ast::{self as p, BinaryOp, Expr, Param, Stmt, TypeExpr, UnaryOp};
 
 use crate::typed_ast::{ArrayFnKind, MapFnKind};
-use crate::builtins::{builtin_signatures, method_namespace, BuiltinId};
+use crate::builtins::{builtin_signatures, method_namespace, native_method_names, BuiltinId};
 use crate::error::TypeError;
 use crate::typed_ast::{RangeStep, SrcLoc, Ty, TypedBlock, TypedExpr, TypedProgram, TypedStmt};
 
@@ -56,6 +56,8 @@ struct ValueMethod {
     internal: String,
     exported: bool,
     file: Option<String>,
+    /// registration order across all value types: `int::methods` lists user methods by it
+    seq: usize,
 }
 
 pub struct Checker {
@@ -253,17 +255,10 @@ impl Checker {
                 // a module-tagged name (`main#9e60::string.nice`) is the same method as `string.nice`
                 let shown = spg_parser::ast::display_name(name);
                 if let Some((type_name, member)) = shown.split_once('.') {
-                    // `fn string.name(s: string)`: a method on a value type. its first parameter
-                    // is the value it is called on, so it is a plain function, not an associated one
+                    // `string.name`, desugared from `string::methods.add(fn name(...))`: `me` is always its
+                    // first parameter, so it is a plain function, not an associated one
                     if let Some(value_ty) = value_type_of(type_name) {
-                        let receiver_ok = params.first().map_or(false, |p| resolve_type_expr(&p.type_ann) == value_ty);
-                        if !receiver_ok {
-                            self.errors.push(TypeError::ValueMethodNeedsReceiver {
-                                type_name: type_name.to_string(),
-                                name: member.to_string(),
-                                pos: pos.clone(),
-                            });
-                        } else if member == "string" || member == "int" || member == "float" || member == "copy"
+                        if member == "string" || member == "int" || member == "float" || member == "copy"
                             || method_namespace(&value_ty, member).is_some()
                         {
                             self.errors.push(TypeError::ValueMethodClash {
@@ -285,10 +280,12 @@ impl Checker {
                                     pos: pos.clone(),
                                 });
                             }
+                            let seq = self.value_methods.values().map(|v| v.len()).sum();
                             self.value_methods.entry(key).or_default().push(ValueMethod {
                                 internal: name.clone(),
                                 exported: *exported,
                                 file: pos.file.clone(),
+                                seq,
                             });
                         }
                         continue;
@@ -890,6 +887,18 @@ impl Checker {
         if value_method.is_none() {
             if let Some(ns) = method_namespace(&receiver_ty, method) {
                 return self.check_native_method(typed_object, ns, method, args, pos);
+            }
+            // a method of this value type that exists but is not visible here: another file's, not exported
+            if let Some(type_name) = value_type_of_ty(&receiver_ty) {
+                let key = format!("{}.{}", type_name, method);
+                if self.value_methods.get(&key).map_or(false, |ms| !ms.is_empty()) {
+                    self.errors.push(TypeError::ValueMethodNotVisible {
+                        type_name: type_name.to_string(),
+                        method: method.to_string(),
+                        pos: pos.clone(),
+                    });
+                    return None;
+                }
             }
             if matches!(receiver_ty, Ty::String | Ty::Array(_) | Ty::Map(..) | Ty::Int | Ty::Float) {
                 self.errors.push(TypeError::NoSuchNativeMethod {
@@ -2579,8 +2588,59 @@ impl Checker {
         None
     }
 
+    /// `int::max` and friends: the property is a constant, so it becomes a literal
+    /// right here (the compiler never sees a property). the list is the whole API.
+    fn check_type_prop(&mut self, ty: &str, name: &str, pos: &p::Pos) -> Option<TypedExpr> {
+        let value = match (ty, name) {
+            // `int::methods`: the native methods of the type, then the user ones in `add` order.
+            // a snapshot: an array of names, the same every time it is read
+            ("int" | "float" | "bool" | "string", "methods") => {
+                let vty = match ty {
+                    "int" => Ty::Int,
+                    "float" => Ty::Float,
+                    "bool" => Ty::Bool,
+                    _ => Ty::String,
+                };
+                let mut names = native_method_names(&vty);
+                let prefix = format!("{}.", ty);
+                let mut user: Vec<(usize, String)> = Vec::new();
+                // only the ones this file can call: its own, and the exported ones of the others
+                for (k, ms) in &self.value_methods {
+                    if let Some(member) = k.strip_prefix(prefix.as_str()) {
+                        user.extend(
+                            ms.iter()
+                                .filter(|m| m.exported || m.file == pos.file)
+                                .map(|m| (m.seq, member.to_string())),
+                        );
+                    }
+                }
+                user.sort();
+                names.extend(user.into_iter().map(|(_, n)| n));
+                let items = names.into_iter().map(TypedExpr::StringLit).collect();
+                TypedExpr::ArrayLit { items, ty: Ty::Array(Box::new(Ty::String)) }
+            }
+            ("int", "max") => TypedExpr::IntLit(i64::MAX),
+            ("int", "min") => TypedExpr::IntLit(i64::MIN),
+            ("float", "max") => TypedExpr::FloatLit(f64::MAX),
+            ("float", "min") => TypedExpr::FloatLit(f64::MIN), // most negative, like int::min
+            ("float", "epsilon") => TypedExpr::FloatLit(f64::EPSILON),
+            ("float", "inf") => TypedExpr::FloatLit(f64::INFINITY),
+            ("float", "nan") => TypedExpr::FloatLit(f64::NAN),
+            _ => {
+                self.errors.push(TypeError::UnknownTypeProperty {
+                    ty: ty.to_string(),
+                    name: name.to_string(),
+                    pos: pos.clone(),
+                });
+                return None;
+            }
+        };
+        Some(value)
+    }
+
     fn check_expr(&mut self, expr: &Expr) -> Option<TypedExpr> {
         match expr {
+            Expr::TypeProp { ty, name, pos } => self.check_type_prop(ty, name, pos),
             Expr::IntLit(n, _) => Some(TypedExpr::IntLit(*n)),
             Expr::FloatLit(f, _) => Some(TypedExpr::FloatLit(*f)),
             Expr::StringLit(s, _) => Some(TypedExpr::StringLit(s.clone())),

@@ -1,0 +1,3 @@
+fn string.nice(s: string) -> string {
+    return s
+}

@@ -1,0 +1,15 @@
+// type properties: int::max, int::min, float::max, float::min, float::epsilon
+print(int::max)
+print(int::min)
+print(int::max - 1)
+print(float::epsilon)
+print(float::min)
+print(float::max)
+let x: int = int::max
+print(x)
+const big: float = float::max
+print(big)
+print([int::min, 0])
+print(int::max > 0 and int::min < 0)
+print(float::min < 0.0 and float::epsilon > 0.0)
+print(-int::min)

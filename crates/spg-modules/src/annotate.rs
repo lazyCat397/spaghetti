@@ -200,6 +200,7 @@ fn annotate_expr(expr: &mut Expr, file: &str) {
         | Expr::StringLit(_, pos)
         | Expr::BoolLit(_, pos)
         | Expr::NoneLit(pos)
+        | Expr::TypeProp { pos, .. }
         | Expr::Ident(_, pos) => stamp(pos, file),
 
         Expr::ArrayLit(items, pos) => {

@@ -1437,6 +1437,7 @@ fn step(chunk: &Chunk, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::value::Struct
                     (&[K::Float], K::Float)
                 }
                 BuiltinId::Floor | BuiltinId::Ceil | BuiltinId::Round => (&[K::Float], K::Int),
+                BuiltinId::IsNaN => (&[K::Float], K::Bool),
                 BuiltinId::SignFloat => (&[K::Float], K::Int),
                 BuiltinId::Abs | BuiltinId::SignInt => (&[K::Int], K::Int),
                 BuiltinId::PowFloat | BuiltinId::Atan2 | BuiltinId::MinFloat | BuiltinId::MaxFloat => {
@@ -1910,6 +1911,11 @@ fn math_codegen(
     let float_of = |b: &mut FunctionBuilder, v: CV| b.ins().bitcast(F64, MemFlags::new(), v);
     let out = match id {
         BuiltinId::Sqrt => (b.ins().sqrt(f(0)), K::Float),
+        // NaN is the one value unequal to itself: the comparison is unordered only for NaN (inf is ordered)
+        BuiltinId::IsNaN => {
+            let c = b.ins().fcmp(FloatCC::Unordered, f(0), f(0));
+            (b.ins().uextend(I64, c), K::Bool)
+        }
         BuiltinId::AbsFloat => (b.ins().fabs(f(0)), K::Float),
         BuiltinId::Floor => {
             let v = b.ins().floor(f(0));

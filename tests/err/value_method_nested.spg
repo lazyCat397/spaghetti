@@ -1,0 +1,5 @@
+fn wrap() {
+    int::methods.add(fn tripled() -> int {
+        return me * 3
+    })
+}

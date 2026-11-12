@@ -159,6 +159,7 @@ pub enum BuiltinId {
     Ceil,
     Round,
     Sqrt,
+    IsNaN,
     PowFloat,
     MinInt,
     MaxInt,
@@ -600,6 +601,7 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
     add("@math.ceil", BuiltinSig { id: BuiltinId::Ceil, params: vec![Ty::Float], return_type: Ty::Int });
     add("@math.round", BuiltinSig { id: BuiltinId::Round, params: vec![Ty::Float], return_type: Ty::Int });
     add("@math.sqrt", BuiltinSig { id: BuiltinId::Sqrt, params: vec![Ty::Float], return_type: Ty::Float });
+    add("@math.isNaN", BuiltinSig { id: BuiltinId::IsNaN, params: vec![Ty::Float], return_type: Ty::Bool });
     add(
         "@math.pow",
         BuiltinSig { id: BuiltinId::PowFloat, params: vec![Ty::Float, Ty::Float], return_type: Ty::Float },
@@ -836,4 +838,27 @@ mod lib_sig_tests {
             assert!(!f.doc.is_empty(), "{}.{} has no doc", module.name, f.name);
         }
     }
+}
+
+/// the names of the native methods of a value type, sorted: the list `int::methods` starts with.
+/// same rule as `method_namespace`, but collected for every member instead of looked up one by one.
+pub fn native_method_names(ty: &Ty) -> Vec<String> {
+    let table = builtin_signatures();
+    let mut names: Vec<String> = table
+        .iter()
+        .filter_map(|(name, overloads)| {
+            let rest = name.strip_prefix('@')?;
+            let (ns, member) = rest.split_once('.')?;
+            if !METHOD_NAMESPACES.contains(&ns) || NOT_METHOD_BUILTINS.contains(&name.as_str()) {
+                return None;
+            }
+            overloads
+                .iter()
+                .any(|sig| sig.params.first().map_or(false, |p| crate::checker::ty_matches(p, ty)))
+                .then(|| member.to_string())
+        })
+        .collect();
+    names.sort();
+    names.dedup();
+    names
 }

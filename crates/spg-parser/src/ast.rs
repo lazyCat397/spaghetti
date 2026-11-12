@@ -15,7 +15,7 @@
 /// undo it. keeping both halves next to each other is the whole point.
 pub const MANGLE_SEP: &str = "::";
 
-/// the value type of a method declared as `fn string.name(...)`, `int`, `float` or `bool`.
+/// the value type of a method declared as `string::methods.add(fn name(...))` (lowered to `string.name`), `int`, `float` or `bool`.
 /// such methods are program-wide and never get a module tag, so they are not mangled.
 pub fn value_method_type(name: &str) -> Option<&str> {
     match display_name(name).split_once('.') {
@@ -141,6 +141,14 @@ pub enum Expr {
     Field {
         object: Box<Expr>,
         field: String,
+        pos: Pos,
+    },
+
+    /// `int::max`, `float::epsilon`: a property of a type (a constant, resolved
+    /// by the typechecker). `ty` is the type's name, `name` the property.
+    TypeProp {
+        ty: String,
+        name: String,
         pos: Pos,
     },
 
@@ -495,6 +503,7 @@ impl Expr {
             | Expr::Index { pos, .. }
             | Expr::StructLit { pos, .. }
             | Expr::Field { pos, .. }
+            | Expr::TypeProp { pos, .. }
             | Expr::IfExpr { pos, .. }
             | Expr::Lambda { pos, .. } => Some(pos),
         }

@@ -36,7 +36,7 @@ pub struct Decls {
     /// `fn Type.name(...) -> R` declarations, as (type, name, signature). they travel
     /// with `merge`, so an imported type's associated functions are listed too
     pub associated: Vec<(String, String, String)>,
-    /// `fn string.name(s: string) -> R` declarations on value types, as (type, name, signature)
+    /// `string::methods.add(fn name(...) -> R)` declarations on value types, as (type, name, signature)
     pub value_methods: Vec<(String, String, String)>,
 }
 
@@ -62,7 +62,8 @@ impl Decls {
                 }
             }
         }
-        // `fn string.name(...)`: a method on a value type. the type is a keyword token, not an identifier
+        // `string::methods.add(fn name(...) ...)`: a method on a value type. the type is a keyword
+        // token, not an identifier. the signature is the one written: `me` is implicit, so it is not in it
         for i in 0..tokens.len() {
             let ty = match kind(tokens, i) {
                 Some(T::TypeInt) => "int",
@@ -71,11 +72,30 @@ impl Decls {
                 Some(T::TypeString) => "string",
                 _ => continue,
             };
-            if let (Some(T::Function), Some(T::Dot), Some(T::Ident(name)), Some(T::LParen)) =
-                (i.checked_sub(1).and_then(|k| kind(tokens, k)), kind(tokens, i + 1), kind(tokens, i + 2), kind(tokens, i + 3))
-            {
-                if let Some((sig, _)) = signature_at(tokens, i + 3) {
-                    d.value_methods.push((ty.to_string(), name.clone(), sig));
+            // tokens: type :: methods . add ( fn name ( ...
+            if let (
+                Some(T::DoubleColon),
+                Some(T::Ident(methods)),
+                Some(T::Dot),
+                Some(T::Ident(add)),
+                Some(T::LParen),
+                Some(T::Function),
+                Some(T::Ident(name)),
+                Some(T::LParen),
+            ) = (
+                kind(tokens, i + 1),
+                kind(tokens, i + 2),
+                kind(tokens, i + 3),
+                kind(tokens, i + 4),
+                kind(tokens, i + 5),
+                kind(tokens, i + 6),
+                kind(tokens, i + 7),
+                kind(tokens, i + 8),
+            ) {
+                if methods.as_str() == "methods" && add.as_str() == "add" {
+                    if let Some((sig, _)) = signature_at(tokens, i + 8) {
+                        d.value_methods.push((ty.to_string(), name.clone(), sig));
+                    }
                 }
             }
         }
@@ -1155,7 +1175,7 @@ mod tests {
 
     #[test]
     fn value_type_methods_of_the_file_are_offered_after_a_literal() {
-        let src = "fn string.shout(s: string) -> string { return \"${s}!\" }\nfn int.double(n: int) -> int { return n * 2 }\nlet s = \"abc\".";
+        let src = "string::methods.add(fn shout() -> string { return \"${me}!\" })\nint::methods.add(fn double() -> int { return me * 2 })\nlet s = \"abc\".";
         let (tokens, at, d) = dot_at_end(src);
         let got = names(&after_dot_expr(&tokens, at, &d));
         assert!(got.iter().any(|n| n == "shout"), "{:?}", got);

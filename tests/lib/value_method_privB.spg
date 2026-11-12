@@ -1,6 +1,6 @@
-fn string.tag(s: string) -> string {
+string::methods.add(fn tag() -> string {
     return "B"
-}
+})
 export fn useB() -> string {
     return "x".tag()
 }

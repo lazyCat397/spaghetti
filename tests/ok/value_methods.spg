@@ -1,24 +1,24 @@
-// methods on value types: the first parameter's type is the receiver
-fn string.shout(s: string) -> string {
-    return "${s}!"
-}
-fn int.double(n: int) -> int {
-    return n * 2
-}
-fn float.half(x: float) -> float {
-    return x / 2.0
-}
-fn bool.flip(b: bool) -> bool {
-    return not b
-}
+// methods on value types: `me` is the value the method is called on
+string::methods.add(fn shout() -> string {
+    return "${me}!"
+})
+int::methods.add(fn double() -> int {
+    return me * 2
+})
+float::methods.add(fn half() -> float {
+    return me / 2.0
+})
+bool::methods.add(fn flip() -> bool {
+    return not me
+})
 print("hello".shout())
 print(21.double())
 print(3.0.half())
 print(true.flip())
 let name = "spg"
 print(name.shout().shout())
-// the receiver's name is free
-fn string.twice(text: string) -> string {
-    return "${text}${text}"
-}
+// the name is free
+string::methods.add(fn twice() -> string {
+    return "${me}${me}"
+})
 print("ab".twice())

@@ -144,8 +144,16 @@ err guard_reentry_static.spg 'again: guard of Box -> reset (line 6)'
 err guard_reentry_chain.spg 'guard of Node -> step_one (line 6) -> step_two (line 12) -> write to Node (line 16)'
 err guard_reentry_alias.spg 'guard of Box -> reset (line 7) -> write to Box (line 13)'
 err value_method_clash.spg 'clashes with the built-in method'
-err value_method_no_receiver.spg 'needs a first parameter of type int'
-err value_method_no_dot.spg 'expected a dot after the type name'
+err value_method_nested.spg 'only at the top level'
+err value_method_old_syntax.spg 'declared as int::methods.add'
+err value_method_private_call.spg 'declared in another file, and it is not exported'
+ok type_properties.spg '9223372036854775807\n-9223372036854775808\n9223372036854775806\n2.220446049250313e-16\n-1.7976931348623157e308\n1.7976931348623157e308\n9223372036854775807\n1.7976931348623157e308\n[-9223372036854775808, 0]\ntrue\ntrue\n-9223372036854775808'
+err type_property_unknown.spg 'has no property'
+err type_property_assign.spg 'expected an assignable target'
+ok print_float_text.spg '1e20\n100000000000000000000.0\n100000000000000000000.0\n[1e20]\n[100000000000000000000.0]\n1.7976931348623157e308\n311'
+ok float_inf_nan.spg 'inf\n-inf\nNaN\ntrue\nfalse\ntrue\ntrue\ntrue\nfalse\nfalse\ntrue\n1.5\n1'
+err math_isnan_int.spg 'expects float, got int'
+exact1 type_property_neg_strict.spg 'runtime error: integer overflow in negation: the result does not fit in an int (64 bits, #> strict)\n  at <main> (err/type_property_neg_strict.spg:2)'
 ok guard_reentry_ambiguous.spg 'refused: a write to a Box ran inside a guard of Box: a guard cannot change its own struct\nvalue: 1'
 ok guard_reentry_runtime.spg 'refused: a write to a Box ran inside a guard of Box: a guard cannot change its own struct\nvalue: 1\nvalue: 3'
 ok guard_other_struct.spg '60'
@@ -621,6 +629,15 @@ spgrun fmt "$fdir/x.spg" >/dev/null 2>&1
 got=$(cat "$fdir/x.spg"); want=$(printf 'let a = 1 + 2\nprint(a)  // sum')
 if [ "$got" = "$want" ] && spgrun fmt --check "$fdir/x.spg" >/dev/null 2>&1; then pass=$((pass+1)); tick; else
     fail=$((fail+1)); tick; say "FAIL fmt/x.spg"; echo "  got: $got"; fi
+rm -rf "$fdir"
+
+# spg fmt keeps `::` glued (int::max), never `int:: max`
+fdir=$(mktemp -d)
+printf 'let a = int :: max\nprint(float::min,int::min)\n' > "$fdir/x.spg"
+spgrun fmt "$fdir/x.spg" >/dev/null 2>&1
+got=$(cat "$fdir/x.spg"); want=$(printf 'let a = int::max\nprint(float::min, int::min)')
+if [ "$got" = "$want" ]; then pass=$((pass+1)); tick; else
+    fail=$((fail+1)); tick; say "FAIL fmt/double_colon"; echo "  got: $got"; fi
 rm -rf "$fdir"
 
 # ps.* (install #ps): the no-PowerShell path (runs with an empty PATH, so it works the same on every machine)

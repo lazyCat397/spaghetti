@@ -965,7 +965,14 @@ impl<'a> Lexer<'a> {
                 self.advance();
                 TokenKind::PipeArrow
             }
-            ':' => TokenKind::Colon,
+            ':' => {
+                if self.peek() == Some(':') {
+                    self.advance();
+                    TokenKind::DoubleColon
+                } else {
+                    TokenKind::Colon
+                }
+            }
             ',' => TokenKind::Comma,
             '.' => {
                 if self.peek() == Some('.') {
@@ -1324,5 +1331,18 @@ mod numeric_literal_tests {
     fn too_big_numbers_are_errors_not_panics() {
         assert!(fails("9999999999999999999999"));
         assert!(fails("1e400"));
+    }
+}
+
+#[cfg(test)]
+mod double_colon_tests {
+    use super::*;
+
+    #[test]
+    fn double_colon_is_one_token_and_single_colon_stays() {
+        let toks = Lexer::new("int::max").tokenize().unwrap();
+        assert_eq!(toks[1].kind, TokenKind::DoubleColon);
+        let toks = Lexer::new("a: 1").tokenize().unwrap();
+        assert_eq!(toks[1].kind, TokenKind::Colon);
     }
 }

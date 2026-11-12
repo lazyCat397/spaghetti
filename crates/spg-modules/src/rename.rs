@@ -295,7 +295,8 @@ impl<'a> Renamer<'a> {
 
     fn rename_expr(&mut self, expr: &mut Expr) {
         match expr {
-            Expr::IntLit(..) | Expr::FloatLit(..) | Expr::StringLit(..) | Expr::BoolLit(..) | Expr::NoneLit(..) => {}
+            // `int::max` names no user identifier: nothing to rename
+            Expr::IntLit(..) | Expr::FloatLit(..) | Expr::StringLit(..) | Expr::BoolLit(..) | Expr::NoneLit(..) | Expr::TypeProp { .. } => {}
 
             Expr::ArrayLit(items, _) => {
                 for i in items {

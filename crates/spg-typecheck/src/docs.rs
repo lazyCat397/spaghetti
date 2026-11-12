@@ -77,6 +77,7 @@ pub fn builtin_doc(name: &str) -> Option<&'static str> {
         "@math.ceil" => "round up to the nearest whole number",
         "@math.round" => "round to the nearest whole number",
         "@math.sqrt" => "square root",
+        "@math.isNaN" => "is it NaN? true only for NaN (inf is not NaN)",
         "@math.pow" => "base raised to the exponent",
         "@math.exp" => "e raised to the power of x",
         "@math.log" => "natural logarithm",
@@ -125,6 +126,32 @@ pub fn builtin_doc(name: &str) -> Option<&'static str> {
         // the native libraries (ps, http, ...) document themselves: see `lib_doc`
         _ => return lib_doc(name),
     })
+}
+
+/// the properties a type has, read as `int::max`: (type, property, value as it
+/// prints, doc). the checker resolves each one to a literal (`check_type_prop`):
+/// when a property is added, add it there too.
+pub const TYPE_PROPERTIES: &[(&str, &str, &str, &str)] = &[
+    ("int", "max", "9223372036854775807", "the biggest int"),
+    ("int", "min", "-9223372036854775808", "the smallest int"),
+    ("float", "max", "1.7976931348623157e308", "the biggest float"),
+    ("float", "min", "-1.7976931348623157e308", "the most negative float (not the smallest positive one)"),
+    ("float", "epsilon", "2.220446049250313e-16", "the gap between 1.0 and the next float"),
+    ("float", "inf", "inf", "bigger than every float: the start value when looking for a minimum"),
+    ("float", "nan", "NaN", "not a number (what 0.0 / 0.0 gives): not equal to anything, check it with isNaN()"),
+    ("int", "methods", "string[]", "the names of the methods of int: the built-in ones, then the ones you added with int::methods.add, that this file can call"),
+    ("float", "methods", "string[]", "the names of the methods of float: the built-in ones, then the ones you added with float::methods.add, that this file can call"),
+    ("bool", "methods", "string[]", "the names of the methods of bool: the built-in ones, then the ones you added with bool::methods.add, that this file can call"),
+    ("string", "methods", "string[]", "the names of the methods of string: the built-in ones, then the ones you added with string::methods.add, that this file can call"),
+];
+
+/// the properties of one type, as (property, value, doc), for completion after `int::`
+pub fn type_properties(ty: &str) -> Vec<(&'static str, &'static str, &'static str)> {
+    TYPE_PROPERTIES
+        .iter()
+        .filter(|(t, _, _, _)| *t == ty)
+        .map(|(_, name, value, doc)| (*name, *value, *doc))
+        .collect()
 }
 
 /// what a namespace is for, shown when picking it after `@`
