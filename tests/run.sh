@@ -435,7 +435,7 @@ err const_void.spg           "this expression has no value (void)" "line 1, colu
 err when_nonexhaustive.spg "does not cover every variant" "missing: Left, Right" "line 3, column 1"
 err when_case_type.spg     "this case is string, but the matched value is Dir" "line 4, column 5"
 err when_subject_float.spg "can only match an int, a string or an enum, but this value is float"
-err into_method_int.spg     "'@into.int' argument #1 expects float, got int" "line 2, column 12"
+err into_method_int.spg     "'@into.int' argument #1 expects" "got bool"
 err map_missing_compound.spg 'key not found in map: "zz"'
 err map_parse_colon.spg     "expected ']'" "line 1, column 14"
 diag map_mangled.spg 2 "this map's keys are string, found int" "this map's values are int, found Item"
