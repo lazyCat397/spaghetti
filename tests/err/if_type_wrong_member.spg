@@ -1,0 +1,7 @@
+fn f(x: int or float or string) -> int {
+    if (type(x) == "int") {
+        return x
+    }
+    return x % 2
+}
+print(f(3))

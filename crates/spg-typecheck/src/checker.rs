@@ -546,6 +546,56 @@ impl Checker {
         }
     }
 
+    /// `when (type(x)) { "int" { ... } }`: inside that arm `x` has the member the arm names. the same
+    /// shadow `narrow` makes for an optional, for a member of a union. no assignment is needed to undo
+    /// it: the arm's scope goes away with the shadow.
+    fn narrow_member(&mut self, name: &str, member: Ty) {
+        let found = self.scopes.iter().enumerate().rev().find_map(|(i, s)| s.get(name).map(|info| (i, info.clone())));
+        let Some((scope, info)) = found else { return };
+        let Ty::Union(members) = &info.ty else { return };
+        // a member, or a smaller union of members (what a chain of `else`s has left over)
+        let fits = match &member {
+            Ty::Union(sub) => sub.iter().all(|t| members.contains(t)) && sub.len() < members.len(),
+            t => members.contains(t),
+        };
+        if !fits {
+            return;
+        }
+        let narrowed = VarInfo {
+            ty: member,
+            mutable: info.mutable,
+            assigned: info.assigned,
+            origin: Some(info.origin.unwrap_or(scope)),
+            narrowed_from: Some(info.ty.clone()),
+        };
+        self.scopes.last_mut().expect("at least one scope always active").insert(name.to_string(), narrowed);
+    }
+
+    /// applies the facts of `type_facts`, in the current scope. `Not` narrows to the member left
+    /// once every excluded member is taken out of the union.
+    fn narrow_types(&mut self, facts: &[TypeFact]) {
+        for fact in facts {
+            match fact {
+                TypeFact::Is(name, ty) => self.narrow_member(name, ty.clone()),
+                TypeFact::Not(name, _) => {
+                    let Some(Ty::Union(members)) = self.resolve_name(name) else { continue };
+                    let left: Vec<Ty> = members
+                        .iter()
+                        .filter(|m| !facts.iter().any(|f| matches!(f, TypeFact::Not(n, t) if n == name && t == *m)))
+                        .cloned()
+                        .collect();
+                    // one member left: the variable is it. several left: the rest of the union, so
+                    // the next `else` in the chain still sees what is excluded
+                    match left.as_slice() {
+                        [only] => self.narrow_member(name, only.clone()),
+                        [_, _, ..] if left.len() < members.len() => self.narrow_member(name, Ty::Union(left)),
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
     /// undoes `narrow` for `name`: the shadow disappears, or the real binding gets
     /// its optional type back. welcome back, `?`.
     fn unnarrow(&mut self, name: &str) {
@@ -839,6 +889,15 @@ impl Checker {
                 _ => false,
             };
             if !user_method {
+                // already of the target type: the conversion is the value itself (`2.5.float()`)
+                let same = match method {
+                    "int" => Ty::Int,
+                    "float" => Ty::Float,
+                    _ => Ty::String,
+                };
+                if *typed_object.ty() == same {
+                    return Some(typed_object);
+                }
                 return self.check_builtin_call(format!("@into.{}", method), vec![typed_object], pos);
             }
         }
@@ -1206,6 +1265,7 @@ impl Checker {
                 let mut typed_arms: Vec<(Vec<TypedExpr>, TypedBlock)> = Vec::new();
                 let mut covered: Vec<usize> = Vec::new();
                 let mut bad_case = false;
+                let mut type_covered: Vec<Ty> = Vec::new();
                 let mut seen_literals: Vec<String> = Vec::new();
                 for arm in arms {
                     let mut values = Vec::new();
@@ -1240,6 +1300,10 @@ impl Checker {
                         values.push(typed_value);
                     }
                     self.push_scope();
+                    if let Some((var, member)) = type_test_arm(subject, &arm.values) {
+                        type_covered.push(member.clone());
+                        self.narrow_member(&var, member);
+                    }
                     let typed_body = self.check_block(&arm.body);
                     self.pop_scope();
                     typed_arms.push((values, typed_body));
@@ -1251,6 +1315,17 @@ impl Checker {
                     self.pop_scope();
                     t
                 });
+
+                // `when (type(x))` without `else` is exhaustive when its arms name every member of x's union
+                if let (None, false) = (&typed_else, bad_case) {
+                    if let Some(var) = type_test_subject(subject) {
+                        if let Some(Ty::Union(members)) = self.resolve_name(&var) {
+                            if members.iter().all(|m| type_covered.contains(m)) {
+                                self.exhaustive_matches.insert((pos.file.clone(), pos.line, pos.col));
+                            }
+                        }
+                    }
+                }
 
                 // an enum match without `else` has to name every variant. no skipping.
                 if let (Some(names), None, false) = (&variants, &typed_else, bad_case) {
@@ -1311,15 +1386,18 @@ impl Checker {
                 }
 
                 let (when_true, when_false) = narrowing(cond);
+                let (type_true, type_false) = type_facts(cond);
 
                 self.push_scope();
                 self.narrow(&when_true);
+                self.narrow_types(&type_true);
                 let typed_then = self.check_block(then_branch);
                 self.pop_scope();
 
                 let typed_else = else_branch.as_ref().map(|b| {
                     self.push_scope();
                     self.narrow(&when_false);
+                    self.narrow_types(&type_false);
                     let t = self.check_block(b);
                     self.pop_scope();
                     t
@@ -1331,8 +1409,10 @@ impl Checker {
                 let else_exits = else_branch.as_ref().is_some_and(|b| block_exits(b));
                 if then_exits && !else_exits {
                     self.narrow(&when_false);
+                    self.narrow_types(&type_false);
                 } else if else_exits && !then_exits {
                     self.narrow(&when_true);
+                    self.narrow_types(&type_true);
                 }
 
                 Some(TypedStmt::IfStmt { cond: typed_cond, then_branch: typed_then, else_branch: typed_else })
@@ -1376,8 +1456,10 @@ impl Checker {
                     self.errors.push(TypeError::NonBoolCondition { found: typed_cond.ty().clone(), pos: pos.clone() });
                 }
                 let (when_true, _) = narrowing(cond);
+                let (type_true, _) = type_facts(cond);
                 self.push_scope();
                 self.narrow(&when_true);
+                self.narrow_types(&type_true);
                 self.loop_depth += 1;
                 let typed_body = self.check_block(body);
                 self.loop_depth -= 1;
@@ -2746,11 +2828,17 @@ impl Checker {
                     BinaryOp::Or => narrowing(left).1,
                     _ => Vec::new(),
                 };
-                let checked_right = if proven.is_empty() {
+                let type_proven = match op {
+                    BinaryOp::And => type_facts(left).0,
+                    BinaryOp::Or => type_facts(left).1,
+                    _ => Vec::new(),
+                };
+                let checked_right = if proven.is_empty() && type_proven.is_empty() {
                     self.check_expr(right)
                 } else {
                     self.push_scope();
                     self.narrow(&proven);
+                    self.narrow_types(&type_proven);
                     let r = self.check_expr(right);
                     self.pop_scope();
                     r
@@ -3130,14 +3218,17 @@ impl Checker {
                 }
 
                 let (when_true, when_false) = narrowing(cond);
+                let (type_true, type_false) = type_facts(cond);
 
                 self.push_scope();
                 self.narrow(&when_true);
+                self.narrow_types(&type_true);
                 let typed_then = self.check_block(then_branch);
                 self.pop_scope();
 
                 self.push_scope();
                 self.narrow(&when_false);
+                self.narrow_types(&type_false);
                 let typed_else = self.check_block(else_branch);
                 self.pop_scope();
 
@@ -3450,6 +3541,87 @@ fn stmt_loc(stmt: &p::Stmt, previous: &SrcLoc) -> SrcLoc {
 
 /// the names a condition proves aren't `none`: (when true, when false).
 /// only `name == none`, `name != none`, `!`, `&&` and `||` of those say anything
+/// the variable and the type an arm proves, for `when (type(x)) { "int" { ... } }`: in that arm `x` is
+/// an `int`. only a single name of a basic type counts: `"array"` or several names prove nothing here.
+/// a fact a condition proves about a union variable. `Is`: the variable is that member. `Not`: it is
+/// not (the other members remain, and when one is left the variable is that one).
+#[derive(Clone)]
+enum TypeFact {
+    Is(String, Ty),
+    Not(String, Ty),
+}
+
+/// the basic type a type name stands for: `"int"` is `Ty::Int`. other names are not tested here.
+fn basic_ty(name: &str) -> Option<Ty> {
+    match name {
+        "int" => Some(Ty::Int),
+        "float" => Some(Ty::Float),
+        "bool" => Some(Ty::Bool),
+        "string" => Some(Ty::String),
+        _ => None,
+    }
+}
+
+/// `type(x) == "int"` or `"int" == type(x)`: the variable and the type the test names
+fn type_test_pair(a: &Expr, b: &Expr) -> Option<(String, Ty)> {
+    if let (Some(var), Expr::StringLit(name, _)) = (type_test_subject(a), b) {
+        return basic_ty(name).map(|t| (var, t));
+    }
+    if let (Expr::StringLit(name, _), Some(var)) = (a, type_test_subject(b)) {
+        return basic_ty(name).map(|t| (var, t));
+    }
+    None
+}
+
+/// the facts a condition proves about union variables when it holds (first) and when it fails (second).
+/// the same shape as `narrowing`, for `type(x) == "int"` tests.
+fn type_facts(cond: &Expr) -> (Vec<TypeFact>, Vec<TypeFact>) {
+    match cond {
+        Expr::Binary { left, op: op @ (BinaryOp::Eq | BinaryOp::NotEq), right, .. } => {
+            let Some((var, ty)) = type_test_pair(left, right) else { return (Vec::new(), Vec::new()) };
+            let (is, not) = (TypeFact::Is(var.clone(), ty.clone()), TypeFact::Not(var, ty));
+            if matches!(op, BinaryOp::Eq) {
+                (vec![is], vec![not])
+            } else {
+                (vec![not], vec![is])
+            }
+        }
+        // both halves held. good boy.
+        Expr::Binary { left, op: BinaryOp::And, right, .. } => ([type_facts(left).0, type_facts(right).0].concat(), Vec::new()),
+        // neither half held. oof.
+        Expr::Binary { left, op: BinaryOp::Or, right, .. } => (Vec::new(), [type_facts(left).1, type_facts(right).1].concat()),
+        Expr::Unary { op: UnaryOp::Not, expr, .. } => {
+            let (t, f) = type_facts(expr);
+            (f, t)
+        }
+        _ => (Vec::new(), Vec::new()),
+    }
+}
+
+/// the variable `x` of a `type(x)` subject, if the subject is one
+fn type_test_subject(subject: &Expr) -> Option<String> {
+    let Expr::Call { callee, args, .. } = subject else { return None };
+    let Expr::Ident(func, _) = &**callee else { return None };
+    if func != "type" || args.len() != 1 {
+        return None;
+    }
+    let Expr::Ident(var, _) = &args[0] else { return None };
+    Some(var.clone())
+}
+
+fn type_test_arm(subject: &Expr, values: &[Expr]) -> Option<(String, Ty)> {
+    let var = type_test_subject(subject)?;
+    let [Expr::StringLit(name, _)] = values else { return None };
+    let ty = match name.as_str() {
+        "int" => Ty::Int,
+        "float" => Ty::Float,
+        "bool" => Ty::Bool,
+        "string" => Ty::String,
+        _ => return None,
+    };
+    Some((var, ty))
+}
+
 fn narrowing(cond: &Expr) -> (Vec<String>, Vec<String>) {
     match cond {
         Expr::Binary { left, op, right, .. } => match op {

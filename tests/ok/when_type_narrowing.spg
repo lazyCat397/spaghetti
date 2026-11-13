@@ -1,0 +1,24 @@
+fn isEven(n: int or float) -> bool {
+    when (type(n)) {
+        "int" { return (n % 2 == 0) }
+        "float" { return (n % 2.0 == 0.0) }
+    }
+}
+print(isEven(4), isEven(3), isEven(4.0), isEven(3.5))
+fn f(n: int or string) -> string {
+    when (type(n)) {
+        "int" { return "int " + (n + 1).string() }
+        else { return "other" }
+    }
+}
+print(f(4), f("x"))
+fn g(n: int or string) -> int {
+    when (type(n)) {
+        "int" {
+            n = "now a string"
+            return 0
+        }
+        else { return 1 }
+    }
+}
+print(g(2))

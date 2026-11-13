@@ -1597,6 +1597,31 @@ mod tests {
         resp.get("result").unwrap().as_array().unwrap().to_vec()
     }
 
+    /// the completion request an editor sends when the user types `:` as a trigger character
+    fn complete_after_colon_typed(name: &str, text: &str, line: i64, col: i64) -> Vec<Json> {
+        let (_f, uri) = tmp_file(name, "let x = 1\n");
+        let (_, out) = session(vec![
+            note("textDocument/didOpen", Json::obj(vec![(
+                "textDocument", Json::obj(vec![("uri", Json::str(&uri)), ("text", Json::str(text)), ("version", Json::int(1))]))])),
+            req(9, "textDocument/completion", Json::obj(vec![
+                ("textDocument", Json::obj(vec![("uri", Json::str(&uri))])),
+                ("position", Json::obj(vec![("line", Json::int(line)), ("character", Json::int(col))])),
+                ("context", Json::obj(vec![("triggerKind", Json::int(2)), ("triggerCharacter", Json::str(":"))])),
+            ])),
+            note("exit", Json::Null),
+        ]);
+        let resp = out.iter().find(|m| m.get("id").and_then(Json::as_f64) == Some(9.0)).unwrap();
+        resp.get("result").unwrap().as_array().unwrap().to_vec()
+    }
+
+    #[test]
+    fn second_colon_opens_the_type_property_list_at_once() {
+        // the text the editor holds right after the second `:` of `int::`
+        let items = complete_after_colon_typed("compl_colon_trigger", "let n = int::\n", 0, 14);
+        let labels = labels_of(&items);
+        assert!(labels.iter().any(|l| l == "methods"), "no list after `int::` typed: {:?}", labels);
+    }
+
     #[test]
     fn after_a_dot_fields_come_before_methods() {
         let items = complete_at("compl_win_groups", "install #ui\nlet win = ui.window(\"t\", 8, 8)\nwin.\n", 2, 4);

@@ -1,0 +1,7 @@
+fn g(x: int or string) -> int {
+    if (type(x) == "int") {
+        return x
+    }
+    return x.len()
+}
+print(g(7), g("abc"))

@@ -1,0 +1,6 @@
+fn h(n: int or string) -> int {
+    when (type(n)) {
+        "int" { return n }
+    }
+}
+print(h(3))

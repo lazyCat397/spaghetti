@@ -414,6 +414,12 @@ async function activate(ctx) {
           const ok = context.triggerCharacter === '#' ? /^\s*install\s*#$/.test(before) : /^\s*#>$/.test(before);
           if (!ok) return undefined;
         }
+        // ':' opens the type properties only on the second colon of `int::`; a lone `:` (a field
+        // type, a map entry) stays quiet
+        if (context && context.triggerCharacter === ':') {
+          const before = doc.lineAt(position.line).text.slice(0, position.character);
+          if (!/::$/.test(before)) return undefined;
+        }
         flush(doc);
         try {
           const res = await client.request('textDocument/completion', {
@@ -426,7 +432,7 @@ async function activate(ctx) {
           return snippetItems.length ? snippetItems : undefined;
         }
       },
-    }, '.', '@', '#', '>'), // '.' opens the member list as soon as it is typed; '@' opens the namespace list; '#' and '>' open the libraries (after `install #`) and the directives (after `#>`)
+    }, '.', '@', '#', '>', ':'), // '.' opens the member list as soon as it is typed; '@' opens the namespace list; '#' and '>' open the libraries (after `install #`) and the directives (after `#>`); ':' opens the type properties on the second colon of `int::`
 
     // `Format Document` and format on save: the server answers with one edit that replaces
     // the whole file, or with none when the file is already formatted or cannot be formatted

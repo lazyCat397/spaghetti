@@ -6,7 +6,7 @@ target/
 dist/
 node_modules/
 
-# Working notes shared only between the maintainer and the assistant, never published
+# Working notes
 CONTEXTO.md
 update-spg.bat
 
@@ -21,3 +21,4 @@ pkg/
 Thumbs.db
 .DS_Store
 *.log
+probes-jit

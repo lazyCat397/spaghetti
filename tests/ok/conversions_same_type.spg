@@ -1,0 +1,8 @@
+// converting a value to the type it already has returns the value itself
+let a = 2.5
+let b = a.float() + 1.0
+let n = 3
+let s = "x"
+print(n.int() * 2, b, s.string() + "y")
+// the conversions between different types keep working
+print(4.int(), "7".int(), 3.float())
