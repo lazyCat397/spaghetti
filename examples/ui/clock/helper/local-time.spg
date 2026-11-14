@@ -1,4 +1,4 @@
-load #ps
+attach #ps
 
 public struct Hour {
     hour: int,

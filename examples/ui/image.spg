@@ -1,7 +1,7 @@
-// `load #ui` with images: a PNG with transparent pixels, drawn at three sizes over a band,
+// `attach #ui` with images: a PNG with transparent pixels, drawn at three sizes over a band,
 // so the see-through parts show. the arrows move the moving one, space hides it, K kills the big one.
 // needs a display, so run.sh does not run the files in examples/ui/.
-load #ui
+attach #ui
 
 let win = ui.window("image", 480, 240)
 win.background = ui.hex("#18202a")

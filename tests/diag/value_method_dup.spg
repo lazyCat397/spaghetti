@@ -1,4 +1,4 @@
 // two loaded modules declaring the same value method: one definition only
-load "../lib/value_method_export.spg"
-load "../lib/value_method_other.spg"
+attach "../lib/value_method_export.spg"
+attach "../lib/value_method_other.spg"
 print("x".nice())

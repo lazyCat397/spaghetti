@@ -99,8 +99,8 @@ impl LibError {
 pub enum Kind {
     /// always there, written with `@` (`@file.read`): part of what the engine gives for free
     Core,
-    /// needs `load #name`, written without `@` (`ps.run`)
-    Load,
+    /// needs `attach #name`, written without `@` (`ps.run`)
+    Attach,
 }
 
 pub type LibFn = fn(&CallCtx, Vec<LibValue>) -> Result<LibValue, LibError>;
@@ -144,7 +144,7 @@ pub struct NativeObject {
 
 pub struct NativeModule {
     pub kind: Kind,
-    /// the namespace, and the name in `load #name`
+    /// the namespace, and the name in `attach #name`
     pub name: &'static str,
     /// what the library is for, shown by the editor
     pub doc: &'static str,
@@ -234,5 +234,5 @@ pub use ps::set_safe_party;
 /// `Vm::new` calls this so `@time.elapsed` counts from when the program started
 pub use time::mark_program_start;
 
-/// `load #test`: the checks of the running program, for the CLI to report at the end
+/// `attach #test`: the checks of the running program, for the CLI to report at the end
 pub use testing::{take_report as take_test_report, TestFailure, TestReport};

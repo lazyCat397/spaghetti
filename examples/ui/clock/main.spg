@@ -1,4 +1,4 @@
-load #ui
+attach #ui
 use ( localTime, utcOffsetMinutes ) from "helper/local-time.spg"
 
 const PI = 3.141592653589793

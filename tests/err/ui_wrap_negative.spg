@@ -1,4 +1,4 @@
-load #ui
+attach #ui
 let win = ui.window("t", 100, 100)
 let t = win.label(1.0, 1.0, "a", ui.hex("#ffffff"), 1)
 t.wrap = -1.0

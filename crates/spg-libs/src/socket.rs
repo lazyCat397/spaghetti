@@ -1,4 +1,4 @@
-//! `net`: TCP sockets (`load #net`). a client connects, a server listens and accepts. a
+//! `net`: TCP sockets (`attach #net`). a client connects, a server listens and accepts. a
 //! connection or a listener is a number: keep it in a variable. the calls wait for the network:
 //! `readLine` waits for a line, `accept` for a client (`setTimeout` bounds the reads and writes).
 //! a closed connection makes `readLine` fail; `read` gives the empty text instead.
@@ -12,9 +12,9 @@ use std::time::Duration;
 use crate::{CallCtx, Kind, LibError, LibValue, NativeFn, NativeModule};
 
 pub static MODULE: NativeModule = NativeModule {
-    kind: Kind::Load,
+    kind: Kind::Attach,
     name: "net",
-    doc: "TCP sockets: connect, listen, accept, send and read lines (load #net)",
+    doc: "TCP sockets: connect, listen, accept, send and read lines (attach #net)",
     structs: &[],
     objects: &[],
     functions: &[

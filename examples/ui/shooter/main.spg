@@ -1,7 +1,7 @@
 // SHMUP: a shoot 'em up made with ui
 // arrows move the ship, hold Space to fire
 // Enter or Space starts, Enter or R plays again after game over, Esc quits
-load #ui
+attach #ui
 
 const W: float = 640.0
 const H: float = 480.0

@@ -1,6 +1,6 @@
 // #> safe-party turns ps.run off, whatever PowerShell the machine has
 #> safe-party
-load #ps
+attach #ps
 try {
     ps.run("Get-Date")
 } catch (e: string) {

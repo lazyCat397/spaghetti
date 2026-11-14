@@ -1,4 +1,4 @@
-load #ui
+attach #ui
 struct Window {
     one: int
 }

@@ -1,6 +1,6 @@
-// `load #ui` with a struct: each sprite keeps its own shape and speed, and steps itself.
+// `attach #ui` with a struct: each sprite keeps its own shape and speed, and steps itself.
 // needs a display, so run.sh does not run the files in examples/ui/.
-load #ui
+attach #ui
 
 struct Sprite {
     shape: Shape,

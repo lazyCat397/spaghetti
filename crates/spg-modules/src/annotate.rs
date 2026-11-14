@@ -159,7 +159,7 @@ fn annotate_stmt(stmt: &mut Stmt, file: &str) {
         // consumed by spg-modules before this walk ever gets to the
         // typechecker/compiler, but annotated anyway, in case a future
         // error (e.g. resolving the `from` path) wants their own pos
-        Stmt::Use { pos, .. } | Stmt::ReExport { pos, .. } | Stmt::Load { pos, .. } => stamp(pos, file),
+        Stmt::Use { pos, .. } | Stmt::ReExport { pos, .. } | Stmt::Attach { pos, .. } => stamp(pos, file),
 
         Stmt::Assign { value, pos, .. } => {
             stamp(pos, file);

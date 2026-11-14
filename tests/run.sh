@@ -415,13 +415,13 @@ diag enum_mangled_variant.spg 1 "enum 'Color' has no variant 'Purple'"
 diag enum_mangled_bare.spg    1 "'Color' is an enum, not a value"
 diag enum_mangled_cmp.spg     1 "operator Eq not supported for Color and Color"
 
-# load "file.spg": every public name, lowest priority; a clash between two loads only fails when the name is USED
+# attach "file.spg": every public name, lowest priority; a clash between two loads only fails when the name is USED
 ok install_basic.spg          '15 1 Slow\nFast\nSlow'
 ok install_value_method.spg  '1 2 3'
 ok install_value_method_private.spg  'A\nB'
 ok install_priority.spg       '2 77 20'
 ok install_unused_clash.spg   '30'
-err install_clash_used.spg    "'helper' is loaded from both" "line 1" "line 2" "use it by name"
+err install_clash_used.spg    "'helper' is attached from both" "line 1" "line 2" "use it by name"
 err install_private.spg       "undefined function 'hidden'"
 err install_no_ext.spg        "must end in '.spg'"
 
@@ -657,7 +657,7 @@ if [ "$got" = "$want" ]; then pass=$((pass+1)); tick; else
     fail=$((fail+1)); tick; say "FAIL fmt/double_colon"; echo "  got: $got"; fi
 rm -rf "$fdir"
 
-# ps.* (load #ps): the no-PowerShell path (runs with an empty PATH, so it works the same on every machine)
+# ps.* (attach #ps): the no-PowerShell path (runs with an empty PATH, so it works the same on every machine)
 raw=$(timeout 30 env PATH=/nonexistent "$SPG" ok/ps_missing.spg </dev/null 2>&1); code=$?
 want=$(printf 'false\nps.run: PowerShell not found (tried pwsh and powershell)')
 if [ "$code" = 0 ] && [ "$raw" = "$want" ]; then pass=$((pass+1)); tick; else
@@ -697,7 +697,7 @@ ok crypto_basic.spg "$(printf '%s\n' ba7816bf8f01cfea414140de5dae2223b00361a3961
 ok json_typed.spg "spg 3 1.5\ntrue 3.0\n7 fallback 5\n@json.getInt: the value at 'name' is a string, not an integer"
 ok map_set.spg "[ana: 31, bia: 25] 2\ncannot modify a const value (it is read-only); use .copy() to change a copy"
 err map_set_type.spg "@map.set' argument #3 expects int, got string"
-err ps_sem_install.spg "'ps' is an installable library, not a variable: it needs \`load #ps\`"
+err ps_sem_install.spg "'ps' is an installable library, not a variable: it needs \`attach #ps\`"
 err ps_arroba.spg "'@ps' is not built in"
 
 # async: `-> task<T>` runs eagerly, `.wait()` reads the result or re-throws the error

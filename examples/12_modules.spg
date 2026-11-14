@@ -1,5 +1,5 @@
-// load brings EVERY public name of the file, without listing them
-load "lib/greet.spg"
+// attach brings EVERY public name of the file, without listing them
+attach "lib/greet.spg"
 
 print(greet("Spaghetti"))
 print(shout("Spaghetti"))

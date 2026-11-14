@@ -3,7 +3,7 @@
 // - hold the left button over the drawing area to paint
 // - the Clear button erases everything (or press C)
 // - the counter shows how many strokes exist
-load #ui
+attach #ui
 
 let win = ui.window("Drawing app", 400, 300)
 win.background = ui.hex("#1e1e28")

@@ -249,7 +249,7 @@
           "name": "keyword.control.guard.spg"
         },
         {
-          "match": "(?<![\\p{L}\\p{N}_])(?:use|public|from|load)(?![\\p{L}\\p{N}_])",
+          "match": "(?<![\\p{L}\\p{N}_])(?:use|public|from|attach)(?![\\p{L}\\p{N}_])",
           "name": "keyword.control.use.spg"
         },
         {
@@ -316,7 +316,7 @@
     "namespaces": {
       "patterns": [
         {
-          "match": "\\b(load)\\s*(#[A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(attach)\\s*(#[A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": {
               "name": "keyword.control.spg"
@@ -373,7 +373,7 @@
           }
         },
         {
-          "comment": "the native objects of load #ui: Window, Shape, Label and Image",
+          "comment": "the native objects of attach #ui: Window, Shape, Label and Image",
           "match": "(?<![.A-Za-z0-9_])(Window|Shape|Label|Image)\\b(?!\\s*\\()",
           "name": "entity.name.type.spg"
         }

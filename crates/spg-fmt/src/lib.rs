@@ -39,7 +39,7 @@ enum Piece {
 
 const KEYWORDS: &[&str] = &[
     "let", "const", "fn", "return", "if", "else", "while", "for", "in", "try", "catch", "throw", "break",
-    "continue", "when", "elif", "guard", "use", "public", "from", "load", "struct", "enum", "true", "false", "int", "float", "step",
+    "continue", "when", "elif", "guard", "use", "public", "from", "attach", "struct", "enum", "true", "false", "int", "float", "step",
     "bool", "string", "void", "array",
 ];
 
@@ -152,7 +152,7 @@ fn scan(src: &str) -> Vec<Piece> {
             i = end;
             continue;
         }
-        // `#name` (right after `load`): a standard library, one atom like `@name`
+        // `#name` (right after `attach`): a standard library, one atom like `@name`
         if ch == '#' && c.get(i + 1).is_some_and(|n| is_word_char(*n)) {
             let start = i;
             i += 1;
@@ -502,9 +502,9 @@ mod tests {
 
     #[test]
     fn install_std_hash_stays_tight() {
-        assert_eq!(fmt("load #ps\n"), "load #ps\n");
-        assert_eq!(fmt("load   #ps\n"), "load #ps\n");
-        assert_eq!(fmt("load \"./a.spg\"\n"), "load \"./a.spg\"\n");
+        assert_eq!(fmt("attach #ps\n"), "attach #ps\n");
+        assert_eq!(fmt("attach   #ps\n"), "attach #ps\n");
+        assert_eq!(fmt("attach \"./a.spg\"\n"), "attach \"./a.spg\"\n");
     }
 
     #[test]

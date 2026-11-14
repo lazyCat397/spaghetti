@@ -24,7 +24,7 @@ pub type NameMap = HashMap<String, String>;
 
 pub struct Renamer<'a> {
     map: &'a NameMap,
-    /// names that two `load`s provide with DIFFERENT meanings. harmless
+    /// names that two `attach`s provide with DIFFERENT meanings. harmless
     /// until something uses them, so a use gets recorded in `hits`
     ambiguous: HashSet<String>,
     hits: std::cell::RefCell<Vec<String>>,
@@ -282,7 +282,7 @@ impl<'a> Renamer<'a> {
 
             // imports get eaten by the resolver before renaming. by
             // the time a module body gets here, they're gone
-            Stmt::Use { .. } | Stmt::ReExport { .. } | Stmt::Load { .. } => {}
+            Stmt::Use { .. } | Stmt::ReExport { .. } | Stmt::Attach { .. } => {}
 
             Stmt::Break { .. } | Stmt::Continue { .. } => {}
             Stmt::Throw { value, .. } => self.rename_expr(value),

@@ -209,8 +209,8 @@ function toDiagnostic(d) {
 }
 
 // ui snippets: read from snippets/ui.json at activation. They are not contributed in package.json,
-// because VS Code would offer them in every .spg file; here they only appear once `load #ui` is in the document.
-const UI_INSTALL = /^\s*load\s*#ui\b/m;
+// because VS Code would offer them in every .spg file; here they only appear once `attach #ui` is in the document.
+const UI_INSTALL = /^\s*attach\s*#ui\b/m;
 let uiSnippets = [];
 
 function loadUiSnippets(ctx) {
@@ -402,16 +402,16 @@ async function activate(ctx) {
 
     vscode.languages.registerCompletionItemProvider(LANG, {
       async provideCompletionItems(doc, position, _token, context) {
-        // the ui snippets are only for documents that load ui (they are not in the global snippet list)
+        // the ui snippets are only for documents that attach ui (they are not in the global snippet list)
         const snippetItems = uiSnippetItems(doc, context && context.triggerCharacter);
         if (!client || !client.alive) return snippetItems.length ? snippetItems : undefined;
-        // '#' opens the list only right after `load #` (the libraries); anywhere else
+        // '#' opens the list only right after `attach #` (the libraries); anywhere else
         // (a comment, a string, a `#>` directive) it stays quiet
-        // '#' opens the libraries only right after `load #`; '>' opens the directives only
+        // '#' opens the libraries only right after `attach #`; '>' opens the directives only
         // when the line is just `#>`. anywhere else (a comment, a string, `a > b`) they stay quiet
         if (context && (context.triggerCharacter === '#' || context.triggerCharacter === '>')) {
           const before = doc.lineAt(position.line).text.slice(0, position.character);
-          const ok = context.triggerCharacter === '#' ? /^\s*load\s*#$/.test(before) : /^\s*#>$/.test(before);
+          const ok = context.triggerCharacter === '#' ? /^\s*attach\s*#$/.test(before) : /^\s*#>$/.test(before);
           if (!ok) return undefined;
         }
         // ':' opens the type properties only on the second colon of `int::`; a lone `:` (a field
@@ -432,7 +432,7 @@ async function activate(ctx) {
           return snippetItems.length ? snippetItems : undefined;
         }
       },
-    }, '.', '@', '#', '>', ':'), // '.' opens the member list as soon as it is typed; '@' opens the namespace list; '#' and '>' open the libraries (after `load #`) and the directives (after `#>`); ':' opens the type properties on the second colon of `int::`
+    }, '.', '@', '#', '>', ':'), // '.' opens the member list as soon as it is typed; '@' opens the namespace list; '#' and '>' open the libraries (after `attach #`) and the directives (after `#>`); ':' opens the type properties on the second colon of `int::`
 
     // `Format Document` and format on save: the server answers with one edit that replaces
     // the whole file, or with none when the file is already formatted or cannot be formatted

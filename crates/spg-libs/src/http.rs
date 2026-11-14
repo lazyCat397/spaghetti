@@ -1,4 +1,4 @@
-//! `http`: the blocking client behind `http.get` and `http.post` (`load #http`).
+//! `http`: the blocking client behind `http.get` and `http.post` (`attach #http`).
 //! ureq 3 with rustls (TLS through the OS trust store, so corporate CAs work like in a browser).
 //! a non-2xx answer is NOT an error here: the program gets the status and decides.
 //! only failures to get an answer at all (DNS, refused, timeout, TLS) are errors.
@@ -11,9 +11,9 @@ const GET_DOC: &str = "GET a url, optional headers map and timeout in seconds (d
 const POST_DOC: &str = "POST a body to a url, optional headers map and timeout in seconds. gives back an HttpResponse";
 
 pub static MODULE: NativeModule = NativeModule {
-    kind: Kind::Load,
+    kind: Kind::Attach,
     name: "http",
-    doc: "web requests (load #http)",
+    doc: "web requests (attach #http)",
     structs: &["struct HttpResponse {\n    status: int,\n    headers: map<string, string>,\n    body: string\n}\n"],
     objects: &[],
     functions: &[

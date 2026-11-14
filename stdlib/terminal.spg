@@ -1,4 +1,4 @@
-// `load #terminal`: questions and a bit of console output
+// `attach #terminal`: questions and a bit of console output
 // because apparently readLine isn't quite enough for everything
 // (file helpers live in @file now: @file.readLines, @file.writeLines, ...)
 

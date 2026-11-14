@@ -1,8 +1,8 @@
-// `load #ui`: a window with a rectangle moved by the arrow keys.
+// `attach #ui`: a window with a rectangle moved by the arrow keys.
 // the rectangle is an object the window keeps: changing its fields is all it takes
 // to move it or recolor it.
 // needs a display, so run.sh does not run the files in examples/ui/.
-load #ui
+attach #ui
 
 let win = ui.window("ui demo", 800, 600)
 win.background = ui.hex("#101010")

@@ -1837,8 +1837,8 @@ impl Checker {
             Stmt::ReExport { .. } => {
                 unreachable!("compiler bug: `public (..) from` reached the typechecker (spg-modules should have consumed it)")
             }
-            Stmt::Load { .. } => {
-                unreachable!("compiler bug: `load` reached the typechecker (spg-modules should have consumed it)")
+            Stmt::Attach { .. } => {
+                unreachable!("compiler bug: `attach` reached the typechecker (spg-modules should have consumed it)")
             }
 
             Stmt::Assign { name, value, pos } => {
@@ -1853,7 +1853,7 @@ impl Checker {
                     None => {
                         if spg_lexer::is_install_namespace(name.as_str()) {
                         // a bare `http` / `ps` (no `.member`): say what it is instead of "undefined"
-                        self.errors.push(TypeError::NeedsLoad { lib: name.to_string(), pos: pos.clone() });
+                        self.errors.push(TypeError::NeedsAttach { lib: name.to_string(), pos: pos.clone() });
                     } else {
                         self.errors.push(TypeError::UndefinedVariable { name: name.clone(), pos: pos.clone() });
                     }
@@ -2925,7 +2925,7 @@ impl Checker {
                 } else {
                     if spg_lexer::is_install_namespace(name.as_str()) {
                         // a bare `http` / `ps` (no `.member`): say what it is instead of "undefined"
-                        self.errors.push(TypeError::NeedsLoad { lib: name.to_string(), pos: pos.clone() });
+                        self.errors.push(TypeError::NeedsAttach { lib: name.to_string(), pos: pos.clone() });
                     } else {
                         self.errors.push(TypeError::UndefinedVariable { name: name.clone(), pos: pos.clone() });
                     }
@@ -3038,7 +3038,7 @@ impl Checker {
                         });
                         return None;
                     }
-                    // `ps.run(...)` with no `load #ps` (with it, the lexer already made
+                    // `ps.run(...)` with no `attach #ps` (with it, the lexer already made
                     // it a namespace call). tell them what's missing instead of "undefined ps"
                     Expr::Field { object, .. }
                         if matches!(object.as_ref(), Expr::Ident(ns, _)
@@ -3048,7 +3048,7 @@ impl Checker {
                             Expr::Ident(ns, _) => ns.clone(),
                             _ => unreachable!(),
                         };
-                        self.errors.push(TypeError::NeedsLoad { lib, pos: pos.clone() });
+                        self.errors.push(TypeError::NeedsAttach { lib, pos: pos.clone() });
                         return None;
                     }
                     // `obj.method(args)`: the only way a struct member gets called

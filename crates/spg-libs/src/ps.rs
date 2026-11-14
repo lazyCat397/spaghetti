@@ -1,4 +1,4 @@
-//! `ps`: PowerShell, run as a child process (`load #ps`). this file starts the
+//! `ps`: PowerShell, run as a child process (`attach #ps`). this file starts the
 //! processes and reports what they did, and declares the library for the registry.
 
 use std::io::Read;
@@ -9,9 +9,9 @@ use std::time::{Duration, Instant};
 use crate::{CallCtx, Kind, LibError, LibValue, NativeFn, NativeModule};
 
 pub static MODULE: NativeModule = NativeModule {
-    kind: Kind::Load,
+    kind: Kind::Attach,
     name: "ps",
-    doc: "PowerShell (load #ps)",
+    doc: "PowerShell (attach #ps)",
     structs: &["struct PsResult {\n    success: bool,\n    code: int,\n    output: string,\n    error: string\n}\n"],
     objects: &[],
     functions: &[

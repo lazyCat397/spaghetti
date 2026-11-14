@@ -47,8 +47,8 @@ pub enum TypeError {
     /// `replacement` is the current name, when there is one.
     OldNamespace { name: String, replacement: Option<String>, pos: Pos },
 
-    /// `ps.run(...)` / `http.get(...)` in a file with no `load #ps`.
-    NeedsLoad { lib: String, pos: Pos },
+    /// `ps.run(...)` / `http.get(...)` in a file with no `attach #ps`.
+    NeedsAttach { lib: String, pos: Pos },
 
     /// a call whose callee isn't a plain function name (`p.x()`, `f()()`,
     /// `(a + b)()`). only named functions and builtins can be called. don't get fancy.
@@ -239,7 +239,7 @@ impl TypeError {
             | TypeError::UnknownTypeProperty { pos, .. }
             | TypeError::RemovedBuiltin { pos, .. }
             | TypeError::OldNamespace { pos, .. }
-            | TypeError::NeedsLoad { pos, .. }
+            | TypeError::NeedsAttach { pos, .. }
             | TypeError::NotCallable { pos, .. }
             | TypeError::CaptureAssign { pos, .. }
             | TypeError::ArityMismatch { pos, .. }
@@ -389,8 +389,8 @@ impl TypeError {
                 f, "{}undefined variable '{}'",
                 self.location(), shown(name)
             ),
-            TypeError::NeedsLoad { lib, .. } => write!(
-                f, "{}'{}' is an installable library, not a variable: it needs `load #{}` at the top of the file, and is used as {}.member(...)",
+            TypeError::NeedsAttach { lib, .. } => write!(
+                f, "{}'{}' is an installable library, not a variable: it needs `attach #{}` at the top of the file, and is used as {}.member(...)",
                 self.location(), lib, lib, lib
             ),
             TypeError::OldNamespace { name, replacement, .. } => match replacement {
@@ -705,7 +705,7 @@ impl TypeError {
             TypeError::ShadowedDeclaration { .. } => spg_lexer::HINT_SHADOW,
             TypeError::UnreachableCode { .. } => spg_lexer::HINT_UNREACHABLE,
             TypeError::AssignToConst { .. } => spg_lexer::HINT_CONST,
-            TypeError::NeedsLoad { .. } => spg_lexer::HINT_LOAD,
+            TypeError::NeedsAttach { .. } => spg_lexer::HINT_ATTACH,
             TypeError::ArityMismatch { .. } => spg_lexer::HINT_ARITY,
             TypeError::UndefinedVariable { .. }
             | TypeError::UndefinedFunction { .. }
@@ -732,7 +732,7 @@ fn shown(name: &str) -> String {
     let base = display_name(name);
     if let Some(rest) = base.strip_prefix('@') {
         if let Some((ns, _)) = rest.split_once('.') {
-            if spg_libs::module(ns).is_some_and(|m| m.kind == spg_libs::Kind::Load) {
+            if spg_libs::module(ns).is_some_and(|m| m.kind == spg_libs::Kind::Attach) {
                 return rest.to_string();
             }
         }

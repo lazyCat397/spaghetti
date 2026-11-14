@@ -44,7 +44,7 @@ pub enum ModuleError {
     MissingExtension { importer: PathBuf, path: String, pos: Pos },
 
     /// a struct or enum of the file has the name of a type an installed library declares (`Window`
-    /// of `load #ui`). the two would share one name in the program, so the file must rename it
+    /// of `attach #ui`). the two would share one name in the program, so the file must rename it
     NativeNameTaken { file: PathBuf, name: String, library: String, pos: Pos },
 
     /// the import graph loops back on itself. `chain` is the full cycle,
@@ -66,9 +66,9 @@ pub enum ModuleError {
     /// the earlier thing that already owned the name (the `note:`). squatter.
     Collision { file: PathBuf, name: String, kind: CollisionKind, second: Pos, first: Pos },
 
-    /// a name two different `load`s both provide, and the file USES it.
+    /// a name two different `attach`s both provide, and the file USES it.
     /// importing it by name (`use (x) from "..."`) picks one. pick wisely.
-    AmbiguousLoad { file: PathBuf, name: String, first: (Pos, String), second: (Pos, String) },
+    AmbiguousAttach { file: PathBuf, name: String, first: (Pos, String), second: (Pos, String) },
 }
 
 /// what the two colliding things are. decides the wording, since
@@ -113,7 +113,7 @@ impl fmt::Display for ModuleError {
             ),
             ModuleError::MissingExtension { importer, path, pos } if path.is_empty() => write!(
                 f,
-                "the path is empty: give the file to load, e.g. \"./lib.spg\" (in '{}' at line {}, column {})",
+                "the path is empty: give the file to attach, e.g. \"./lib.spg\" (in '{}' at line {}, column {})",
                 friendly(importer),
                 pos.line,
                 pos.col
@@ -160,9 +160,9 @@ impl fmt::Display for ModuleError {
                 pos.line,
                 pos.col
             ),
-            ModuleError::AmbiguousLoad { file, name, first, second } => write!(
+            ModuleError::AmbiguousAttach { file, name, first, second } => write!(
                 f,
-                "'{}' is loaded from both \"{}\" (line {}) and \"{}\" (line {}) and used in this file; use it by name to pick one (in '{}' at line {}, column {})",
+                "'{}' is attached from both \"{}\" (line {}) and \"{}\" (line {}) and used in this file; use it by name to pick one (in '{}' at line {}, column {})",
                 name, first.1, first.0.line, second.1, second.0.line,
                 friendly(file), second.0.line, second.0.col
             ),
@@ -250,7 +250,7 @@ impl ModuleError {
             ModuleError::Cycle { chain } => Located {
                 file: chain.first().cloned().unwrap_or_default(), line: 1, col: 1, message: full,
             },
-            ModuleError::AmbiguousLoad { file, second, .. } => Located {
+            ModuleError::AmbiguousAttach { file, second, .. } => Located {
                 file: file.clone(), line: second.0.line, col: second.0.col, message: clean(&full),
             },
             ModuleError::Collision { file, name, kind, second, .. } => {

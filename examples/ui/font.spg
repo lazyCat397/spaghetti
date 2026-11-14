@@ -1,5 +1,5 @@
 // outline fonts: label.font loads a .ttf or .otf file, relative to this script
-load #ui
+attach #ui
 
 let win = ui.window("font", 360, 200)
 win.background = ui.hex("#1b1f27")

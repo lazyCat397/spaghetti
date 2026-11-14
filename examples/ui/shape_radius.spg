@@ -1,7 +1,7 @@
-// `load #ui` with rounded rectangles.
+// `attach #ui` with rounded rectangles.
 // radius is in pixels: 0 is square corners, and it is capped at half the smaller side,
 // so a radius of half the height makes a pill.
-load #ui
+attach #ui
 
 let win = ui.window("rounded", 360, 200)
 win.background = ui.hex("#1b1f27")

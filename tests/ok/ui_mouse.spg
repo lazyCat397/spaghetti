@@ -1,4 +1,4 @@
-load #ui
+attach #ui
 let win = ui.window("m", 10, 10)
 print(win.mouseX)
 print(win.mouseInside)

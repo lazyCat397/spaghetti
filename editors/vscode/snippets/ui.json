@@ -5,7 +5,7 @@
       "ui loop"
     ],
     "body": [
-      "load #ui",
+      "attach #ui",
       "",
       "let win = ui.window(\"${1:demo}\", ${2:800}, ${3:600})",
       "win.background = ui.hex(\"#${4:101010}\")",

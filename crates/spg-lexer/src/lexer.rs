@@ -72,7 +72,7 @@ impl fmt::Display for LexError {
             }
             LexError::UnknownNamespace { name, line, col } if crate::is_install_namespace(name) => write!(
                 f,
-                "'@{0}' is not built in (line {1}, column {2}); add `load #{0}` and write it without the '@': {0}.member(...)",
+                "'@{0}' is not built in (line {1}, column {2}); add `attach #{0}` and write it without the '@': {0}.member(...)",
                 name, line, col
             ),
             LexError::UnknownNamespace { name, line, col } => {
@@ -141,7 +141,7 @@ impl LexError {
                 file, line, col
             ),
             LexError::UnknownNamespace { name, line, col } if crate::is_install_namespace(name) => format!(
-                "Oops! `@{0}` is not built in, in `{1}` at line {2}, column {3}. Add `load #{0}` at the top and write it without the '@': `{0}.member(...)`.",
+                "Oops! `@{0}` is not built in, in `{1}` at line {2}, column {3}. Add `attach #{0}` at the top and write it without the '@': `{0}.member(...)`.",
                 name, file, line, col
             ),
             LexError::UnknownNamespace { name, line, col } => {
@@ -212,7 +212,7 @@ enum Part {
     Expr(Vec<Token>),
 }
 
-/// `load #ps` makes `ps.run(...)` a namespace call (no `@`). this pass finds the
+/// `attach #ps` makes `ps.run(...)` a namespace call (no `@`). this pass finds the
 /// installs of native libraries in a token stream and turns each `ps` `.` (not itself a
 /// member, like `x.ps.y`) into a `Namespace` token, so the parser, checker and VM keep seeing
 /// the usual qualified name. interpolated expressions are already spliced into the stream.
@@ -220,7 +220,7 @@ enum Part {
 pub fn apply_installed_namespaces(tokens: &mut [Token]) {
     let mut installed: Vec<String> = Vec::new();
     for w in tokens.windows(2) {
-        if let [Token { kind: TokenKind::Load, .. }, Token { kind: TokenKind::StdLib(name), .. }] = w {
+        if let [Token { kind: TokenKind::Attach, .. }, Token { kind: TokenKind::StdLib(name), .. }] = w {
             if crate::is_install_namespace(name) && !installed.contains(name) {
                 installed.push(name.clone());
             }
@@ -307,7 +307,7 @@ impl<'a> Lexer<'a> {
                 return Err(LexError::MisplacedDirective { line, col });
             }
 
-            // `#name`: a standard library, as in `load #http`
+            // `#name`: a standard library, as in `attach #http`
             if ch == '#' && self.peek_next().is_some_and(|c| c.is_alphabetic() || c == '_') {
                 self.advance(); // #
                 let mut name = String::new();

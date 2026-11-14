@@ -1,2 +1,2 @@
-load "../lib/in_a.spg"
+attach "../lib/in_a.spg"
 print(hidden())

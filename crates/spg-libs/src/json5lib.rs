@@ -1,4 +1,4 @@
-//! `json5`: read values from JSON5 text (`load #json5`). JSON5 is JSON as people write it by
+//! `json5`: read values from JSON5 text (`attach #json5`). JSON5 is JSON as people write it by
 //! hand: comments, trailing commas, unquoted names, single quotes, hex numbers. the text is
 //! turned into strict JSON first, then read with the same parser and the same dotted paths as
 //! `@json` (a number in the path picks an item of an array: `"servers.0.host"`). a path that is
@@ -9,9 +9,9 @@ use crate::json::{self, Json};
 use crate::{CallCtx, Kind, LibError, LibValue, NativeFn, NativeModule};
 
 pub static MODULE: NativeModule = NativeModule {
-    kind: Kind::Load,
+    kind: Kind::Attach,
     name: "json5",
-    doc: "read values from JSON5 text by their dotted path (load #json5)",
+    doc: "read values from JSON5 text by their dotted path (attach #json5)",
     structs: &[],
     objects: &[],
     functions: &[

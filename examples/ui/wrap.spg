@@ -1,4 +1,4 @@
-load #ui
+attach #ui
 
 let win = ui.window("wrap-e2e", 260, 200)
 win.background = ui.hex("#202830")

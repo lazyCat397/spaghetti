@@ -1,5 +1,5 @@
-load "../lib/in_a.spg"
-load "../lib/in_facade.spg"
+attach "../lib/in_a.spg"
+attach "../lib/in_facade.spg"
 let b = Box { v: onlyA() + own() }
 print(b.v, helper(), Mode.Slow)
 for m in Mode { print(m) }

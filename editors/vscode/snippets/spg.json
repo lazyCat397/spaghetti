@@ -18,11 +18,11 @@
     "description": "Function public to other files"
   },
   "Install": {
-    "prefix": "load",
+    "prefix": "attach",
     "body": [
-      "load \"${1:./file.spg}\""
+      "attach \"${1:./file.spg}\""
     ],
-    "description": "Load every public name of a file (use (x) wins on a clash)"
+    "description": "Attach every public name of a file (use (x) wins on a clash)"
   },
   "Enum": {
     "prefix": "enum",

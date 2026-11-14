@@ -1,4 +1,4 @@
-load #ui
+attach #ui
 let win = ui.window("t", 10, 10)
 let red = win.rect(1.0, 1.0, 2.0, 2.0, 5)
 red.fly()

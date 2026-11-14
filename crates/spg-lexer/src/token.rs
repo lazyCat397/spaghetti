@@ -11,7 +11,7 @@ pub enum TokenKind {
     /// `@math`, `@str`, ... the name gets stored WITHOUT the `@`
     Namespace(String),
 
-    /// `#http` (right after `load`): a standard library. the name is stored WITHOUT the `#`
+    /// `#http` (right after `attach`): a standard library. the name is stored WITHOUT the `#`
     StdLib(String),
 
     // keywords (reserved, hands off)
@@ -34,7 +34,7 @@ pub enum TokenKind {
     When,
     Elif,
     Use,
-    Load,
+    Attach,
     Public,
     From,
     Struct,
@@ -147,7 +147,7 @@ pub fn lookup_keyword(word: &str) -> Option<TokenKind> {
         "or" => Some(TokenKind::OrOr),
         "not" => Some(TokenKind::Not),
         "use" => Some(TokenKind::Use),
-        "load" => Some(TokenKind::Load),
+        "attach" => Some(TokenKind::Attach),
         "public" => Some(TokenKind::Public),
         "from" => Some(TokenKind::From),
         "struct" => Some(TokenKind::Struct),

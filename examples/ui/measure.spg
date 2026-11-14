@@ -1,5 +1,5 @@
 // measure and center text: ui.textWidth and ui.textHeight tell the size of a text before drawing it
-load #ui
+attach #ui
 
 let win = ui.window("measure", 320, 200)
 win.background = ui.hex("#1b1f27")

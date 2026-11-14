@@ -1,5 +1,5 @@
 //! `cmd`: run another program and get back its code and its output, and check that a program
-//! exists (`load #cmd`). the program is started directly, with the arguments as given: no
+//! exists (`attach #cmd`). the program is started directly, with the arguments as given: no
 //! shell reads the text, so an argument can not run anything it was not meant to. `run` gives
 //! its input as nothing, so it never waits for a keyboard; `runWith` can give it text, a folder
 //! and environment variables. `#> safe-party` (or `spg run --safe-party`) turns every run off,
@@ -16,9 +16,9 @@ use std::time::{Duration, Instant};
 use crate::{CallCtx, Kind, LibError, LibValue, NativeFn, NativeModule};
 
 pub static MODULE: NativeModule = NativeModule {
-    kind: Kind::Load,
+    kind: Kind::Attach,
     name: "cmd",
-    doc: "run another program and get its code and output, check it exists (load #cmd)",
+    doc: "run another program and get its code and output, check it exists (attach #cmd)",
     structs: &["struct CmdResult {\n    success: bool,\n    code: int,\n    output: string,\n    error: string\n}\n"],
     objects: &[],
     functions: &[

@@ -8,7 +8,7 @@ cp "$here/spg" "$bin/spg"
 chmod +x "$bin/spg"
 cp "$here/spgw" "$bin/spgw"
 chmod +x "$bin/spgw"
-# standard library (load #...) lives next to the binary
+# standard library (attach #...) lives next to the binary
 rm -rf "$bin/stdlib" && cp -r "$here/stdlib" "$bin/stdlib"
 # sample programs and demo apps, next to the binary like the stdlib
 rm -rf "$bin/examples" && cp -r "$here/examples" "$bin/examples"

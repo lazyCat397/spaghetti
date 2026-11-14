@@ -344,12 +344,12 @@ impl<W: Write> Server<W> {
 
     // ---------- completion (guessing, but politely) ----------
 
-    /// `load #` / `load #ht`: the names of the standard libraries. the native ones (from the
+    /// `attach #` / `attach #ht`: the names of the standard libraries. the native ones (from the
     /// registry) and every `.spg` in the stdlib folder
     fn std_lib_completion(&self, uri: &str, pos: Option<(usize, usize)>) -> Option<Vec<Json>> {
         let before = self.line_before_cursor(uri, pos)?;
-        let rest = before.trim_start().strip_prefix("load")?;
-        // `load #` and `load#` both work; `installer#` is another word
+        let rest = before.trim_start().strip_prefix("attach")?;
+        // `attach #` and `attach#` both work; `installer#` is another word
         if rest.starts_with(|c: char| c.is_alphanumeric() || c == '_') {
             return None;
         }
@@ -362,7 +362,7 @@ impl<W: Write> Server<W> {
         };
         let mut items: Vec<Json> = Vec::new();
         let mut seen = std::collections::HashSet::new();
-        for m in spg_libs::modules().iter().filter(|m| m.kind == spg_libs::Kind::Load) {
+        for m in spg_libs::modules().iter().filter(|m| m.kind == spg_libs::Kind::Attach) {
             if seen.insert(m.name.to_string()) {
                 items.push(item(m.name, m.doc));
             }
@@ -462,13 +462,13 @@ impl<W: Write> Server<W> {
         }
     }
 
-    /// whether this document has `load #name` for a native library
+    /// whether this document has `attach #name` for a native library
     fn installs_native(&self, uri: &str, name: &str) -> bool {
         use spg_lexer::TokenKind as T;
         let Some(doc) = self.docs.get(uri) else { return false };
         let Ok(tokens) = spg_lexer::Lexer::new(&doc.text).tokenize() else { return false };
         tokens.iter().enumerate().any(|(i, t)| {
-            t.kind == T::Load && tokens.get(i + 1).is_some_and(|u| u.kind == T::StdLib(name.to_string()))
+            t.kind == T::Attach && tokens.get(i + 1).is_some_and(|u| u.kind == T::StdLib(name.to_string()))
         })
     }
 
@@ -480,7 +480,7 @@ impl<W: Write> Server<W> {
         if let Some(variants) = variants_in(&tokens, name) {
             return Some(variants);
         }
-        // an enum of an installed native library (`Key` of `load #ui`) is declared in the
+        // an enum of an installed native library (`Key` of `attach #ui`) is declared in the
         // library's struct text, not in this document
         for module in spg_libs::modules().iter().filter(|m| self.installs_native(uri, m.name)) {
             for source in module.structs {
@@ -575,7 +575,7 @@ impl<W: Write> Server<W> {
         }
         const KEYWORDS: &[&str] = &[
             "let", "const", "fn", "return", "if", "else", "while", "for", "in", "try", "catch", "throw", "break",
-            "continue", "when", "elif", "guard", "use", "public", "from", "load", "struct", "enum", "namespace", "true", "false", "none", "then", "and", "or", "not",
+            "continue", "when", "elif", "guard", "use", "public", "from", "attach", "struct", "enum", "namespace", "true", "false", "none", "then", "and", "or", "not",
         ];
         const TYPES: &[&str] = &["int", "float", "bool", "string", "void", "array", "map", "task"];
         let edit_range = self.namespace_edit_range(uri, pos);
@@ -837,7 +837,7 @@ impl<W: Write> Server<W> {
                 }
 
                 // names that come from OTHER files: `use (a, b) from "x"`
-                // offers exactly a and b. `load "x"` offers every export of x.
+                // offers exactly a and b. `attach "x"` offers every export of x.
                 // read from the files' own tokens, so it works while the buffer
                 // is half-typed (no full resolve needed).
                 let dir = doc.path.as_ref().and_then(|p| p.parent().map(|d| d.to_path_buf()));
@@ -872,8 +872,8 @@ impl<W: Write> Server<W> {
                             }
                             i = j;
                         }
-                        T::Load => {
-                            // `load #name`: a native library (ps, http) is offered by its
+                        T::Attach => {
+                            // `attach #name`: a native library (ps, http) is offered by its
                             // own name, and a standard module offers what it exports (`terminal`)
                             if let Some(T::StdLib(lib)) = tokens.get(i + 1).map(|t| &t.kind) {
                                 if spg_lexer::is_install_namespace(lib) {
@@ -883,7 +883,7 @@ impl<W: Write> Server<W> {
                                     // its types and enums (`Align`, `Key`, `Window`) are names of the program too
                                     for (n, kind) in native_type_names(lib) {
                                         if seen.insert(n.clone()) {
-                                            items.push(with_sort(item(&n, kind, Some(format!("from load #{}", lib)), None), SORT_IMPORTED));
+                                            items.push(with_sort(item(&n, kind, Some(format!("from attach #{}", lib)), None), SORT_IMPORTED));
                                         }
                                     }
                                 } else if let Ok(file) = spg_modules::standard_module(lib) {
@@ -1121,10 +1121,10 @@ impl<W: Write> Server<W> {
         if let Some(dir) = doc.path.as_ref().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
             for (i, t) in tokens.iter().enumerate() {
                 let file = match &t.kind {
-                    // `load "path"`: relative to this file
-                    T::Load => match tokens.get(i + 1).map(|t| &t.kind) {
+                    // `attach "path"`: relative to this file
+                    T::Attach => match tokens.get(i + 1).map(|t| &t.kind) {
                         Some(T::Str(f)) => Some(f.clone()),
-                        // `load #name`: a standard module, the same
+                        // `attach #name`: a standard module, the same
                         // file the compiler resolves (see spg_modules::standard_module)
                         Some(T::StdLib(name)) => spg_modules::standard_module(name).ok().map(|p| p.to_string_lossy().into_owned()),
                         _ => None,
@@ -1201,7 +1201,7 @@ enum DotContext {
     TypeMethods(String),
     /// right after `Name.` where `Name` is an enum declared in the document
     Enum(String),
-    /// right after `ps.` in a document that runs `load #powershell`
+    /// right after `ps.` in a document that runs `attach #powershell`
     Native(String),
     Other,
 }
@@ -1592,7 +1592,7 @@ mod tests {
     #[test]
     fn installed_libraries_are_offered_as_names() {
         std::env::set_var("SPG_STD", concat!(env!("CARGO_MANIFEST_DIR"), "/../../stdlib"));
-        let text = "load #http\nload #ps\nload #terminal\n\n";
+        let text = "attach #http\nattach #ps\nattach #terminal\n\n";
         let labels = labels_of(&complete_at("inst_names_on", text, 3, 0));
         for want in ["http", "ps", "terminal"] {
             assert!(labels.iter().any(|l| l == want), "missing {want}: {:?}", labels);
@@ -1604,7 +1604,7 @@ mod tests {
     #[test]
     fn ps_dot_lists_the_native_members() {
         // `ps` is an installed library: with the install line its members show up after `ps.`
-        let labels = labels_of(&complete_at("ps_dot_on", "load #ps\nps.\n", 1, 3));
+        let labels = labels_of(&complete_at("ps_dot_on", "attach #ps\nps.\n", 1, 3));
         for member in ["run", "runFile", "version", "isAvailable"] {
             assert!(labels.iter().any(|l| l == member), "missing {member}: {:?}", labels);
         }
@@ -1677,7 +1677,7 @@ mod tests {
 
     #[test]
     fn after_a_dot_fields_come_before_methods() {
-        let items = complete_at("compl_win_groups", "load #ui\nlet win = ui.window(\"t\", 8, 8)\nwin.\n", 2, 4);
+        let items = complete_at("compl_win_groups", "attach #ui\nlet win = ui.window(\"t\", 8, 8)\nwin.\n", 2, 4);
         let sort_of = |label: &str| -> String {
             items
                 .iter()
@@ -1699,9 +1699,9 @@ mod tests {
         let globals = labels_of(&complete_at("compl_type_builtin", "let y = ty\n", 0, 11));
         assert!(globals.iter().any(|l| l == "type"), "missing type in {:?}", globals);
         // the `ui` window gets `image` as a method, and an image gets its fields and kill
-        let window = labels_of(&complete_at("compl_win_image", "load #ui\nlet win = ui.window(\"t\", 8, 8)\nwin.\n", 2, 4));
+        let window = labels_of(&complete_at("compl_win_image", "attach #ui\nlet win = ui.window(\"t\", 8, 8)\nwin.\n", 2, 4));
         assert!(window.iter().any(|l| l == "image"), "missing image in {:?}", window);
-        let image = labels_of(&complete_at("compl_image_fields", "load #ui\nlet win = ui.window(\"t\", 8, 8)\nlet pic = win.image(0.0, 0.0, \"a.png\", 0, 0)\npic.\n", 3, 4));
+        let image = labels_of(&complete_at("compl_image_fields", "attach #ui\nlet win = ui.window(\"t\", 8, 8)\nlet pic = win.image(0.0, 0.0, \"a.png\", 0, 0)\npic.\n", 3, 4));
         for want in ["x", "y", "width", "height", "visible", "layer", "kill"] {
             assert!(image.iter().any(|l| l == want), "missing {} in {:?}", want, image);
         }
@@ -1710,7 +1710,7 @@ mod tests {
     #[test]
     fn a_native_library_enum_lists_its_variants_after_its_name() {
         // `Key` is declared in the text of the `ui` library, not in this document
-        let labels = labels_of(&complete_at("compl_native_enum", "load #ui\nKey.\n", 1, 4));
+        let labels = labels_of(&complete_at("compl_native_enum", "attach #ui\nKey.\n", 1, 4));
         for want in ["Space", "Left", "A", "Num7", "F12"] {
             assert!(labels.iter().any(|l| l == want), "missing {} in {:?}", want, labels);
         }
@@ -1721,7 +1721,7 @@ mod tests {
     #[test]
     fn a_native_library_offers_its_enums_and_types_as_plain_names() {
         // `Align` is typed as a name (not after a dot) once the document installs `ui`
-        let labels = labels_of(&complete_at("compl_native_type_name", "load #ui\nAl\n", 1, 2));
+        let labels = labels_of(&complete_at("compl_native_type_name", "attach #ui\nAl\n", 1, 2));
         for want in ["Align", "Key", "Window", "Label"] {
             assert!(labels.iter().any(|l| l == want), "missing {} in {:?}", want, labels);
         }
@@ -1733,7 +1733,7 @@ mod tests {
     #[test]
     fn the_members_of_a_native_library_hide_the_internals() {
         // `ui.` offers the functions, but not the `_get`/`_set` ones that serve the object fields
-        let labels = labels_of(&complete_at("compl_ui_members", "load #ui\nui.\n", 1, 3));
+        let labels = labels_of(&complete_at("compl_ui_members", "attach #ui\nui.\n", 1, 3));
         assert!(labels.iter().any(|l| l == "window"), "missing window in {:?}", labels);
         assert!(labels.iter().any(|l| l == "rect"), "missing rect in {:?}", labels);
         assert!(!labels.iter().any(|l| l.starts_with('_')), "internals offered: {:?}", labels);
@@ -1741,7 +1741,7 @@ mod tests {
 
     #[test]
     fn a_native_object_lists_its_fields_and_methods_not_its_handle() {
-        let text = "load #ui\nlet win = ui.window(\"a\", 1, 1)\nwin.\n";
+        let text = "attach #ui\nlet win = ui.window(\"a\", 1, 1)\nwin.\n";
         let labels = labels_of(&complete_at("compl_native_obj", text, 2, 4));
         for want in ["background", "width", "height", "rect", "nextFrame", "isDown", "onClose"] {
             assert!(labels.iter().any(|l| l == want), "missing {} in {:?}", want, labels);
@@ -1752,7 +1752,7 @@ mod tests {
     #[test]
     fn a_shape_made_by_a_method_call_lists_its_fields_and_methods() {
         // `win.rect(...)` gives a Shape: its members come from the Shape's descriptor
-        let text = "load #ui\nlet win = ui.window(\"a\", 1, 1)\nlet red = win.rect(1.0, 1.0, 2.0, 2.0, 5)\nred.\n";
+        let text = "attach #ui\nlet win = ui.window(\"a\", 1, 1)\nlet red = win.rect(1.0, 1.0, 2.0, 2.0, 5)\nred.\n";
         let labels = labels_of(&complete_at("compl_native_shape", text, 3, 4));
         for want in ["x", "y", "width", "height", "color", "visible", "layer", "kill"] {
             assert!(labels.iter().any(|l| l == want), "missing {} in {:?}", want, labels);
@@ -1881,24 +1881,24 @@ mod tests {
     fn dot_after_a_standard_module_lists_its_members() {
         // the standard library folder of this checkout (the compiler finds it the same way)
         std::env::set_var("SPG_STD", concat!(env!("CARGO_MANIFEST_DIR"), "/../../stdlib"));
-        let labels = labels_of(&complete_at("compl_std_terminal", "load #terminal\nterminal.\n", 1, 9));
+        let labels = labels_of(&complete_at("compl_std_terminal", "attach #terminal\nterminal.\n", 1, 9));
         for want in ["box", "center", "rule", "askInt", "askYesNo"] {
             assert!(labels.iter().any(|l| l == want), "missing {} in {:?}", want, labels);
         }
-        // typing the name after `load #` offers the standard libraries
-        let names = labels_of(&complete_at("compl_std_names", "load #\n", 0, 9));
+        // typing the name after `attach #` offers the standard libraries
+        let names = labels_of(&complete_at("compl_std_names", "attach #\n", 0, 9));
         for want in ["ps", "http", "terminal"] {
             assert!(names.iter().any(|l| l == want), "missing {} in {:?}", want, names);
         }
-        // the same without the space (`load#`), and another word that starts with install
-        let tight = labels_of(&complete_at("compl_std_tight", "load#\n", 0, 8));
+        // the same without the space (`attach#`), and another word that starts with install
+        let tight = labels_of(&complete_at("compl_std_tight", "attach#\n", 0, 8));
         assert!(tight.iter().any(|l| l == "ps"), "missing ps in {:?}", tight);
         let word = labels_of(&complete_at("compl_std_word", "installer#\n", 0, 10));
         assert!(!word.iter().any(|l| l == "ps"), "library list offered for installer#: {:?}", word);
         // private members (`_v`, the struct's filler field) aren't offered
         assert!(!labels.iter().any(|l| l.starts_with('_')), "private member offered: {:?}", labels);
         // a name that isn't a standard module offers nothing (and doesn't crash)
-        assert!(complete_at("compl_std_none", "load #nope\nterminal.\n", 1, 9).is_empty());
+        assert!(complete_at("compl_std_none", "attach #nope\nterminal.\n", 1, 9).is_empty());
     }
 
     #[test]
@@ -1919,7 +1919,7 @@ mod tests {
         let dir = main.parent().unwrap().to_path_buf();
         std::fs::write(dir.join("lib.spg"), "public fn libFn() -> int { return 1 }\npublic struct Pt { x: int }\npublic (viaFacade) from \"./o.spg\"\nfn hidden() -> int { return 2 }\n").unwrap();
         std::fs::write(dir.join("o.spg"), "public fn viaFacade() -> int { return 3 }\n").unwrap();
-        let text = "use (other) from \"./o.spg\"\nload \"./lib.spg\"\n";
+        let text = "use (other) from \"./o.spg\"\nattach \"./lib.spg\"\n";
         let (_, out) = session(vec![
             note("textDocument/didOpen", Json::obj(vec![(
                 "textDocument", Json::obj(vec![("uri", Json::str(&uri)), ("text", Json::str(text)), ("version", Json::int(1))]))])),
@@ -2017,7 +2017,7 @@ fn keyword_doc(word: &str) -> Option<&'static str> {
         "break" | "continue" => "leaves or skips the current loop iteration",
         "when" => "matches a value against cases",
         "use" | "from" | "public" => "shares names between files",
-        "load" => "brings another file or a standard module into the program",
+        "attach" => "brings another file or a standard module into the program",
         "struct" => "declares a record with named fields; its methods go inside the block",
         "enum" => "declares a type with a fixed set of variants",
         "namespace" => "groups functions and statics under one name, no instances: call them as Name.member()",

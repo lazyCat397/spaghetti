@@ -380,12 +380,12 @@ pub enum Stmt {
         pos: Pos,
     },
 
-    /// `load "./file.spg"`: brings in EVERY exported name of that file,
+    /// `attach "./file.spg"`: brings in EVERY exported name of that file,
     /// without listing them. consumed by spg-modules, like `Import`.
-    Load {
+    Attach {
         from: String,
         pos: Pos,
-        /// `load #name`: `from` is a standard module name
+        /// `attach #name`: `from` is a standard module name
         /// (looked up in the standard library folder), not a path
         std: bool,
     },
@@ -482,7 +482,7 @@ pub struct Param {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
     pub stmts: Vec<Stmt>,
-    /// native libraries enabled by `load #...` (e.g. "powershell")
+    /// native libraries enabled by `attach #...` (e.g. "powershell")
     pub natives: Vec<String>,
 }
 
@@ -543,7 +543,7 @@ impl Stmt {
             | Stmt::StructDecl { pos, .. }
             | Stmt::EnumDecl { pos, .. }
             | Stmt::Use { pos, .. }
-            | Stmt::Load { pos, .. }
+            | Stmt::Attach { pos, .. }
             | Stmt::ReExport { pos, .. }
             | Stmt::Assign { pos, .. }
             | Stmt::IndexAssign { pos, .. }

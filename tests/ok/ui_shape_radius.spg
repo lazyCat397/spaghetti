@@ -1,4 +1,4 @@
-load #ui
+attach #ui
 let win = ui.window("radius", 40, 40)
 let r = win.rect(0.0, 0.0, 20.0, 20.0, ui.rgb(0, 0, 0))
 print(r.radius)

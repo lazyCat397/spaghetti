@@ -584,7 +584,7 @@ fn initializer_end(tokens: &[Token], start: usize) -> usize {
         matches!(
             t,
             T::Let | T::Const | T::Function | T::Return | T::If | T::While | T::For | T::Try | T::Throw | T::Break | T::Continue
-                | T::Struct | T::Enum | T::Load | T::Use | T::Public | T::Eof
+                | T::Struct | T::Enum | T::Attach | T::Use | T::Public | T::Eof
         )
     };
     let mut nest = 0i32;
@@ -1204,7 +1204,7 @@ mod tests {
     #[test]
     fn a_ps_result_offers_its_fields() {
         // `ps.run` gives back a PsResult, and its fields are there once `ps` is installed
-        let (t, at, d) = setup("load #ps\nlet r = ps.run(\"x\")\nr.\n", 2, 2);
+        let (t, at, d) = setup("attach #ps\nlet r = ps.run(\"x\")\nr.\n", 2, 2);
         let got = names(&after_dot(&t, at, &["r".into()], &d));
         for want in ["success", "code", "output", "error"] {
             assert!(got.iter().any(|n| n == want), "PsResult misses {}: {:?}", want, got);

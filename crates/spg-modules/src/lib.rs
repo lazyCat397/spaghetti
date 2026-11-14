@@ -320,7 +320,7 @@ impl Resolver {
             let (names, from, pos, is_reexport) = match stmt {
                 Stmt::Use { names, from, pos } => (names, from, pos, false),
                 Stmt::ReExport { names, from, pos } => (names, from, pos, true),
-                _ => continue, // `load` is handled after this loop
+                _ => continue, // `attach` is handled after this loop
             };
 
             let resolved = self.resolve_names(path, &dir, names, from, pos)?;
@@ -377,7 +377,7 @@ impl Resolver {
             }
         }
 
-        // 2b) `load`: every export of the file, at the LOWEST priority.
+        // 2b) `attach`: every export of the file, at the LOWEST priority.
         // a name this file declares, or imports by name, is never replaced
         // (so a new export in the library can't break its installers). two
         // installs giving one name different meanings is only an error if
@@ -385,8 +385,8 @@ impl Resolver {
         let mut installed: HashMap<String, (String, spg_parser::ast::Pos, String)> = HashMap::new();
         let mut ambiguous: HashMap<String, ((spg_parser::ast::Pos, String), (spg_parser::ast::Pos, String))> = HashMap::new();
         for stmt in &program.stmts {
-            let Stmt::Load { from, pos, std } = stmt else { continue };
-            // native libraries live in the engine, not in stdlib/. `load #ps` turns
+            let Stmt::Attach { from, pos, std } = stmt else { continue };
+            // native libraries live in the engine, not in stdlib/. `attach #ps` turns
             // them on (and brings the struct their calls return into the program)
             if *std && spg_lexer::is_install_namespace(from) {
                 if !self.natives.iter().any(|n| n == from) {
@@ -394,8 +394,8 @@ impl Resolver {
                 }
                 continue;
             }
-            // `load #name` points at the standard library folder.
-            // `load "path"` is a path relative to this file, as before
+            // `attach #name` points at the standard library folder.
+            // `attach "path"` is a path relative to this file, as before
             let target = if *std {
                 let file = standard_module(from).map_err(|message| ModuleError::Io {
                     path: path.to_path_buf(),
@@ -435,9 +435,9 @@ impl Resolver {
         renamer.rename_program(&mut program.stmts);
         if let Some(name) = renamer.used_ambiguous().into_iter().next() {
             let (first, second) = ambiguous.remove(&name).expect("only ambiguous names are recorded");
-            return Err(ModuleError::AmbiguousLoad { file: path.to_path_buf(), name, first, second });
+            return Err(ModuleError::AmbiguousAttach { file: path.to_path_buf(), name, first, second });
         }
-        program.stmts.retain(|s| !matches!(s, Stmt::Use { .. } | Stmt::ReExport { .. } | Stmt::Load { .. }));
+        program.stmts.retain(|s| !matches!(s, Stmt::Use { .. } | Stmt::ReExport { .. } | Stmt::Attach { .. }));
         self.merged.extend(program.stmts);
 
         self.in_progress.pop();

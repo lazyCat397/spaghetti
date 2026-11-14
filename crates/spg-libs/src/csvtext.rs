@@ -1,4 +1,4 @@
-//! `csv`: comma-separated text (`load #csv`). quotes, commas and line breaks inside a field
+//! `csv`: comma-separated text (`attach #csv`). quotes, commas and line breaks inside a field
 //! are handled by the `csv` crate. `parse` takes the first line as the column names and gives
 //! back one map per row, so `row["name"]` reads a column. a short row fills its missing columns
 //! with "", and extra fields past the last column are dropped.
@@ -6,9 +6,9 @@
 use crate::{CallCtx, Kind, LibError, LibValue, NativeFn, NativeModule};
 
 pub static MODULE: NativeModule = NativeModule {
-    kind: Kind::Load,
+    kind: Kind::Attach,
     name: "csv",
-    doc: "comma-separated text: parse and write (load #csv)",
+    doc: "comma-separated text: parse and write (attach #csv)",
     structs: &[],
     objects: &[],
     functions: &[

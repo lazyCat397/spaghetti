@@ -282,7 +282,7 @@ impl Parser {
             TokenKind::Enum => self.parse_enum_decl(false),
             TokenKind::Public => self.parse_public(),
             TokenKind::Use => self.parse_use(),
-            TokenKind::Load => self.parse_load(),
+            TokenKind::Attach => self.parse_attach(),
             // `x = ...`, `arr[i] = ...`, and their compound forms
             // (`x += ...`, `arr[i] -= ...`) all start as an ordinary
             // expression (Ident, or Ident followed by one or more
@@ -705,24 +705,24 @@ impl Parser {
         Ok(Stmt::Use { names, from, pos })
     }
 
-    /// `load "./file.spg"` (every export of the file, no name list) or `load #http`
+    /// `attach "./file.spg"` (every export of the file, no name list) or `attach #http`
     /// (a standard library: native, or from the stdlib folder)
-    fn parse_load(&mut self) -> Result<Stmt, ParseError> {
+    fn parse_attach(&mut self) -> Result<Stmt, ParseError> {
         let pos = self.peek_pos();
         self.advance(); // install
         let from = match self.advance().kind {
-            TokenKind::StdLib(name) => return Ok(Stmt::Load { from: name, pos, std: true }),
+            TokenKind::StdLib(name) => return Ok(Stmt::Attach { from: name, pos, std: true }),
             TokenKind::Str(s) => s,
             other => {
                 return Err(ParseError::Unexpected {
-                    expected: "a string with the module path, or `#name` for a standard library (`load #http`)".to_string(),
+                    expected: "a string with the module path, or `#name` for a standard library (`attach #http`)".to_string(),
                     found: other,
                     line: pos.line,
                     col: pos.col,
                 })
             }
         };
-        Ok(Stmt::Load { from, pos, std: false })
+        Ok(Stmt::Attach { from, pos, std: false })
     }
 
     /// `public (a, b) from "./y.spg"`. the `public` keyword is already
@@ -2017,7 +2017,7 @@ fn symbol_text(k: &TokenKind) -> &'static str {
         TokenKind::When => "when",
         TokenKind::Elif => "elif",
         TokenKind::Use => "use",
-        TokenKind::Load => "load",
+        TokenKind::Attach => "attach",
         TokenKind::Public => "public",
         TokenKind::From => "from",
         TokenKind::Struct => "struct",

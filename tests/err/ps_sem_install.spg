@@ -1,2 +1,2 @@
-// `ps` is an loaded library: without `load #ps` there is no `ps`
+// `ps` is an loaded library: without `attach #ps` there is no `ps`
 print(ps.version())
