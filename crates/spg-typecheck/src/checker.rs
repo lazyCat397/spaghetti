@@ -257,6 +257,10 @@ impl Checker {
                 // a module-tagged name (`main#9e60::string.nice`) is the same method as `string.nice`
                 let shown = spg_parser::ast::display_name(name);
                 if let Some((type_name, member)) = shown.split_once('.') {
+                    // the struct is registered under its MANGLED name (`arith#e5fe::arith`, after an
+                    // install), so the owner is the full name minus `.member`. the bare `type_name`
+                    // (`arith`) only exists in the entry file, where the two are the same
+                    let full_type = &name[..name.len() - member.len() - 1];
                     // `string.name`, desugared from `string::methods.add(fn name(...))`: `me` is always its
                     // first parameter, so it is a plain function, not an associated one
                     if let Some(value_ty) = value_type_of(type_name) {
@@ -294,13 +298,13 @@ impl Checker {
                     }
                     let is_method = params.first().map_or(false, |p| p.name == "me");
                     if !is_method {
-                        if !self.is_type_name(type_name) {
+                        if !self.is_type_name(full_type) {
                             self.errors.push(TypeError::AssociatedOnUnknownType {
                                 type_name: type_name.to_string(),
                                 name: name.clone(),
                                 pos: pos.clone(),
                             });
-                        } else if self.enum_defs.get(type_name).map_or(false, |vs| vs.iter().any(|v| v == member_of(name))) {
+                        } else if self.enum_defs.get(full_type).map_or(false, |vs| vs.iter().any(|v| v == member_of(name))) {
                             self.errors.push(TypeError::AssociatedNameIsVariant {
                                 type_name: type_name.to_string(),
                                 name: member_of(name).to_string(),
