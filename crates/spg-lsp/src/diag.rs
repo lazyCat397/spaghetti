@@ -24,6 +24,10 @@ pub fn analyze(entry: &Path, overlay: &HashMap<PathBuf, String>) -> Vec<Diag> {
 
 fn analyze_pipeline(entry: &Path, overlay: &HashMap<PathBuf, String>) -> Vec<Diag> {
     let entry_canon = spg_modules::canon(entry).unwrap_or_else(|_| entry.to_path_buf());
+    // a value method still being typed (`int::methods.add`) is blanked for the check: its error
+    // would land on the NEXT line and stay until the declaration is whole
+    let sanitized = without_unfinished_methods(&entry_canon, entry, overlay);
+    let overlay = sanitized.as_ref().unwrap_or(overlay);
     let program = match spg_modules::resolve_with(entry, overlay) {
         Ok(p) => p,
         Err(e) => {
@@ -63,6 +67,71 @@ fn analyze_pipeline(entry: &Path, overlay: &HashMap<PathBuf, String>) -> Vec<Dia
                 message: format!("compile error: {}", e),
             }],
         },
+    }
+}
+
+/// the buffer of `entry` with its unfinished `int::methods.add` lines blanked out. the number of
+/// lines does not change, so every other position stays right. `None` when there is nothing to blank.
+fn without_unfinished_methods(
+    entry_canon: &Path,
+    entry: &Path,
+    overlay: &HashMap<PathBuf, String>,
+) -> Option<HashMap<PathBuf, String>> {
+    let text = overlay
+        .get(entry_canon)
+        .or_else(|| overlay.get(entry))
+        .cloned()
+        .or_else(|| std::fs::read_to_string(entry).ok())?;
+    if !text.lines().any(unfinished_value_method) {
+        return None;
+    }
+    let mut out = String::with_capacity(text.len());
+    for line in text.split_inclusive('\n') {
+        if unfinished_value_method(line) {
+            if line.ends_with('\n') {
+                out.push('\n');
+            }
+        } else {
+            out.push_str(line);
+        }
+    }
+    let mut next = overlay.clone();
+    next.insert(entry_canon.to_path_buf(), out.clone());
+    next.insert(entry.to_path_buf(), out);
+    Some(next)
+}
+
+/// a line that starts a value method but is not whole yet: `int::methods`, `int::methods.`,
+/// `int::methods.ad`, `int::methods.add(`, or a header `int::methods.add(fn name(...)` with no `{`.
+/// a complete one-line method (with its `{`) is not unfinished.
+pub fn unfinished_value_method(line: &str) -> bool {
+    let t = line.trim();
+    let rest = ["int", "float", "bool", "string"].iter().find_map(|ty| t.strip_prefix(ty)?.strip_prefix("::"));
+    let Some(rest) = rest.and_then(|r| r.strip_prefix("methods")) else {
+        return false;
+    };
+    // `int::methods` / `int::methods.` / `int::methods.ad`
+    let Some(after_dot) = rest.strip_prefix('.') else {
+        return rest.trim().is_empty();
+    };
+    let name_end = after_dot
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(after_dot.len());
+    let after_name = after_dot[name_end..].trim();
+    if after_name.is_empty() {
+        return true;
+    }
+    // `int::methods.add(` and `int::methods.add(fn name(...)` still without its `{`
+    let Some(inside) = after_name.strip_prefix('(') else {
+        return false;
+    };
+    let inside = inside.trim_start();
+    if inside.is_empty() {
+        return true;
+    }
+    match inside.strip_prefix("fn") {
+        Some(h) if h.is_empty() || !h.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_') => !h.contains('{'),
+        _ => false,
     }
 }
 
@@ -364,5 +433,48 @@ mod native_path_tests {
     fn dot_and_dot_dot_paths_resolve_from_the_file_folder() {
         assert!(run("dotdot", &["assets/sans.ttf", "sub/k"], "label.font = \"./sub/../assets/sans.ttf\"\n").is_empty());
         assert!(run("dotdot_ok", &["x/y.png"], "win.image(0, 0, \"./x/../x/y.png\", 1, 1)\n").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod unfinished_method_tests {
+    use super::*;
+
+    fn run(name: &str, text: &str) -> Vec<Diag> {
+        let dir = std::env::temp_dir().join(format!("spg_diag_{}", name));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("main.spg");
+        std::fs::write(&path, text).unwrap();
+        let mut overlay = HashMap::new();
+        overlay.insert(spg_modules::canon(&path).unwrap(), text.to_string());
+        analyze(&path, &overlay)
+    }
+
+    #[test]
+    fn only_the_unfinished_forms_are_recognised() {
+        for line in ["int::methods", "int::methods.", "int::methods.ad", "int::methods.add", "  float::methods.add(", "string::methods.add(fn shout() -> string"] {
+            assert!(unfinished_value_method(line), "should be unfinished: {:?}", line);
+        }
+        for line in ["int::methods.add(fn dobro() -> int { return me * 2 })", "print(int::bits)", "let n = int::max", "int::methods.add(fn x() -> int {"] {
+            assert!(!unfinished_value_method(line), "should be left alone: {:?}", line);
+        }
+    }
+
+    #[test]
+    fn a_bare_add_does_not_squiggle_the_next_line() {
+        // the error used to land on `let`, the line after the half-written `add`
+        assert!(run("bare_add", "int::methods.add\nlet x = 1\nprint(x)\n").is_empty());
+        assert!(run("bare_dot", "int::methods.\nprint(1)\n").is_empty());
+        assert!(run("partial_header", "int::methods.add(fn dobro() -> int\nprint(1)\n").is_empty());
+    }
+
+    #[test]
+    fn a_real_error_elsewhere_is_still_reported() {
+        assert!(!run("real_error", "int::methods.add\nlet x: int = \"oi\"\n").is_empty());
+    }
+
+    #[test]
+    fn a_finished_method_still_works_and_is_checked() {
+        assert!(run("finished", "int::methods.add(fn dobro() -> int { return me * 2 })\nprint(2.dobro())\n").is_empty());
     }
 }

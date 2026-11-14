@@ -14,7 +14,9 @@ use std::collections::HashMap;
 use spg_parser::ast::{self as p, BinaryOp, Expr, Param, Stmt, TypeExpr, UnaryOp};
 
 use crate::typed_ast::{ArrayFnKind, MapFnKind};
-use crate::builtins::{builtin_signatures, method_namespace, native_method_names, BuiltinId};
+use crate::builtins::{
+    builtin_signatures, method_namespace, native_array_method_names, native_method_names, BuiltinId,
+};
 use crate::error::TypeError;
 use crate::typed_ast::{RangeStep, SrcLoc, Ty, TypedBlock, TypedExpr, TypedProgram, TypedStmt};
 
@@ -1484,6 +1486,18 @@ impl Checker {
                     }
                     _ => self.check_expr(iterable)?,
                 };
+                // `for c in s`: the characters of s, the same as `s.split("")`. lowered here, so the
+                // loop below is the array loop and nothing downstream sees a string
+                let typed_iterable = if matches!(typed_iterable.ty(), Ty::String) {
+                    TypedExpr::Call {
+                        callee: Box::new(TypedExpr::Ident { name: "@str.split".to_string(), ty: Ty::Void }),
+                        args: vec![typed_iterable, TypedExpr::StringLit(String::new())],
+                        ty: Ty::Array(Box::new(Ty::String)),
+                        builtin: Some(BuiltinId::Split),
+                    }
+                } else {
+                    typed_iterable
+                };
                 // `for k, v in map`: loops over the keys in insertion order, and reads each
                 // value from the map. both names are needed, so a map is never a single-name loop
                 if let Ty::Map(key_ty, val_ty) = typed_iterable.ty() {
@@ -2415,6 +2429,8 @@ impl Checker {
         let (builtin, key_ty, name) = match typed_right.ty() {
             Ty::Array(elem) => (BuiltinId::ArrayContains, (**elem).clone(), "@array.contains"),
             Ty::Map(key, _) => (BuiltinId::MapHas, (**key).clone(), "@map.has"),
+            // `x in s` on a string: is x inside s, as a substring (`"" in s` is true, as in Python)
+            Ty::String => (BuiltinId::StrContains, Ty::String, "@str.contains"),
             other => {
                 let right_ty = other.clone();
                 self.errors.push(TypeError::InvalidOperandTypes {
@@ -2701,6 +2717,19 @@ impl Checker {
                 let items = names.into_iter().map(TypedExpr::StringLit).collect();
                 TypedExpr::ArrayLit { items, ty: Ty::Array(Box::new(Ty::String)) }
             }
+            // `array::methods`: the native array functions, sorted. a snapshot, like the others.
+            ("array", "methods") => {
+                let items = native_array_method_names().into_iter().map(TypedExpr::StringLit).collect();
+                TypedExpr::ArrayLit { items, ty: Ty::Array(Box::new(Ty::String)) }
+            }
+            ("int", "bits") => TypedExpr::IntLit(64),
+            // the characters of text: plain strings, so `in` and `for` work on them directly
+            ("string", "newline") => TypedExpr::StringLit("\n".to_string()),
+            ("string", "tab") => TypedExpr::StringLit("\t".to_string()),
+            ("string", "empty") => TypedExpr::StringLit(String::new()),
+            ("string", "digits") => TypedExpr::StringLit("0123456789".to_string()),
+            ("string", "lower") => TypedExpr::StringLit("abcdefghijklmnopqrstuvwxyz".to_string()),
+            ("string", "upper") => TypedExpr::StringLit("ABCDEFGHIJKLMNOPQRSTUVWXYZ".to_string()),
             ("int", "max") => TypedExpr::IntLit(i64::MAX),
             ("int", "min") => TypedExpr::IntLit(i64::MIN),
             ("float", "max") => TypedExpr::FloatLit(f64::MAX),

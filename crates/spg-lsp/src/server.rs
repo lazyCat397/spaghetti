@@ -422,6 +422,18 @@ impl<W: Write> Server<W> {
                 .collect();
             return DotContext::TypeProp(ty);
         }
+        // `int::methods.`: the member after `methods` is `add`, which declares a value method
+        if let Some(head) = word_free.strip_suffix('.').and_then(|b| b.strip_suffix("::methods")) {
+            let ty: String = head
+                .chars()
+                .rev()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            return DotContext::TypeMethods(ty);
+        }
         let before = match word_free.strip_suffix('.') {
             Some(b) => b,
             None => return DotContext::None,
@@ -675,6 +687,24 @@ impl<W: Write> Server<W> {
             }
             DotContext::NamespaceName => {
                 return spg_lexer::namespaces().iter().map(|ns| namespace_item(ns)).collect();
+            }
+            DotContext::TypeMethods(ty) => {
+                // `int::methods.`: `add` inserts a whole declaration, with the cursor in the name
+                let snippet = format!("add(fn ${{1:nome}}() -> {} {{\n\t$0\n}})", ty);
+                return vec![Json::obj(vec![
+                    ("label", Json::str("add")),
+                    ("kind", Json::int(2)),
+                    ("detail", Json::Str(format!("add(fn nome(...) -> R {{ ... }}): a method of {}", ty))),
+                    (
+                        "documentation",
+                        Json::Str(format!(
+                            "declares a method of {ty} for every {ty} value: `me` is the value it is called on. only at the top level of the file, and a private method stays in its own file unless it is `export`ed",
+                            ty = ty
+                        )),
+                    ),
+                    ("insertText", Json::Str(snippet)),
+                    ("insertTextFormat", Json::int(2)),
+                ])];
             }
             DotContext::Namespace(ns) => {
                 let prefix = format!("@{}.", ns);
@@ -1167,6 +1197,8 @@ enum DotContext {
     Namespace(String),
     /// right after `int::` or `float::` (any name before `::`): a type's property
     TypeProp(String),
+    /// right after `int::methods.` (any name before `::`): the only member is `add`
+    TypeMethods(String),
     /// right after `Name.` where `Name` is an enum declared in the document
     Enum(String),
     /// right after `ps.` in a document that runs `install #powershell`
@@ -1474,6 +1506,24 @@ mod tests {
     }
 
     #[test]
+    fn type_properties_offer_bits_and_array_methods() {
+        let int_items = complete_at("compl_int_bits", "let x = int::\n", 0, 13);
+        assert!(labels_of(&int_items).iter().any(|l| l == "bits"), "int:: lacks bits: {:?}", labels_of(&int_items));
+        let arr_items = complete_at("compl_array_prop", "let a = array::\n", 0, 15);
+        assert!(labels_of(&arr_items).iter().any(|l| l == "methods"), "array:: lacks methods: {:?}", labels_of(&arr_items));
+    }
+
+    #[test]
+    fn methods_after_a_type_dot_offers_add_as_a_snippet() {
+        let items = complete_at("compl_methods_add", "int::methods.\n", 0, 13);
+        let add = items.iter().find(|i| i.get("label").and_then(Json::as_str) == Some("add"))
+            .expect("int::methods. should offer add");
+        assert_eq!(add.get("insertTextFormat").and_then(Json::as_f64), Some(2.0), "add is a snippet");
+        let text = add.get("insertText").and_then(Json::as_str).unwrap();
+        assert!(text.starts_with("add(fn ${1:nome}() -> int {"), "snippet opens the declaration: {}", text);
+    }
+
+    #[test]
     fn completion_after_namespace_dot_lists_only_members() {
         let (_f, uri) = tmp_file("compl_ns", "let x = 1\n");
         let text = "let a: float = @math.\n";
@@ -1521,7 +1571,10 @@ mod tests {
         // every value type offers `methods`, and only that: no global names leak in
         assert!(labels_of(&items).iter().any(|l| l == "methods"), "int:: lacks methods");
         let labels = labels_of(&complete_at("compl_string_prop", "let x = string::\n", 0, 16));
-        assert_eq!(labels, vec!["methods".to_string()], "string:: offers only methods");
+        for want in ["methods", "newline", "tab", "empty", "digits", "lower", "upper"] {
+            assert!(labels.iter().any(|l| l == want), "string:: lacks {}: {:?}", want, labels);
+        }
+        assert_eq!(labels.len(), 7, "string:: offers exactly its properties: {:?}", labels);
     }
 
     #[test]

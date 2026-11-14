@@ -840,6 +840,30 @@ mod lib_sig_tests {
     }
 }
 
+/// the names of the native methods of arrays, sorted: the list `array::methods` gives.
+/// an array receiver has no single type (`array<int>` and `array<string>` both count), so a
+/// function is a method when its first param is an array of any element type.
+/// `ty_matches` cannot do this: it compares against one concrete receiver type.
+pub fn native_array_method_names() -> Vec<String> {
+    let table = builtin_signatures();
+    let mut names: Vec<String> = table
+        .iter()
+        .filter_map(|(name, overloads)| {
+            let rest = name.strip_prefix("@array.")?;
+            if NOT_METHOD_BUILTINS.contains(&name.as_str()) {
+                return None;
+            }
+            overloads
+                .iter()
+                .any(|sig| matches!(sig.params.first(), Some(Ty::AnyArray) | Some(Ty::Array(_))))
+                .then(|| rest.to_string())
+        })
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
 /// the names of the native methods of a value type, sorted: the list `int::methods` starts with.
 /// same rule as `method_namespace`, but collected for every member instead of looked up one by one.
 pub fn native_method_names(ty: &Ty) -> Vec<String> {

@@ -1,0 +1,17 @@
+// `for c in s` walks the characters, `x in s` is a substring test, string:: holds plain texts
+const fake = "Аbcde"
+const real = "Abcde"
+
+if (!(fake == real)) {
+    for l in fake {
+        if (!(l in string::lower) or !(l in string::upper)) {
+            print(l, @char.code(l))
+        }
+    }
+}
+print("" in "abc")
+print("bc" in "abcd")
+print("xy" in "abcd")
+print(string::empty == "")
+print("3" in string::digits)
+print(string::lower.len())

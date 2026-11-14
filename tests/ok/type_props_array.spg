@@ -1,0 +1,5 @@
+// `array::` and `int::bits`: type properties on arrays, read-only
+print(int::bits)
+let names = array::methods;
+print(@array.contains(names, "push"))
+print(@array.contains(names, "sum"))

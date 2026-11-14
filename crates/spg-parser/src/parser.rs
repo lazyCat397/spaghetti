@@ -1768,6 +1768,7 @@ impl Parser {
             TokenKind::TypeFloat if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("float", pos),
             TokenKind::TypeBool if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("bool", pos),
             TokenKind::TypeString if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("string", pos),
+            TokenKind::TypeArray if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("array", pos),
             TokenKind::TypeString if self.check(&TokenKind::Dot) => {
                 self.advance(); // .
                 let member = match &self.peek().kind {

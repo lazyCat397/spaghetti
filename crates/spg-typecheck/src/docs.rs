@@ -134,6 +134,7 @@ pub fn builtin_doc(name: &str) -> Option<&'static str> {
 pub const TYPE_PROPERTIES: &[(&str, &str, &str, &str)] = &[
     ("int", "max", "9223372036854775807", "the biggest int"),
     ("int", "min", "-9223372036854775808", "the smallest int"),
+    ("int", "bits", "64", "how many bits an int has (the width of the integer type)"),
     ("float", "max", "1.7976931348623157e308", "the biggest float"),
     ("float", "min", "-1.7976931348623157e308", "the most negative float (not the smallest positive one)"),
     ("float", "epsilon", "2.220446049250313e-16", "the gap between 1.0 and the next float"),
@@ -143,6 +144,13 @@ pub const TYPE_PROPERTIES: &[(&str, &str, &str, &str)] = &[
     ("float", "methods", "string[]", "the names of the methods of float: the built-in ones, then the ones you added with float::methods.add, that this file can call"),
     ("bool", "methods", "string[]", "the names of the methods of bool: the built-in ones, then the ones you added with bool::methods.add, that this file can call"),
     ("string", "methods", "string[]", "the names of the methods of string: the built-in ones, then the ones you added with string::methods.add, that this file can call"),
+    ("string", "newline", "\"\\n\"", "the line break character"),
+    ("string", "tab", "\"\\t\"", "the tab character"),
+    ("string", "empty", "\"\"", "the empty text: `\"\" in s` is always true"),
+    ("string", "digits", "\"0123456789\"", "the ten digits, for `c in string::digits`"),
+    ("string", "lower", "\"abcdefghijklmnopqrstuvwxyz\"", "the lowercase letters a to z (plain ASCII)"),
+    ("string", "upper", "\"ABCDEFGHIJKLMNOPQRSTUVWXYZ\"", "the uppercase letters A to Z (plain ASCII)"),
+    ("array", "methods", "string[]", "the names of the array functions you call as a.name(...): push, sort, slice and the rest"),
 ];
 
 /// the properties of one type, as (property, value, doc), for completion after `int::`
