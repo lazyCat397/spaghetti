@@ -1,2 +1,2 @@
-export fn len(x: int) -> int { return x + 1000 }
-export fn inside() -> int { return len(1) }
+public fn len(x: int) -> int { return x + 1000 }
+public fn inside() -> int { return len(1) }

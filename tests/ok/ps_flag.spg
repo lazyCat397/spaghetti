@@ -1,5 +1,5 @@
 // run with --safe-party: ps.run is off, even though this file has no #> safe-party header
-install #ps
+load #ps
 try {
     ps.run("Get-Date")
 } catch (e: string) {

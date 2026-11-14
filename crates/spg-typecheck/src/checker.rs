@@ -83,6 +83,12 @@ pub struct Checker {
     /// enum name -> the type of its variants' values (`c.value`)
     enum_value_tys: HashMap<String, Ty>,
     scopes: Vec<HashMap<String, VarInfo>>,
+    /// inside `fn som.x` bodies: the namespace name and the scope depth where its function starts
+    namespace_ctx: Option<(String, usize)>,
+    /// names of `namespace` declarations of this program
+    namespace_names: std::collections::HashSet<String>,
+    /// `ns.member` (function or static) -> (exported, file that declares it)
+    member_visibility: HashMap<String, (bool, Option<String>)>,
     /// `#> strict` (set for the whole program. only the entry file has directives)
     strict: bool,
     errors: Vec<TypeError>,
@@ -150,6 +156,9 @@ pub fn type_check_with(program: p::Program, strict: bool) -> Result<TypedProgram
         enum_defs: HashMap::new(),
         enum_value_tys: HashMap::new(),
         scopes: vec![HashMap::new()],
+        namespace_ctx: None,
+        namespace_names: std::collections::HashSet::new(),
+        member_visibility: HashMap::new(),
         errors: Vec::new(),
         loop_depth: 0,
         uninferrable_functions: std::collections::HashSet::new(),
@@ -214,8 +223,11 @@ impl Checker {
             match stmt {
                 // (a struct and an enum with the same name never get here. the
                 // module resolver already yells about duplicate names)
-                Stmt::StructDecl { name, fields, guarded, .. } => {
+                Stmt::StructDecl { name, fields, guarded, namespace, .. } => {
                     self.struct_defs.insert(name.clone(), fields.clone());
+                    if *namespace {
+                        self.namespace_names.insert(name.clone());
+                    }
                     if *guarded {
                         self.guarded_structs.insert(name.clone());
                     }
@@ -253,6 +265,16 @@ impl Checker {
         // associated functions: `function Type.name(...)` with no `me`. the type must be a
         // struct of this program; the names are remembered so calls can be told apart
         for stmt in stmts {
+            // a namespace's member (function or static) remembers whether it is exported, and where
+            match stmt {
+                Stmt::FunctionDecl { name, exported, pos, .. } if name.contains('.') => {
+                    self.member_visibility.insert(name.clone(), (*exported, pos.file.clone()));
+                }
+                Stmt::Let { name, exported, pos, .. } | Stmt::Const { name, exported, pos, .. } if name.contains('.') => {
+                    self.member_visibility.insert(name.clone(), (*exported, pos.file.clone()));
+                }
+                _ => {}
+            }
             if let Stmt::FunctionDecl { name, params, pos, exported, .. } = stmt {
                 // a module-tagged name (`main#9e60::string.nice`) is the same method as `string.nice`
                 let shown = spg_parser::ast::display_name(name);
@@ -511,6 +533,42 @@ impl Checker {
     /// a struct or enum declared in this program: the types that take associated functions
     fn is_type_name(&self, name: &str) -> bool {
         self.struct_defs.contains_key(name) || self.enum_defs.contains_key(name)
+    }
+
+    /// inside a namespace function, a bare name that is not a local means the namespace's own
+    /// static (`calls` -> `som.calls`). a local of the same name always wins.
+    fn namespace_member(&self, name: &str) -> Option<String> {
+        let (ns, depth) = self.namespace_ctx.as_ref()?;
+        let local = self.scopes.iter().enumerate().rev().find(|(_, s)| s.contains_key(name)).map(|(i, _)| i);
+        if local.map_or(false, |i| i >= *depth) {
+            return None;
+        }
+        let full = format!("{}.{}", ns, name);
+        (self.lookup_var(&full).is_some() || self.functions.contains_key(&full)).then_some(full)
+    }
+
+    /// `ns.field = ...` where `ns` is a namespace and `field` one of its statics
+    fn namespace_write_target(&self, object: &Expr, field: &str) -> Option<String> {
+        if let Expr::Ident(ns, _) = object {
+            if self.lookup_var(ns).is_none() && self.lookup_var(&format!("{}.{}", ns, field)).is_some() {
+                return Some(ns.clone());
+            }
+        }
+        None
+    }
+
+    /// a namespace member used from another file must be exported. `Some((namespace, member))` when it is not
+    fn namespace_private(&self, full: &str, pos: &p::Pos) -> Option<(String, String)> {
+        let (ns, member) = full.rsplit_once('.')?;
+        if !self.namespace_names.contains(ns) {
+            return None;
+        }
+        match self.member_visibility.get(full) {
+            Some((false, file)) if *file != pos.file => {
+                Some((spg_parser::ast::display_name(ns).to_string(), spg_parser::ast::display_name(member).to_string()))
+            }
+            _ => None,
+        }
     }
 
     fn lookup_var(&self, name: &str) -> Option<&VarInfo> {
@@ -848,6 +906,10 @@ impl Checker {
                         name: method.to_string(),
                         pos: pos.clone(),
                     });
+                    return None;
+                }
+                if let Some((namespace, member)) = self.namespace_private(&full, pos) {
+                    self.errors.push(TypeError::NamespaceMemberPrivate { namespace, member, pos: pos.clone() });
                     return None;
                 }
                 let call = Expr::Call {
@@ -1715,6 +1777,11 @@ impl Checker {
                     .map(|sig| sig.return_type.clone())
                     .unwrap_or_else(|| return_type.as_ref().map(resolve_type_expr).unwrap_or(Ty::Void));
 
+                // a `fn som.x` body sees the namespace's statics; params and locals start at this depth
+                let saved_namespace = self.namespace_ctx.take();
+                if let Some((ns, _)) = name.split_once('.') {
+                    self.namespace_ctx = Some((ns.to_string(), self.scopes.len()));
+                }
                 self.push_scope();
                 for p in params {
                     self.declare(&p.name, resolve_type_expr(&p.type_ann), true, pos);
@@ -1737,6 +1804,7 @@ impl Checker {
                 self.loop_depth = saved_loop_depth;
 
                 self.pop_scope();
+                self.namespace_ctx = saved_namespace;
 
                 Some(TypedStmt::FunctionDecl {
                     name: name.clone(),
@@ -1760,20 +1828,23 @@ impl Checker {
                 Some(TypedStmt::StructDecl { name: name.clone(), fields: fields.clone(), exported: *exported })
             }
 
-            Stmt::Import { names, from, .. } => {
-                Some(TypedStmt::Import { names: names.clone(), from: from.clone() })
+            Stmt::Use { names, from, .. } => {
+                Some(TypedStmt::Use { names: names.clone(), from: from.clone() })
             }
 
             // consumed by spg-modules along with every `Import`. one
             // reaching the checker means the resolver skipped it. resolver, explain yourself.
             Stmt::ReExport { .. } => {
-                unreachable!("compiler bug: `export (..) from` reached the typechecker (spg-modules should have consumed it)")
+                unreachable!("compiler bug: `public (..) from` reached the typechecker (spg-modules should have consumed it)")
             }
-            Stmt::Install { .. } => {
-                unreachable!("compiler bug: `install` reached the typechecker (spg-modules should have consumed it)")
+            Stmt::Load { .. } => {
+                unreachable!("compiler bug: `load` reached the typechecker (spg-modules should have consumed it)")
             }
 
             Stmt::Assign { name, value, pos } => {
+                if let Some(full) = self.namespace_member(name) {
+                    return self.check_stmt(&Stmt::Assign { name: full, value: value.clone(), pos: pos.clone() });
+                }
                 let hint = self.lookup_var(name).map(|info| info.ty.clone());
                 let typed_value = self.check_expr_expecting(value, hint.as_ref())?;
                 let found_ty = typed_value.ty().clone();
@@ -1782,7 +1853,7 @@ impl Checker {
                     None => {
                         if spg_lexer::is_install_namespace(name.as_str()) {
                         // a bare `http` / `ps` (no `.member`): say what it is instead of "undefined"
-                        self.errors.push(TypeError::NeedsInstall { lib: name.to_string(), pos: pos.clone() });
+                        self.errors.push(TypeError::NeedsLoad { lib: name.to_string(), pos: pos.clone() });
                     } else {
                         self.errors.push(TypeError::UndefinedVariable { name: name.clone(), pos: pos.clone() });
                     }
@@ -1876,6 +1947,10 @@ impl Checker {
             }
 
             Stmt::FieldAssign { object, field, value, pos } => {
+                if let Some(namespace) = self.namespace_write_target(object, field) {
+                    self.errors.push(TypeError::NamespaceReadOnly { namespace, member: field.clone(), pos: pos.clone() });
+                    return None;
+                }
                 if let Some(sname) = self.guarded_object(object) {
                     let (val, fld) = (value.clone(), field.clone());
                     let wrapped = self.wrap_guarded_write(&sname, object, field, pos, &|o| Stmt::FieldAssign {
@@ -1929,6 +2004,10 @@ impl Checker {
             }
 
             Stmt::FieldCompoundAssign { object, field, op, value, pos } => {
+                if let Some(namespace) = self.namespace_write_target(object, field) {
+                    self.errors.push(TypeError::NamespaceReadOnly { namespace, member: field.clone(), pos: pos.clone() });
+                    return None;
+                }
                 if let Some(sname) = self.guarded_object(object) {
                     let (val, fld, opr) = (value.clone(), field.clone(), op.clone());
                     let wrapped = self.wrap_guarded_write(&sname, object, field, pos, &|o| Stmt::FieldCompoundAssign {
@@ -2830,6 +2909,9 @@ impl Checker {
             }
 
             Expr::Ident(name, pos) => {
+                if let Some(full) = self.namespace_member(name) {
+                    return self.check_expr(&Expr::Ident(full, pos.clone()));
+                }
                 if let Some(ty) = self.resolve_name(name) {
                     Some(TypedExpr::Ident { name: name.clone(), ty })
                 } else if let Some(sig) = self.functions.get(name) {
@@ -2843,7 +2925,7 @@ impl Checker {
                 } else {
                     if spg_lexer::is_install_namespace(name.as_str()) {
                         // a bare `http` / `ps` (no `.member`): say what it is instead of "undefined"
-                        self.errors.push(TypeError::NeedsInstall { lib: name.to_string(), pos: pos.clone() });
+                        self.errors.push(TypeError::NeedsLoad { lib: name.to_string(), pos: pos.clone() });
                     } else {
                         self.errors.push(TypeError::UndefinedVariable { name: name.clone(), pos: pos.clone() });
                     }
@@ -2956,7 +3038,7 @@ impl Checker {
                         });
                         return None;
                     }
-                    // `ps.run(...)` with no `install #ps` (with it, the lexer already made
+                    // `ps.run(...)` with no `load #ps` (with it, the lexer already made
                     // it a namespace call). tell them what's missing instead of "undefined ps"
                     Expr::Field { object, .. }
                         if matches!(object.as_ref(), Expr::Ident(ns, _)
@@ -2966,7 +3048,7 @@ impl Checker {
                             Expr::Ident(ns, _) => ns.clone(),
                             _ => unreachable!(),
                         };
-                        self.errors.push(TypeError::NeedsInstall { lib, pos: pos.clone() });
+                        self.errors.push(TypeError::NeedsLoad { lib, pos: pos.clone() });
                         return None;
                     }
                     // `obj.method(args)`: the only way a struct member gets called
@@ -2978,6 +3060,9 @@ impl Checker {
                         return None;
                     }
                 };
+
+                // a sibling function inside `namespace som`: `add(a, b)` means `som.add(a, b)`
+                let name = self.namespace_member(&name).unwrap_or(name);
 
                 // a variable holding a function value (a local, a param, a
                 // global): called through its value. a local shadows a builtin or
@@ -3171,6 +3256,21 @@ impl Checker {
             }
 
             Expr::Field { object, field, pos } => {
+                // `som.calls` reads a namespace static: it is the variable `som.calls`
+                if let Expr::Ident(ns, _) = object.as_ref() {
+                    let full = format!("{}.{}", ns, field);
+                    if self.lookup_var(ns).is_none() && self.is_type_name(ns) {
+                        // a private member of a namespace declared in another file, read as a value
+                        if let Some((namespace, member)) = self.namespace_private(&full, pos) {
+                            self.errors.push(TypeError::NamespaceMemberPrivate { namespace, member, pos: pos.clone() });
+                            return None;
+                        }
+                        // a static, or a namespace function used as a value (`let f = som.add`)
+                        if self.lookup_var(&full).is_some() || self.functions.contains_key(&full) {
+                            return self.check_expr(&Expr::Ident(full, pos.clone()));
+                        }
+                    }
+                }
                 // `Color.Green`: the enum's name (not a variable) before the dot
                 if let Expr::Ident(n, _) = object.as_ref() {
                     if let Some(variants) = self.enum_named(n) {

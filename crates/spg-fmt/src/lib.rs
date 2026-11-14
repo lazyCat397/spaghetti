@@ -39,13 +39,13 @@ enum Piece {
 
 const KEYWORDS: &[&str] = &[
     "let", "const", "fn", "return", "if", "else", "while", "for", "in", "try", "catch", "throw", "break",
-    "continue", "when", "elif", "guard", "import", "export", "from", "install", "struct", "enum", "true", "false", "int", "float", "step",
+    "continue", "when", "elif", "guard", "use", "public", "from", "load", "struct", "enum", "true", "false", "int", "float", "step",
     "bool", "string", "void", "array",
 ];
 
 /// keywords followed by a space when a `(` comes after them: `if (x)`,
 /// but a call `f(x)` and a lambda or type `function(x)` take none
-const SPACED_PAREN_KEYWORDS: &[&str] = &["if", "elif", "while", "for", "return", "catch", "when", "else", "in", "try", "throw", "guard", "import"];
+const SPACED_PAREN_KEYWORDS: &[&str] = &["if", "elif", "while", "for", "return", "catch", "when", "else", "in", "try", "throw", "guard", "use"];
 
 const TWO_CHAR: &[&str] = &["==", "!=", "<=", ">=", "->", "+=", "-=", "*=", "/=", "%=", "**", "..", "&&", "||", "??", "|>", "::", "++", "--"];
 
@@ -152,7 +152,7 @@ fn scan(src: &str) -> Vec<Piece> {
             i = end;
             continue;
         }
-        // `#name` (right after `install`): a standard library, one atom like `@name`
+        // `#name` (right after `load`): a standard library, one atom like `@name`
         if ch == '#' && c.get(i + 1).is_some_and(|n| is_word_char(*n)) {
             let start = i;
             i += 1;
@@ -502,9 +502,9 @@ mod tests {
 
     #[test]
     fn install_std_hash_stays_tight() {
-        assert_eq!(fmt("install #ps\n"), "install #ps\n");
-        assert_eq!(fmt("install   #ps\n"), "install #ps\n");
-        assert_eq!(fmt("install \"./a.spg\"\n"), "install \"./a.spg\"\n");
+        assert_eq!(fmt("load #ps\n"), "load #ps\n");
+        assert_eq!(fmt("load   #ps\n"), "load #ps\n");
+        assert_eq!(fmt("load \"./a.spg\"\n"), "load \"./a.spg\"\n");
     }
 
     #[test]

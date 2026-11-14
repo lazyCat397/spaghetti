@@ -1,5 +1,5 @@
 // stroke: an outline around the text, drawn under it. strokeColor is black until set
-install #ui
+load #ui
 
 let win = ui.window("stroke", 360, 180)
 win.background = ui.hex("#1b1f27")

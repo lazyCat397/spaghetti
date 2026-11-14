@@ -1,1 +1,1 @@
-export fn ruim() -> int { return [doesNotExist][0] }
+public fn ruim() -> int { return [doesNotExist][0] }

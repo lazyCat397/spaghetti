@@ -20,7 +20,7 @@ pub fn namespaces() -> Vec<&'static str> {
     all
 }
 
-/// native (Rust) libraries need `install #name` first (the registry is in `spg-libs`).
+/// native (Rust) libraries need `load #name` first (the registry is in `spg-libs`).
 /// once installed, their namespace is written WITHOUT `@` (`ps.run(...)`): `@` means "the engine
 /// gives you this for free", no `@` means "you installed it". the lexer turns `ps.` into a
 /// namespace token only in a file that installs `ps` (see `apply_installed_namespaces`).
@@ -29,7 +29,7 @@ pub fn is_namespace(name: &str) -> bool {
 }
 
 pub fn is_install_namespace(name: &str) -> bool {
-    spg_libs::module(name).is_some_and(|m| m.kind == spg_libs::Kind::Install)
+    spg_libs::module(name).is_some_and(|m| m.kind == spg_libs::Kind::Load)
 }
 
 /// hints for the friendly tone (`#> friendly-terminal`), one per stage
@@ -71,7 +71,7 @@ pub const HINT_UNREACHABLE: &str = "Nothing after that line can ever run. Remove
 pub const HINT_OVERFLOW: &str = "The number doesn't fit in an int (64 bits) anymore. Use smaller values, or a float. Strict mode (#> strict) stops here instead of wrapping around.";
 pub const HINT_READONLY: &str = "Make a copy with .copy() and change that copy instead.";
 pub const HINT_NAMES: &str = "Check the spelling of the name, and declare it before it's used.";
-pub const HINT_INSTALL: &str = "Add its install line at the top of the file, for example install #http.";
+pub const HINT_LOAD: &str = "Add its load line at the top of the file, for example load #http.";
 pub const HINT_ARITY: &str = "Check how many arguments that function takes, and pass exactly that many.";
 pub const HINT_CONST: &str = "This name was declared const, so it can't change. Declare it with let if it has to change.";
 pub const HINT_TIMEOUT: &str = "Check for an endless loop, or a wait (sleep, readLine) that takes too long. If the program really needs more time, raise the number in `#> timeout`.";

@@ -1,4 +1,4 @@
-install #ui
+load #ui
 let win = ui.window("poly", 40, 40)
 let tri = win.polygon([0.0, 0.0, 30.0, 0.0, 0.0, 20.0], ui.rgb(0, 0, 0))
 print(tri.width)

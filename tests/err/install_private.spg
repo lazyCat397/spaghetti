@@ -1,2 +1,2 @@
-install "../lib/in_a.spg"
+load "../lib/in_a.spg"
 print(hidden())

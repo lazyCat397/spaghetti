@@ -1,2 +1,2 @@
 #> strict
-export let v: int = 1
+public let v: int = 1

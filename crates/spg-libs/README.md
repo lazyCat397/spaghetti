@@ -8,7 +8,7 @@ The libraries that ship with the engine but are not part of the language: `ps`, 
 | `kind`          | How a program uses it                                  | Example         |
 |-----------------|--------------------------------------------------------|-----------------|
 | `Kind::Core`    | always there, written with `@`                         | `@file.read(p)` |
-| `Kind::Install` | `install #name` first, written **without** `@` | `ps.run(cmd)`   |
+| `Kind::Install` | `load #name` first, written **without** `@` | `ps.run(cmd)`   |
 
 The rule: `@` means "the engine gives you this for free". No `@` means "you installed it".
 Use `Core` only for things almost every script needs. Everything heavy or optional is `Install`.
@@ -40,7 +40,7 @@ fn greet(_: &CallCtx, args: Vec<LibValue>) -> Result<LibValue, LibError> {
 
 **2. Register it in `src/lib.rs`:** add `mod hello;` and add `&hello::MODULE` to `MODULES` (and bump the array length).
 
-**3. Build.** That's it. `install #hello` then `hello.greet("world")` works, with type checking, autocomplete, hover docs and errors.
+**3. Build.** That's it. `load #hello` then `hello.greet("world")` works, with type checking, autocomplete, hover docs and errors.
 
 ## The details
 

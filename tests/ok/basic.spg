@@ -1,4 +1,4 @@
-import (double, PI2, counter, Point, usesSecret) from "../lib/util.spg"
+use (double, PI2, counter, Point, usesSecret) from "../lib/util.spg"
 
 print(double(21))
 print(PI2)

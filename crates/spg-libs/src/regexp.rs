@@ -1,13 +1,13 @@
-//! `regex`: regular expressions (`install #regex`). the `regex` crate: linear time, no
+//! `regex`: regular expressions (`load #regex`). the `regex` crate: linear time, no
 //! catastrophic backtracking, so a hostile pattern can be slow to compile but can not hang a
 //! match. a bad pattern is an error the program can `catch`, not a crash.
 
 use crate::{CallCtx, Kind, LibError, LibValue, NativeFn, NativeModule};
 
 pub static MODULE: NativeModule = NativeModule {
-    kind: Kind::Install,
+    kind: Kind::Load,
     name: "regex",
-    doc: "regular expressions (install #regex)",
+    doc: "regular expressions (load #regex)",
     structs: &[],
     objects: &[],
     functions: &[

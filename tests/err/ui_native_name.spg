@@ -1,4 +1,4 @@
-install #ui
+load #ui
 struct Window {
     one: int
 }

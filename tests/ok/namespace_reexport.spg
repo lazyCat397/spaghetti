@@ -1,0 +1,5 @@
+// a namespace re-exported by another file keeps its exported members, and only those
+use (base) from "../lib/ns_relay.spg"
+
+print(base.label(2));
+print(base.version);

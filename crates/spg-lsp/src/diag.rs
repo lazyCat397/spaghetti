@@ -209,7 +209,7 @@ pub fn utf16_range(line_text: &str, col: usize) -> (usize, usize) {
 
 /// `label.font = "./f.ttf"` and `win.image(x, y, "./p.png", w, h)` name files too, but the
 /// compiler only sees strings there, so a missing file shows up only when the program runs.
-/// the literal ones are checked here, the way `import` and `install` already are: relative
+/// the literal ones are checked here, the way `use` and `load` already are: relative
 /// to the file being edited. `font = ""` is valid (it goes back to the bitmap font), so it
 /// is not checked; `image("")` has no file at all, so it is an error
 fn native_path_diags(entry: &Path, overlay: &HashMap<PathBuf, String>) -> Vec<Diag> {

@@ -1,4 +1,4 @@
-//! ui-core: the core of `install #ui`. window, loop, keyboard and a scene of rectangles.
+//! ui-core: the core of `load #ui`. window, loop, keyboard and a scene of rectangles.
 //!
 //! nothing here depends on the window library. the real backend is behind the `minifb`
 //! feature. the tests use the `NullBackend`.

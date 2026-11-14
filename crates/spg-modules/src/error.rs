@@ -44,21 +44,21 @@ pub enum ModuleError {
     MissingExtension { importer: PathBuf, path: String, pos: Pos },
 
     /// a struct or enum of the file has the name of a type an installed library declares (`Window`
-    /// of `install #ui`). the two would share one name in the program, so the file must rename it
+    /// of `load #ui`). the two would share one name in the program, so the file must rename it
     NativeNameTaken { file: PathBuf, name: String, library: String, pos: Pos },
 
     /// the import graph loops back on itself. `chain` is the full cycle,
     /// first module repeated at the end (a -> b -> a). a loop, a loop.
     Cycle { chain: Vec<PathBuf> },
 
-    /// `import (x) from "m.spg"` but `m.spg` declares no `x` at all
+    /// `use (x) from "m.spg"` but `m.spg` declares no `x` at all
     UnknownExport { importer: PathBuf, module: String, name: String, pos: Pos },
 
     /// `x` is in that module's scope only because IT imported it, and
-    /// importing doesn't re-export. `imported_at` is that import's line.
+    /// using a name doesn't re-export it. `imported_at` is that import's line.
     ImportedNotReExported { importer: PathBuf, module: String, name: String, pos: Pos, imported_at: Pos, origin: String },
 
-    /// `x` exists in the module but wasn't marked `export`
+    /// `x` exists in the module but wasn't marked `public`
     NotExported { importer: PathBuf, module: String, name: String, pos: Pos },
 
     /// two things in ONE file want the same name. `second` is where the
@@ -66,9 +66,9 @@ pub enum ModuleError {
     /// the earlier thing that already owned the name (the `note:`). squatter.
     Collision { file: PathBuf, name: String, kind: CollisionKind, second: Pos, first: Pos },
 
-    /// a name two different `install`s both provide, and the file USES it.
-    /// importing it by name (`import (x) from "..."`) picks one. pick wisely.
-    AmbiguousInstall { file: PathBuf, name: String, first: (Pos, String), second: (Pos, String) },
+    /// a name two different `load`s both provide, and the file USES it.
+    /// importing it by name (`use (x) from "..."`) picks one. pick wisely.
+    AmbiguousLoad { file: PathBuf, name: String, first: (Pos, String), second: (Pos, String) },
 }
 
 /// what the two colliding things are. decides the wording, since
@@ -78,11 +78,11 @@ pub enum ModuleError {
 pub enum CollisionKind {
     /// `function a` declared twice (or a `let a` next to a `function a`)
     LocalVsLocal,
-    /// an `import (a)` whose `a` is also declared in this file
+    /// an `use (a)` whose `a` is also declared in this file
     ImportVsLocal,
     /// the same name imported twice (from the same or different modules)
     ImportVsImport,
-    /// `export (a) from ...` next to a `export function a` in the same
+    /// `public (a) from ...` next to a `export function a` in the same
     /// file. two different things would both be importable as `a`
     ReExportVsLocal,
     /// the same name re-exported twice. again. stop it.
@@ -108,7 +108,7 @@ impl fmt::Display for ModuleError {
             }
             ModuleError::NativeNameTaken { name, library, pos, .. } => write!(
                 f,
-                "'{}' is also the name of a type of install #{} (line {}, column {}): rename it here",
+                "'{}' is also the name of a type of library #{} (line {}, column {}): rename it here",
                 name, library, pos.line, pos.col
             ),
             ModuleError::MissingExtension { importer, path, pos } if path.is_empty() => write!(
@@ -128,7 +128,7 @@ impl fmt::Display for ModuleError {
             ),
             ModuleError::Cycle { chain } => {
                 let names: Vec<String> = chain.iter().map(|p| friendly(p)).collect();
-                write!(f, "circular import: {}", names.join(" -> "))
+                write!(f, "circular use: {}", names.join(" -> "))
             }
             ModuleError::UnknownExport { importer, module, name, pos } => write!(
                 f,
@@ -141,7 +141,7 @@ impl fmt::Display for ModuleError {
             ),
             ModuleError::ImportedNotReExported { importer, module, name, pos, imported_at, origin } => write!(
                 f,
-                "'{}' is only imported by module \"{}\" (line {}), not exported from it — importing doesn't re-export; add `export ({}) from \"{}\"` there (in '{}' at line {}, column {})",
+                "'{}' is only used by module \"{}\" (line {}), not exported from it — using a name doesn't re-export it; add `public ({}) from \"{}\"` there (in '{}' at line {}, column {})",
                 name,
                 module,
                 imported_at.line,
@@ -160,9 +160,9 @@ impl fmt::Display for ModuleError {
                 pos.line,
                 pos.col
             ),
-            ModuleError::AmbiguousInstall { file, name, first, second } => write!(
+            ModuleError::AmbiguousLoad { file, name, first, second } => write!(
                 f,
-                "'{}' is installed from both \"{}\" (line {}) and \"{}\" (line {}) and used in this file; import it by name to pick one (in '{}' at line {}, column {})",
+                "'{}' is loaded from both \"{}\" (line {}) and \"{}\" (line {}) and used in this file; use it by name to pick one (in '{}' at line {}, column {})",
                 name, first.1, first.0.line, second.1, second.0.line,
                 friendly(file), second.0.line, second.0.col
             ),
@@ -174,15 +174,15 @@ impl fmt::Display for ModuleError {
                     CollisionKind::ReExportVsLocal => "is re-exported here, but this file also exports its own",
                     CollisionKind::ReExportVsReExport => "is re-exported more than once",
                 };
-                // `import (a, a)`: both sides are the same statement, so
+                // `use (a, a)`: both sides are the same statement, so
                 // "first imported here -> the line we already pointed at"
                 // would say nothing. say what actually happened instead.
                 let same_line = second.line == first.line;
                 let also = match kind {
                     CollisionKind::LocalVsLocal => "is first declared here",
                     CollisionKind::ImportVsLocal => "is also declared here",
-                    CollisionKind::ImportVsImport if same_line => "is listed twice in this import",
-                    CollisionKind::ImportVsImport => "is first imported here",
+                    CollisionKind::ImportVsImport if same_line => "is listed twice in this use",
+                    CollisionKind::ImportVsImport => "is first used here",
                     CollisionKind::ReExportVsLocal => "is declared and exported here",
                     CollisionKind::ReExportVsReExport if same_line => "is listed twice in this re-export",
                     CollisionKind::ReExportVsReExport => "is first re-exported here",
@@ -250,7 +250,7 @@ impl ModuleError {
             ModuleError::Cycle { chain } => Located {
                 file: chain.first().cloned().unwrap_or_default(), line: 1, col: 1, message: full,
             },
-            ModuleError::AmbiguousInstall { file, second, .. } => Located {
+            ModuleError::AmbiguousLoad { file, second, .. } => Located {
                 file: file.clone(), line: second.0.line, col: second.0.col, message: clean(&full),
             },
             ModuleError::Collision { file, name, kind, second, .. } => {

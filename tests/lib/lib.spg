@@ -1,2 +1,2 @@
-export fn value() -> int { return 1000 }
-export let g: int = 500
+public fn value() -> int { return 1000 }
+public let g: int = 500

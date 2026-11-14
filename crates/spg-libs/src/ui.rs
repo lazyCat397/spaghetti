@@ -1,4 +1,4 @@
-//! `ui`: a window with a scene of rectangles, and the keyboard (`install #ui`). the core is in
+//! `ui`: a window with a scene of rectangles, and the keyboard (`load #ui`). the core is in
 //! `ui-core`; this file is the bridge to the program's values.
 //!
 //! the program holds four small handles: `Window`, `Shape`, `Label` and `Image`. their fields and
@@ -10,7 +10,7 @@
 //! program writes its own loop and asks the window for the time of each frame:
 //!
 //! ```text
-//! install #ui
+//! load #ui
 //!
 //! let win = ui.window("demo", 800, 600)
 //! win.background = ui.hex("#101010")
@@ -48,9 +48,9 @@ const ALIGN_ENUM: &str = "enum Align { Left, Center, Right }";
 const KEY_ENUM: &str = "enum Key { A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, Num0, Num1, Num2, Num3, Num4, Num5, Num6, Num7, Num8, Num9, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, Left, Right, Up, Down, Space, Enter, Escape, Tab, Backspace, Delete, Home, End, LeftShift, RightShift, LeftCtrl, RightCtrl, LeftAlt, RightAlt }";
 
 pub static MODULE: NativeModule = NativeModule {
-    kind: Kind::Install,
+    kind: Kind::Load,
     name: "ui",
-    doc: "a window with a scene of rectangles, and the keyboard (install #ui)",
+    doc: "a window with a scene of rectangles, and the keyboard (load #ui)",
     structs: &["struct Window {\n    id: int\n}\n", "struct Shape {\n    id: int,\n    win: int\n}\n", "struct Label {\n    id: int,\n    win: int\n}\n", "struct Image {\n    id: int,\n    win: int\n}\n", KEY_ENUM, MOUSE_ENUM, ALIGN_ENUM],
     objects: &[
         NativeObject {

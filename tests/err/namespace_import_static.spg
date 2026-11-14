@@ -1,0 +1,3 @@
+use (tool) from "../lib/ns_mod.spg"
+
+print(tool.secret)

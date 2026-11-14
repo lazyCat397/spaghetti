@@ -1,0 +1,14 @@
+// a namespace declared in its own file, with an exported static and an exported and a private function
+public namespace base {
+   public let version: int = 3;
+   let inner_calls;
+
+   public fn label(a: int) -> int {
+      inner_calls += 1;
+      return inner(a) + version;
+   }
+
+   fn inner(a: int) -> int {
+      return a * 100;
+   }
+}

@@ -1,5 +1,5 @@
-install #ui
-import ( localTime, utcOffsetMinutes ) from "helper/local-time.spg"
+load #ui
+use ( localTime, utcOffsetMinutes ) from "helper/local-time.spg"
 
 const PI = 3.141592653589793
 const CX = 180.0

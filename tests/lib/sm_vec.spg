@@ -1,4 +1,4 @@
-export struct Vec {
+public struct Vec {
     x: int,
     y: int
 
@@ -13,7 +13,7 @@ export struct Vec {
         me.y += 1
     }
 }
-export fn makeVec(a: int, b: int) -> Vec {
+public fn makeVec(a: int, b: int) -> Vec {
     return Vec { x: a, y: b }
 }
 // a private struct with a method: importers never see the struct, but get its values
@@ -24,6 +24,6 @@ struct Hidden {
         return me.n * 2
     }
 }
-export fn hiddenTwice(n: int) -> int {
+public fn hiddenTwice(n: int) -> int {
     return Hidden { n: n }.twice()
 }

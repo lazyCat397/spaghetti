@@ -1,4 +1,4 @@
-install #ui
+load #ui
 let win = ui.window("stroke", 40, 40)
 let box = win.rect(1.0, 1.0, 10.0, 10.0, ui.rgb(0, 0, 0))
 box.stroke = -1.0

@@ -1,4 +1,4 @@
-import (inc, read, Point) from "../lib/reexport_facade.spg"
+use (inc, read, Point) from "../lib/reexport_facade.spg"
 inc()
 inc()
 print(read())

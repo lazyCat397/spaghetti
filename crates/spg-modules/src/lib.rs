@@ -13,7 +13,7 @@
 //! messages about the user's own code stay readable. for the user, not us.
 //!
 //! fixed language decisions this implements (no arguing):
-//! - only named imports: `import (a, b) from "./x.spg"`
+//! - only named imports: `use (a, b) from "./x.spg"`
 //! - an import cycle is always a fatal error, never "resolved"
 //! - the path must carry an explicit `.spg` extension
 //! - a module is loaded ONCE even if several files import it (diamond)
@@ -38,7 +38,7 @@ struct ModuleInfo {
     /// a non-exported one is still looked up, to say "not exported"
     /// instead of "no such name"). precise sadness.
     symbols: HashMap<String, Symbol>,
-    /// names re-exported with `export (x) from "./y.spg"`. kept apart
+    /// names re-exported with `public (x) from "./y.spg"`. kept apart
     /// from `symbols` on purpose: a re-export is importable FROM this
     /// module, but it's not a name INSIDE it, so it must never leak into
     /// this module's own scope. the mangled name is the ORIGINAL
@@ -318,9 +318,9 @@ impl Resolver {
 
         for stmt in &program.stmts {
             let (names, from, pos, is_reexport) = match stmt {
-                Stmt::Import { names, from, pos } => (names, from, pos, false),
+                Stmt::Use { names, from, pos } => (names, from, pos, false),
                 Stmt::ReExport { names, from, pos } => (names, from, pos, true),
-                _ => continue, // `install` is handled after this loop
+                _ => continue, // `load` is handled after this loop
             };
 
             let resolved = self.resolve_names(path, &dir, names, from, pos)?;
@@ -377,7 +377,7 @@ impl Resolver {
             }
         }
 
-        // 2b) `install`: every export of the file, at the LOWEST priority.
+        // 2b) `load`: every export of the file, at the LOWEST priority.
         // a name this file declares, or imports by name, is never replaced
         // (so a new export in the library can't break its installers). two
         // installs giving one name different meanings is only an error if
@@ -385,8 +385,8 @@ impl Resolver {
         let mut installed: HashMap<String, (String, spg_parser::ast::Pos, String)> = HashMap::new();
         let mut ambiguous: HashMap<String, ((spg_parser::ast::Pos, String), (spg_parser::ast::Pos, String))> = HashMap::new();
         for stmt in &program.stmts {
-            let Stmt::Install { from, pos, std } = stmt else { continue };
-            // native libraries live in the engine, not in stdlib/. `install #ps` turns
+            let Stmt::Load { from, pos, std } = stmt else { continue };
+            // native libraries live in the engine, not in stdlib/. `load #ps` turns
             // them on (and brings the struct their calls return into the program)
             if *std && spg_lexer::is_install_namespace(from) {
                 if !self.natives.iter().any(|n| n == from) {
@@ -394,8 +394,8 @@ impl Resolver {
                 }
                 continue;
             }
-            // `install #name` points at the standard library folder.
-            // `install "path"` is a path relative to this file, as before
+            // `load #name` points at the standard library folder.
+            // `load "path"` is a path relative to this file, as before
             let target = if *std {
                 let file = standard_module(from).map_err(|message| ModuleError::Io {
                     path: path.to_path_buf(),
@@ -435,9 +435,9 @@ impl Resolver {
         renamer.rename_program(&mut program.stmts);
         if let Some(name) = renamer.used_ambiguous().into_iter().next() {
             let (first, second) = ambiguous.remove(&name).expect("only ambiguous names are recorded");
-            return Err(ModuleError::AmbiguousInstall { file: path.to_path_buf(), name, first, second });
+            return Err(ModuleError::AmbiguousLoad { file: path.to_path_buf(), name, first, second });
         }
-        program.stmts.retain(|s| !matches!(s, Stmt::Import { .. } | Stmt::ReExport { .. } | Stmt::Install { .. }));
+        program.stmts.retain(|s| !matches!(s, Stmt::Use { .. } | Stmt::ReExport { .. } | Stmt::Load { .. }));
         self.merged.extend(program.stmts);
 
         self.in_progress.pop();
@@ -451,7 +451,7 @@ impl Resolver {
     /// every requested name in what that module exposes to importers.
     /// its exported declarations plus whatever it re-exports. returns the
     /// `(name, symbol)` pairs, or the first thing wrong with the request.
-    /// shared by `import` and `export ... from`. both ask the same
+    /// shared by `use` and `export ... from`. both ask the same
     /// question of the dependency. nosy little resolver.
     fn resolve_names(
         &mut self,

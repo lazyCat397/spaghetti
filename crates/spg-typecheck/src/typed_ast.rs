@@ -440,7 +440,7 @@ pub enum TypedStmt {
     /// `variants` in declaration order. a variant's position is its identity
     EnumDecl { name: String, variants: Vec<String>, values: Vec<spg_parser::ast::EnumValue>, exported: bool },
 
-    Import { names: Vec<String>, from: String },
+    Use { names: Vec<String>, from: String },
 
     ExprStmt(TypedExpr),
 }

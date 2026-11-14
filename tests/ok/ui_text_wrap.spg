@@ -1,4 +1,4 @@
-install #ui
+load #ui
 let win = ui.window("t", 100, 100)
 let t = win.label(1.0, 1.0, "ab cd ef", ui.hex("#ffffff"), 8)
 t.wrap = 24.0

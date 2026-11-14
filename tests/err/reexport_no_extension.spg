@@ -1,1 +1,1 @@
-export (inc) from "../lib/reexport_origin"
+public (inc) from "../lib/reexport_origin"

@@ -1,4 +1,4 @@
-import (Item, Kind, stock, kinds) from "../lib/mp_types.spg"
+use (Item, Kind, stock, kinds) from "../lib/mp_types.spg"
 
 struct Item2 { id: int }
 let s: map<string, Item> = stock()

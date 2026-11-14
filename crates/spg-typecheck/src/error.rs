@@ -47,8 +47,8 @@ pub enum TypeError {
     /// `replacement` is the current name, when there is one.
     OldNamespace { name: String, replacement: Option<String>, pos: Pos },
 
-    /// `ps.run(...)` / `http.get(...)` in a file with no `install #ps`.
-    NeedsInstall { lib: String, pos: Pos },
+    /// `ps.run(...)` / `http.get(...)` in a file with no `load #ps`.
+    NeedsLoad { lib: String, pos: Pos },
 
     /// a call whose callee isn't a plain function name (`p.x()`, `f()()`,
     /// `(a + b)()`). only named functions and builtins can be called. don't get fancy.
@@ -77,6 +77,10 @@ pub enum TypeError {
 
     /// re-declaring a name already taken in the same scope. pick a new name.
     DuplicateDeclaration { name: String, pos: Pos },
+    /// `som.calls = 5` from outside `namespace som`: its statics are read-only from there
+    NamespaceReadOnly { namespace: String, member: String, pos: Pos },
+    /// `tool.hidden` from another file, where `hidden` is a member without `public`
+    NamespaceMemberPrivate { namespace: String, member: String, pos: Pos },
     /// `#> strict`: a name hiding another one from an outer scope. shadowing, but grumpy.
     ShadowedDeclaration { name: String, pos: Pos },
     /// `#> strict`: code after `return` / `break` / `continue` / `throw`. dead code. bye.
@@ -208,7 +212,7 @@ pub enum TypeError {
     /// `s.nope()` / `xs.nope()` / `m.nope()`: no builtin of `@str`/`@array`/`@map` with that
     /// name takes the value first. nope.
     NoSuchNativeMethod { found: Ty, method: String, pos: Pos },
-    /// `"x".tag()` where `tag` is a method of this type declared in another file without `export`
+    /// `"x".tag()` where `tag` is a method of this type declared in another file without `public`
     ValueMethodNotVisible { type_name: String, method: String, pos: Pos },
 
     /// `p.f` (no call) where `f` is a METHOD, not a field. add the parentheses.
@@ -235,7 +239,7 @@ impl TypeError {
             | TypeError::UnknownTypeProperty { pos, .. }
             | TypeError::RemovedBuiltin { pos, .. }
             | TypeError::OldNamespace { pos, .. }
-            | TypeError::NeedsInstall { pos, .. }
+            | TypeError::NeedsLoad { pos, .. }
             | TypeError::NotCallable { pos, .. }
             | TypeError::CaptureAssign { pos, .. }
             | TypeError::ArityMismatch { pos, .. }
@@ -245,6 +249,8 @@ impl TypeError {
             | TypeError::RangeNotInt { pos, .. }
             | TypeError::RangeZeroStep { pos, .. }
             | TypeError::DuplicateDeclaration { pos, .. }
+            | TypeError::NamespaceReadOnly { pos, .. }
+            | TypeError::NamespaceMemberPrivate { pos, .. }
             | TypeError::ShadowedDeclaration { pos, .. }
             | TypeError::UnreachableCode { pos, .. }
             | TypeError::NonBoolCondition { pos, .. }
@@ -383,8 +389,8 @@ impl TypeError {
                 f, "{}undefined variable '{}'",
                 self.location(), shown(name)
             ),
-            TypeError::NeedsInstall { lib, .. } => write!(
-                f, "{}'{}' is an installable library, not a variable: it needs `install #{}` at the top of the file, and is used as {}.member(...)",
+            TypeError::NeedsLoad { lib, .. } => write!(
+                f, "{}'{}' is an installable library, not a variable: it needs `load #{}` at the top of the file, and is used as {}.member(...)",
                 self.location(), lib, lib, lib
             ),
             TypeError::OldNamespace { name, replacement, .. } => match replacement {
@@ -448,6 +454,17 @@ impl TypeError {
                 f, "{}type {} is not iterable",
                 self.location(), found
             ),
+            TypeError::NamespaceMemberPrivate { namespace, member, .. } => write!(
+                f, "{}'{}.{}' is private to its file: mark it 'public' inside 'namespace {}' to use it here",
+                self.location(), namespace, member, namespace
+            ),
+            TypeError::NamespaceReadOnly { namespace, member, .. } => {
+                let (ns, member) = (spg_parser::ast::display_name(namespace), spg_parser::ast::display_name(member));
+                write!(
+                    f, "{}namespace '{}' is read-only from outside: '{}.{}' cannot be assigned",
+                    self.location(), ns, ns, member
+                )
+            }
             TypeError::DuplicateDeclaration { name, .. } => write!(
                 f, "{}'{}' is already declared in this scope",
                 self.location(), shown(name)
@@ -618,7 +635,7 @@ impl TypeError {
                 self.location(), found
             ),
             TypeError::ValueMethodNotVisible { type_name, method, .. } => write!(
-                f, "{}'{}' is a method of {} declared in another file, and it is not exported: add 'export' in front of its declaration to call it from here",
+                f, "{}'{}' is a method of {} declared in another file, and it is not exported: add 'public' in front of its declaration to call it from here",
                 self.location(), method, type_name
             ),
             TypeError::NoSuchNativeMethod { found, method, .. } => match found {
@@ -688,7 +705,7 @@ impl TypeError {
             TypeError::ShadowedDeclaration { .. } => spg_lexer::HINT_SHADOW,
             TypeError::UnreachableCode { .. } => spg_lexer::HINT_UNREACHABLE,
             TypeError::AssignToConst { .. } => spg_lexer::HINT_CONST,
-            TypeError::NeedsInstall { .. } => spg_lexer::HINT_INSTALL,
+            TypeError::NeedsLoad { .. } => spg_lexer::HINT_LOAD,
             TypeError::ArityMismatch { .. } => spg_lexer::HINT_ARITY,
             TypeError::UndefinedVariable { .. }
             | TypeError::UndefinedFunction { .. }
@@ -715,7 +732,7 @@ fn shown(name: &str) -> String {
     let base = display_name(name);
     if let Some(rest) = base.strip_prefix('@') {
         if let Some((ns, _)) = rest.split_once('.') {
-            if spg_libs::module(ns).is_some_and(|m| m.kind == spg_libs::Kind::Install) {
+            if spg_libs::module(ns).is_some_and(|m| m.kind == spg_libs::Kind::Load) {
                 return rest.to_string();
             }
         }

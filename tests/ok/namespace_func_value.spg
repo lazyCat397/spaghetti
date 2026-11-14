@@ -1,0 +1,18 @@
+// namespace functions are values too; an imported exported function keeps working next to a local one
+use (base) from "../lib/ns_base.spg"
+
+namespace local {
+   public fn twice(a: int) -> int {
+      return a * 2;
+   }
+}
+
+fn label(a: int) -> int {
+   return a + 1000;
+}
+
+let f = base.label;
+let g = local.twice;
+print(f(1));
+print(g(4));
+print(label(1));

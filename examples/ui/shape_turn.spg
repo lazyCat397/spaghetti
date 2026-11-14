@@ -1,8 +1,8 @@
-// `install #ui` with turned shapes.
+// `load #ui` with turned shapes.
 // rotation is in degrees, clockwise, around the pivot.
 // pivotX and pivotY are fractions of the width and the height (0.5 is the centre).
 // alpha goes from 0 (invisible) to 1 (solid), and fill = false draws only the outline.
-install #ui
+load #ui
 
 let win = ui.window("turned shapes", 360, 200)
 win.background = ui.hex("#1b1f27")

@@ -30,7 +30,7 @@ pub struct Decls {
     pub enums: HashSet<String>,
     /// free function name -> return type as written
     pub functions: HashMap<String, String>,
-    /// exported `const`/`let` with a written type (`export const terminal: Terminal`), taken
+    /// exported `const`/`let` with a written type (`public const terminal: Terminal`), taken
     /// from the installed/imported files so their members can be listed
     pub globals: HashMap<String, String>,
     /// `fn Type.name(...) -> R` declarations, as (type, name, signature). they travel
@@ -38,6 +38,12 @@ pub struct Decls {
     pub associated: Vec<(String, String, String)>,
     /// `string::methods.add(fn name(...) -> R)` declarations on value types, as (type, name, signature)
     pub value_methods: Vec<(String, String, String)>,
+    /// `namespace som { let calls; ... }`: namespace name -> its statics as (name, type or "")
+    pub namespaces: HashMap<String, Vec<(String, String)>>,
+    /// `ns.member` of a namespace declared in THIS file that is not `public`: visible here only
+    pub local_private: HashSet<String>,
+    /// `ns.member` names private to the file that declares them, as seen from a file that imports them
+    pub hidden: HashSet<String>,
 }
 
 pub struct Member {
@@ -136,7 +142,59 @@ impl Decls {
                         d.structs.insert(n.clone(), parse_struct_body(tokens, i + 3));
                     }
                 }
-                T::Export => {
+                T::NamespaceKw => {
+                    if let (Some(T::Ident(n)), Some(T::LBrace)) = (kind(tokens, i + 1), kind(tokens, i + 2)) {
+                        // a namespace is a struct with no instances: `som.` lists its functions and statics
+                        d.structs.entry(n.clone()).or_default();
+                        d.namespaces.entry(n.clone()).or_default();
+                        let mut level = 0;
+                        for j in (i + 2)..tokens.len() {
+                            match kind(tokens, j) {
+                                Some(T::LBrace) => level += 1,
+                                Some(T::RBrace) => {
+                                    level -= 1;
+                                    if level == 0 {
+                                        break;
+                                    }
+                                }
+                                _ => {}
+                            }
+                            // only the namespace's own members: level 1 is its body, deeper is a function body
+                            if level != 1 {
+                                continue;
+                            }
+                            // a member is exported when `public` comes right before it
+                            let exported = j > 0 && kind(tokens, j - 1) == Some(&T::Public);
+                            match kind(tokens, j) {
+                                Some(T::Function) => {
+                                    if let Some(T::Ident(name)) = kind(tokens, j + 1) {
+                                        if !exported {
+                                            d.local_private.insert(format!("{}.{}", n, name));
+                                        }
+                                        if let Some((sig, _)) = signature_at(tokens, j + 2) {
+                                            d.associated.push((n.clone(), name.clone(), sig));
+                                        }
+                                    }
+                                }
+                                Some(T::Let) | Some(T::Const) => {
+                                    if let Some(T::Ident(name)) = kind(tokens, j + 1) {
+                                        if !exported {
+                                            d.local_private.insert(format!("{}.{}", n, name));
+                                        }
+                                        let ty = if kind(tokens, j + 2) == Some(&T::Colon) {
+                                            read_type(tokens, j + 3).0
+                                        } else {
+                                            String::new()
+                                        };
+                                        d.namespaces.entry(n.clone()).or_default().push((name.clone(), ty));
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                T::Public => {
                     if matches!(kind(tokens, i + 1), Some(T::Const) | Some(T::Let)) {
                         if let (Some(T::Ident(n)), Some(T::Colon)) = (kind(tokens, i + 2), kind(tokens, i + 3)) {
                             let ty = read_type(tokens, i + 4).0;
@@ -168,7 +226,13 @@ impl Decls {
         for (k, v) in other.structs {
             self.structs.entry(k).or_insert(v);
         }
+        for (k, v) in other.namespaces {
+            self.namespaces.entry(k).or_insert(v);
+        }
         self.enums.extend(other.enums);
+        // a private member of the other file stays hidden here, and so do those it hid in turn
+        self.hidden.extend(other.local_private);
+        self.hidden.extend(other.hidden);
         self.associated.extend(other.associated);
         self.value_methods.extend(other.value_methods);
         for (k, v) in other.functions {
@@ -520,7 +584,7 @@ fn initializer_end(tokens: &[Token], start: usize) -> usize {
         matches!(
             t,
             T::Let | T::Const | T::Function | T::Return | T::If | T::While | T::For | T::Try | T::Throw | T::Break | T::Continue
-                | T::Struct | T::Enum | T::Install | T::Import | T::Export | T::Eof
+                | T::Struct | T::Enum | T::Load | T::Use | T::Public | T::Eof
         )
     };
     let mut nest = 0i32;
@@ -742,7 +806,21 @@ pub fn after_dot(tokens: &[Token], at: usize, chain: &[String], decls: &Decls) -
     if chain.len() == 1 && (decls.structs.contains_key(&chain[0]) || decls.enums.contains(&chain[0])) {
         let depth = depths(tokens);
         if resolve_head(tokens, &depth, at, &chain[0], decls).is_none() {
-            return associated_of(decls, &chain[0]);
+            let mut out = associated_of(decls, &chain[0]);
+            out.retain(|m| !decls.hidden.contains(&format!("{}.{}", chain[0], m.name)));
+            for (name, ty) in decls.namespaces.get(&chain[0]).into_iter().flatten() {
+                if decls.hidden.contains(&format!("{}.{}", chain[0], name)) {
+                    continue;
+                }
+                out.push(Member {
+                    name: name.clone(),
+                    detail: if ty.is_empty() { format!("{}.{}", chain[0], name) } else { format!("{}.{}: {}", chain[0], name, ty) },
+                    kind: KIND_FIELD,
+                    insert: None,
+                    doc: Some("namespace static: read it as Name.field, changed only inside the namespace"),
+                });
+            }
+            return out;
         }
     }
     let depth = depths(tokens);
@@ -1045,6 +1123,30 @@ mod tests {
     }
 
     #[test]
+    fn namespace_dot_lists_its_functions_and_statics() {
+        let text = "public namespace som {\n    let calls;\n    const unit: int = 1;\n    fn add(a: int, b: int) -> int {\n        calls += 1;\n        return a + b;\n    }\n}\nsom.\n";
+        let (tokens, at, decls) = setup(text, 8, 4);
+        let got = names(&after_dot(&tokens, at, &["som".to_string()], &decls));
+        assert!(got.contains(&"add".to_string()), "{:?}", got);
+        assert!(got.contains(&"calls".to_string()) && got.contains(&"unit".to_string()), "{:?}", got);
+        // the body's `calls += 1` is not a member of its own
+        assert_eq!(got.iter().filter(|n| *n == "calls").count(), 1, "{:?}", got);
+    }
+
+    #[test]
+    fn namespace_members_private_to_an_imported_file_are_not_listed() {
+        let lib = "public namespace base {\n    public let version: int = 3;\n    let inner_calls;\n    public fn label(a: int) -> int { return a }\n    fn inner(a: int) -> int { return a * 100 }\n}\n";
+        let lib_tokens = spg_lexer::Lexer::new(lib).tokenize().unwrap();
+        let lib_decls = Decls::from_tokens(&lib_tokens);
+        let src = "use (base) from \"lib.spg\"\nbase.\n";
+        let (tokens, at, mut decls) = setup(src, 1, 5);
+        decls.merge(lib_decls);
+        let got = names(&after_dot(&tokens, at, &["base".to_string()], &decls));
+        assert!(got.contains(&"label".to_string()) && got.contains(&"version".to_string()), "{:?}", got);
+        assert!(!got.contains(&"inner".to_string()) && !got.contains(&"inner_calls".to_string()), "{:?}", got);
+    }
+
+    #[test]
     fn associated_functions_of_imported_files_are_listed() {
         let lex = |t: &str| spg_lexer::Lexer::new(t).tokenize().unwrap();
         let mut here = Decls::from_tokens(&lex("struct Point { x: int }\nlet p = 1\n"));
@@ -1102,7 +1204,7 @@ mod tests {
     #[test]
     fn a_ps_result_offers_its_fields() {
         // `ps.run` gives back a PsResult, and its fields are there once `ps` is installed
-        let (t, at, d) = setup("install #ps\nlet r = ps.run(\"x\")\nr.\n", 2, 2);
+        let (t, at, d) = setup("load #ps\nlet r = ps.run(\"x\")\nr.\n", 2, 2);
         let got = names(&after_dot(&t, at, &["r".into()], &d));
         for want in ["success", "code", "output", "error"] {
             assert!(got.iter().any(|n| n == want), "PsResult misses {}: {:?}", want, got);

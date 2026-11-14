@@ -1,11 +1,11 @@
-// install brings EVERY exported name of the file, without listing them
-install "lib/greet.spg"
+// load brings EVERY public name of the file, without listing them
+load "lib/greet.spg"
 
 print(greet("Spaghetti"))
 print(shout("Spaghetti"))
 
-// import is the selective form: it brings only the names you list
-// wave() is exported by farewell.spg, but it is not imported here
-import (farewell) from "lib/farewell.spg"
+// use is the selective form: it brings only the names you list
+// wave() is public in farewell.spg, but it is not used here
+use (farewell) from "lib/farewell.spg"
 
 print(farewell("Spaghetti"))

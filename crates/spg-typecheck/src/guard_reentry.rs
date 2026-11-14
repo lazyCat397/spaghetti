@@ -274,7 +274,7 @@ fn stmt_edges<'a>(s: &'a TypedStmt, line: usize, walk: &mut Walk<'a>) {
             walk_block(catch_block, walk);
         }
         TypedStmt::ExprStmt(e) => expr_edges(e, line, walk),
-        TypedStmt::Import { names, .. } => names.iter().for_each(|n| bind(walk, n)),
+        TypedStmt::Use { names, .. } => names.iter().for_each(|n| bind(walk, n)),
         // declarations and breaks run no code here
         _ => {}
     }

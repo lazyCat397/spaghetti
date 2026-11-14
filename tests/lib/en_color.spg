@@ -1,5 +1,5 @@
-export enum Color { Red, Green, Blue }
-export fn next(c: Color) -> Color {
+public enum Color { Red, Green, Blue }
+public fn next(c: Color) -> Color {
     if (c == Color.Red) { return Color.Green }
     elif (c == Color.Green) { return Color.Blue }
     else { return Color.Red }

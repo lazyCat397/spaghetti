@@ -1,2 +1,2 @@
-export fn helper() -> int { return 1 }
-export struct Item { v: int }
+public fn helper() -> int { return 1 }
+public struct Item { v: int }

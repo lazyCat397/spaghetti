@@ -1,6 +1,6 @@
 // #> safe-party turns cmd.run off, but cmd.exists still works: it starts nothing
 #> safe-party
-install #cmd
+load #cmd
 try {
     cmd.run("echo", ["ola"])
 } catch (e: string) {

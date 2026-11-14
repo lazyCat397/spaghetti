@@ -1,0 +1,27 @@
+// namespace: a group of functions and statics under one name.
+// no instances, no `me`: you call the members directly, e.g. som.add(1, 2)
+
+public namespace som {
+   let calls;   // statics start as int 0, like any `let` without a value
+
+   fn add(a: int, b: int) -> int {
+      calls += 1;
+      return a + b;
+   }
+
+   fn double(a: int) -> int {
+      calls += 1;
+      return add(a, a);
+   }
+
+   fn count() -> int {
+      return calls;
+   }
+}
+
+print(som.add(1, 2));     // 3
+print(som.double(5));     // 10
+print("calls: ${som.count()}");   // calls: 3
+
+// reading a static is fine; writing it from outside is not
+// som.calls = 0;         // error: namespace 'som' is read-only from outside

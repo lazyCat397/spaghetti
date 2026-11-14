@@ -1,5 +1,5 @@
 // spacing: letterSpacing, wordSpacing and lineSpacing change the room around the glyphs
-install #ui
+load #ui
 
 let win = ui.window("spacing", 380, 260)
 win.background = ui.hex("#1b1f27")

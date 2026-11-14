@@ -1,0 +1,5 @@
+namespace som {
+   let calls;
+}
+
+som.calls = 5;

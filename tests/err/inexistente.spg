@@ -1,1 +1,1 @@
-import (fantasma) from "../lib/a.spg"
+use (fantasma) from "../lib/a.spg"

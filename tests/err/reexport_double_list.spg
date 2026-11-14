@@ -1,1 +1,1 @@
-export (inc, inc) from "../lib/reexport_origin.spg"
+public (inc, inc) from "../lib/reexport_origin.spg"

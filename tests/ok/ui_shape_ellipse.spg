@@ -1,4 +1,4 @@
-install #ui
+load #ui
 let win = ui.window("ellipse", 40, 40)
 let oval = win.ellipse(0.0, 0.0, 30.0, 10.0, ui.rgb(0, 0, 0))
 print(oval.width)

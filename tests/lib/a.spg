@@ -1,2 +1,2 @@
 fn privada() -> int { return 1 }
-export fn publica() -> int { return 2 }
+public fn publica() -> int { return 2 }

@@ -1,0 +1,5 @@
+namespace som {
+   fn value() -> int {
+      return me;
+   }
+}

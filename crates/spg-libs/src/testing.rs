@@ -1,4 +1,4 @@
-//! `test`: checks inside a program (`install #test`). `test.expect(actual, expected)` counts a
+//! `test`: checks inside a program (`load #test`). `test.expect(actual, expected)` counts a
 //! pass, or records a failure with the line that made the check. nothing stops at a failure:
 //! the whole file runs, and the CLI lists every failure with its place when it ends. floats are
 //! compared exactly. both values must have the same type (int with int, string with string...).
@@ -10,9 +10,9 @@ use crate::{CallCtx, Kind, LibError, LibValue, NativeFn, NativeModule};
 const EXPECT_DOC: &str = "check that the actual value equals the expected one. a mismatch is reported at the end of the run";
 
 pub static MODULE: NativeModule = NativeModule {
-    kind: Kind::Install,
+    kind: Kind::Load,
     name: "test",
-    doc: "checks: test.expect(actual, expected) (install #test)",
+    doc: "checks: test.expect(actual, expected) (load #test)",
     structs: &[],
     objects: &[],
     functions: &[

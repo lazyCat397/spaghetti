@@ -1,7 +1,7 @@
-// `install #ui` with polygons.
+// `load #ui` with polygons.
 // the points are a flat list of x, y pairs in pixels (at least three).
 // the shape's box is the smallest one that holds the points, and it is the pivot's frame.
-install #ui
+load #ui
 
 let win = ui.window("polygons", 360, 200)
 win.background = ui.hex("#1b1f27")

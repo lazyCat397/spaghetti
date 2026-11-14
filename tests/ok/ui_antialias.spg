@@ -1,5 +1,5 @@
 // the antialias flag: the field reads back after it is set
-install #ui
+load #ui
 
 let win = ui.window("aa", 20, 20)
 print(win.antialias)

@@ -1,2 +1,2 @@
-import (fb) from "./ciclo3_b.spg"
-export fn fa() -> int { return 1 }
+use (fb) from "./ciclo3_b.spg"
+public fn fa() -> int { return 1 }

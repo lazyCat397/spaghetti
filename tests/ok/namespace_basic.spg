@@ -1,0 +1,29 @@
+// namespace: static functions and static let, no instances, no `me`
+public namespace som {
+   let calls;
+
+   fn add(a: int, b: int) -> int {
+      calls += 1;
+      return a + b;
+   }
+
+   fn count() -> int {
+      return calls;
+   }
+}
+
+print(som.add(1, 2));
+print(som.add(3, 4));
+print(som.count());
+print(som.calls);
+
+// a sibling function is called by its bare name inside the namespace
+public namespace pair {
+   fn twice(a: int) -> int {
+      return a + a;
+   }
+   fn quad(a: int) -> int {
+      return twice(twice(a));
+   }
+}
+print(pair.quad(3));

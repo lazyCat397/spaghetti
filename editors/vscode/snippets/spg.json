@@ -9,20 +9,20 @@
     "description": "Declare a function"
   },
   "Exported function": {
-    "prefix": "exportfn",
+    "prefix": "publicfn",
     "body": [
-      "export fn ${1:name}(${2:a}: ${3:int}) -> ${4:int} {",
+      "public fn ${1:name}(${2:a}: ${3:int}) -> ${4:int} {",
       "\t$0",
       "}"
     ],
-    "description": "Function exportable to other files"
+    "description": "Function public to other files"
   },
   "Install": {
-    "prefix": "install",
+    "prefix": "load",
     "body": [
-      "install \"${1:./file.spg}\""
+      "load \"${1:./file.spg}\""
     ],
-    "description": "Bring in every exported name of a file (import (x) wins on a clash)"
+    "description": "Load every public name of a file (use (x) wins on a clash)"
   },
   "Enum": {
     "prefix": "enum",
@@ -152,15 +152,15 @@
     ],
     "description": "try/catch block"
   },
-  "import": {
-    "prefix": "import",
-    "body": "import (${1:name}) from \"${2:./file}.spg\"",
-    "description": "Named import (the .spg extension is mandatory)"
+  "use": {
+    "prefix": "use",
+    "body": "use (${1:name}) from \"${2:./file}.spg\"",
+    "description": "Named use (the .spg extension is mandatory)"
   },
   "re-export": {
-    "prefix": "reexport",
-    "body": "export (${1:name}) from \"${2:./file}.spg\"",
-    "description": "Re-export from another file"
+    "prefix": "publicfrom",
+    "body": "public (${1:name}) from \"${2:./file}.spg\"",
+    "description": "Re-public from another file"
   },
   "print": {
     "prefix": "print",

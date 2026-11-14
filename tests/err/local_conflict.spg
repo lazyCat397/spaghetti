@@ -1,2 +1,2 @@
-import (helper) from "../lib/m1.spg"
+use (helper) from "../lib/m1.spg"
 fn helper() -> int { return 5 }

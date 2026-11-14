@@ -1,4 +1,4 @@
-// `install #terminal`: questions and a bit of console output
+// `load #terminal`: questions and a bit of console output
 // because apparently readLine isn't quite enough for everything
 // (file helpers live in @file now: @file.readLines, @file.writeLines, ...)
 
@@ -116,4 +116,4 @@ struct Terminal {
 
 }
 
-export const terminal: Terminal = Terminal { _v: 0 }
+public const terminal: Terminal = Terminal { _v: 0 }

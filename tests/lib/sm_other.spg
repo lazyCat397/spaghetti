@@ -1,11 +1,11 @@
 // a DIFFERENT struct that is also called Vec, with a method of the same name as sm_vec's
-export struct Vec {
+public struct Vec {
     tag: string
 
     fn len2() -> string {
         return "other:" + me.tag
     }
 }
-export fn makeOther() -> Vec {
+public fn makeOther() -> Vec {
     return Vec { tag: "t" }
 }

@@ -1,1 +1,1 @@
-install "../lib/in_a"
+load "../lib/in_a"

@@ -1,7 +1,7 @@
-// `install #ui` with shapes: a rectangle can have an outline.
+// `load #ui` with shapes: a rectangle can have an outline.
 // stroke is its thickness in pixels, drawn inside the edges;
 // strokeColor is the outline color.
-install #ui
+load #ui
 
 let win = ui.window("shape outline", 320, 160)
 win.background = ui.hex("#1b1f27")

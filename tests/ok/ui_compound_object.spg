@@ -1,4 +1,4 @@
-install #ui
+load #ui
 let win = ui.window("t", 20, 20)
 let calls = [0]
 fn mk(w: Window) -> Shape {

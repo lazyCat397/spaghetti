@@ -1,5 +1,5 @@
 #> friendly-terminal
-import (risky) from "./trace_modulo_lib.spg"
+use (risky) from "./trace_modulo_lib.spg"
 
 fn outer() -> int {
     return risky(9)

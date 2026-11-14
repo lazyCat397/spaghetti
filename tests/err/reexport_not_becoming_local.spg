@@ -1,2 +1,2 @@
-import (usaInc) from "../lib/reexport_facade_local.spg"
+use (usaInc) from "../lib/reexport_facade_local.spg"
 usaInc()

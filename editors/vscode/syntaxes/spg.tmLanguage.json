@@ -188,6 +188,17 @@
           }
         },
         {
+          "match": "((?<![\\p{L}\\p{N}_])namespace(?![\\p{L}\\p{N}_]))\\s+([\\p{L}_][\\p{L}\\p{N}_]*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.namespace.spg"
+            },
+            "2": {
+              "name": "entity.name.type.namespace.spg"
+            }
+          }
+        },
+        {
           "match": "((?<![\\p{L}\\p{N}_])enum(?![\\p{L}\\p{N}_]))\\s+([\\p{L}_][\\p{L}\\p{N}_]*)",
           "captures": {
             "1": {
@@ -238,8 +249,8 @@
           "name": "keyword.control.guard.spg"
         },
         {
-          "match": "(?<![\\p{L}\\p{N}_])(?:import|export|from|install)(?![\\p{L}\\p{N}_])",
-          "name": "keyword.control.import.spg"
+          "match": "(?<![\\p{L}\\p{N}_])(?:use|public|from|load)(?![\\p{L}\\p{N}_])",
+          "name": "keyword.control.use.spg"
         },
         {
           "match": "((?<![\\p{L}\\p{N}_])compile(?![\\p{L}\\p{N}_]))(\\s+)((?<![\\p{L}\\p{N}_])(?:VM|JIT)(?![\\p{L}\\p{N}_]))",
@@ -305,7 +316,7 @@
     "namespaces": {
       "patterns": [
         {
-          "match": "\\b(install)\\s*(#[A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(load)\\s*(#[A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": {
               "name": "keyword.control.spg"
@@ -362,7 +373,7 @@
           }
         },
         {
-          "comment": "the native objects of install #ui: Window, Shape, Label and Image",
+          "comment": "the native objects of load #ui: Window, Shape, Label and Image",
           "match": "(?<![.A-Za-z0-9_])(Window|Shape|Label|Image)\\b(?!\\s*\\()",
           "name": "entity.name.type.spg"
         }

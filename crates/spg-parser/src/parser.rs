@@ -149,7 +149,7 @@ impl Parser {
             if self.check(&TokenKind::Eof) {
                 break;
             }
-            if self.check(&TokenKind::Export) && self.method_add_at(1) {
+            if self.check(&TokenKind::Public) && self.method_add_at(1) {
                 self.advance(); // export
                 stmts.push(self.parse_method_add(true)?);
                 continue;
@@ -278,10 +278,11 @@ impl Parser {
             // expression statement (`fn() { ... }()`), not a declaration
             TokenKind::Function if !self.next_is(&TokenKind::LParen) => self.parse_function_decl(false),
             TokenKind::Struct => self.parse_struct_decl(false),
+            TokenKind::NamespaceKw => self.parse_namespace(false),
             TokenKind::Enum => self.parse_enum_decl(false),
-            TokenKind::Export => self.parse_export(),
-            TokenKind::Import => self.parse_import(),
-            TokenKind::Install => self.parse_install(),
+            TokenKind::Public => self.parse_public(),
+            TokenKind::Use => self.parse_use(),
+            TokenKind::Load => self.parse_load(),
             // `x = ...`, `arr[i] = ...`, and their compound forms
             // (`x += ...`, `arr[i] -= ...`) all start as an ordinary
             // expression (Ident, or Ident followed by one or more
@@ -674,12 +675,13 @@ impl Parser {
         Ok(Stmt::Try { try_block, catch_var, catch_type, catch_block, pos })
     }
 
-    fn parse_export(&mut self) -> Result<Stmt, ParseError> {
+    fn parse_public(&mut self) -> Result<Stmt, ParseError> {
         let export_pos = self.peek_pos();
         self.advance(); // export
         match &self.peek().kind {
             TokenKind::Function => self.parse_function_decl(true),
             TokenKind::Struct => self.parse_struct_decl(true),
+            TokenKind::NamespaceKw => self.parse_namespace(true),
             TokenKind::Enum => self.parse_enum_decl(true),
             TokenKind::Let => self.parse_let(false, true),
             TokenKind::Const => self.parse_let(true, true),
@@ -687,7 +689,7 @@ impl Parser {
             _ => {
                 let t = self.peek();
                 Err(ParseError::Unexpected {
-                    expected: "'function', 'struct', 'enum', 'let', 'const' or '(' after 'export'".to_string(),
+                    expected: "'function', 'struct', 'enum', 'let', 'const' or '(' after 'public'".to_string(),
                     found: t.kind.clone(),
                     line: t.line,
                     col: t.col,
@@ -696,41 +698,41 @@ impl Parser {
         }
     }
 
-    fn parse_import(&mut self) -> Result<Stmt, ParseError> {
+    fn parse_use(&mut self) -> Result<Stmt, ParseError> {
         let pos = self.peek_pos();
         self.advance(); // import
         let (names, from) = self.parse_name_list_from(&pos, TokenKind::LParen, TokenKind::RParen)?;
-        Ok(Stmt::Import { names, from, pos })
+        Ok(Stmt::Use { names, from, pos })
     }
 
-    /// `install "./file.spg"` (every export of the file, no name list) or `install #http`
+    /// `load "./file.spg"` (every export of the file, no name list) or `load #http`
     /// (a standard library: native, or from the stdlib folder)
-    fn parse_install(&mut self) -> Result<Stmt, ParseError> {
+    fn parse_load(&mut self) -> Result<Stmt, ParseError> {
         let pos = self.peek_pos();
         self.advance(); // install
         let from = match self.advance().kind {
-            TokenKind::StdLib(name) => return Ok(Stmt::Install { from: name, pos, std: true }),
+            TokenKind::StdLib(name) => return Ok(Stmt::Load { from: name, pos, std: true }),
             TokenKind::Str(s) => s,
             other => {
                 return Err(ParseError::Unexpected {
-                    expected: "a string with the module path, or `#name` for a standard library (`install #http`)".to_string(),
+                    expected: "a string with the module path, or `#name` for a standard library (`load #http`)".to_string(),
                     found: other,
                     line: pos.line,
                     col: pos.col,
                 })
             }
         };
-        Ok(Stmt::Install { from, pos, std: false })
+        Ok(Stmt::Load { from, pos, std: false })
     }
 
-    /// `export (a, b) from "./y.spg"`. the `export` keyword is already
+    /// `public (a, b) from "./y.spg"`. the `public` keyword is already
     /// consumed, the cursor sits on `{`.
     fn parse_re_export(&mut self, pos: Pos) -> Result<Stmt, ParseError> {
         let (names, from) = self.parse_name_list_from(&pos, TokenKind::LParen, TokenKind::RParen)?;
         Ok(Stmt::ReExport { names, from, pos })
     }
 
-    /// the `{ a, b } from "path"` tail that `import` and `export ... from`
+    /// the `{ a, b } from "path"` tail that `use` and `export ... from`
     /// have in common. twins.
     fn parse_name_list_from(&mut self, pos: &Pos, open: TokenKind, close: TokenKind) -> Result<(Vec<String>, String), ParseError> {
         let open_text = if open == TokenKind::LParen { "'('" } else { "'{'" };
@@ -769,7 +771,7 @@ impl Parser {
         self.method_add_at(0)
     }
 
-    /// the same check, `off` tokens ahead of the current one (`export` sits in front)
+    /// the same check, `off` tokens ahead of the current one (`public` sits in front)
     fn method_add_at(&self, off: usize) -> bool {
         let at = |k: usize| self.tokens.get(self.pos + off + k).map(|t| &t.kind);
         matches!(at(0), Some(TokenKind::TypeInt | TokenKind::TypeFloat | TokenKind::TypeBool | TokenKind::TypeString))
@@ -905,6 +907,64 @@ impl Parser {
         Ok(Stmt::FunctionDecl { name, params, return_type, body, exported, pos })
     }
 
+    /// `namespace som { let calls; fn add(...) { } }`: a struct with no instances.
+    /// the members become `som.calls` and `som.add`, so the rest of the pipeline
+    /// reads them the same way it already reads `fn Struct.name` and `Struct.field`.
+    /// statics go in first, so the functions that read them come after.
+    fn parse_namespace(&mut self, exported: bool) -> Result<Stmt, ParseError> {
+        let pos = self.peek_pos();
+        self.advance(); // namespace
+
+        let name = self.parse_binding_name()?;
+        self.expect(TokenKind::LBrace, "'{'")?;
+
+        let mut statics: Vec<Stmt> = Vec::new();
+        let mut functions: Vec<Stmt> = Vec::new();
+        while !self.check(&TokenKind::RBrace) && !self.check(&TokenKind::Eof) {
+            // `public` is per member: `public namespace` exports the type, and only the members marked
+            // `public` leave the file. the others are still visible to the rest of this file
+            let member_exported = self.match_kind(&TokenKind::Public);
+            match self.peek().kind.clone() {
+                TokenKind::Function => {
+                    let f = self.parse_function_decl(member_exported)?;
+                    functions.push(qualify_member(&name, f));
+                }
+                TokenKind::Let | TokenKind::Const => {
+                    let let_pos = self.peek_pos();
+                    let is_const = self.check(&TokenKind::Const);
+                    let before = self.pending.len();
+                    let s = self.parse_let(is_const, member_exported)?;
+                    let plain = matches!(s, Stmt::Let { .. } | Stmt::Const { .. });
+                    if self.pending.len() != before || !plain {
+                        return Err(ParseError::Unexpected {
+                            expected: "a single name inside a namespace (no destructuring)".to_string(),
+                            found: TokenKind::Let,
+                            line: let_pos.line,
+                            col: let_pos.col,
+                        });
+                    }
+                    self.match_kind(&TokenKind::Semicolon); // `let calls;` ends with a `;` like any statement
+                    statics.push(qualify_member(&name, s));
+                }
+                _ => {
+                    let t = self.peek();
+                    return Err(ParseError::Unexpected {
+                        expected: "'fn', 'let' or 'const' inside a namespace (optionally after 'public')".to_string(),
+                        found: t.kind.clone(),
+                        line: t.line,
+                        col: t.col,
+                    });
+                }
+            }
+        }
+        self.expect(TokenKind::RBrace, "'}'")?;
+
+        self.pending.extend(statics);
+        self.pending.extend(functions);
+        // no fields and no `me`: nothing is ever built from it
+        Ok(Stmt::StructDecl { name, fields: Vec::new(), exported, namespace: true, guarded: false, pos })
+    }
+
     fn parse_struct_decl(&mut self, exported: bool) -> Result<Stmt, ParseError> {
         let pos = self.peek_pos();
         self.advance(); // struct
@@ -958,7 +1018,7 @@ impl Parser {
         }
         self.pending.extend(methods);
 
-        Ok(Stmt::StructDecl { name, fields, exported, guarded, pos })
+        Ok(Stmt::StructDecl { name, fields, exported, namespace: false, guarded, pos })
     }
 
     /// `guard (me.field as alias) { ... }` or `guard { ... }`, inside a struct body.
@@ -1956,11 +2016,12 @@ fn symbol_text(k: &TokenKind) -> &'static str {
         TokenKind::Continue => "continue",
         TokenKind::When => "when",
         TokenKind::Elif => "elif",
-        TokenKind::Import => "import",
-        TokenKind::Install => "install",
-        TokenKind::Export => "export",
+        TokenKind::Use => "use",
+        TokenKind::Load => "load",
+        TokenKind::Public => "public",
         TokenKind::From => "from",
         TokenKind::Struct => "struct",
+        TokenKind::NamespaceKw => "namespace",
         TokenKind::Enum => "enum",
         TokenKind::TypeInt => "int",
         TokenKind::TypeFloat => "float",
@@ -1970,4 +2031,16 @@ fn symbol_text(k: &TokenKind) -> &'static str {
         TokenKind::TypeArray => "array",
         _ => "this part of the code",
     }
+}
+
+/// `som` + `add` -> `som.add`, for a member declared inside `namespace som { }`
+fn qualify_member(ns: &str, mut stmt: Stmt) -> Stmt {
+    match &mut stmt {
+        Stmt::Let { name, .. } | Stmt::Const { name, .. } | Stmt::FunctionDecl { name, .. } => {
+            let full = format!("{}.{}", ns, name);
+            *name = full;
+        }
+        _ => {}
+    }
+    stmt
 }

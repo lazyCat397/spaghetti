@@ -1,6 +1,6 @@
-// `install #ui` with a struct: each sprite keeps its own shape and speed, and steps itself.
+// `load #ui` with a struct: each sprite keeps its own shape and speed, and steps itself.
 // needs a display, so run.sh does not run the files in examples/ui/.
-install #ui
+load #ui
 
 struct Sprite {
     shape: Shape,

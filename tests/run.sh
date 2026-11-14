@@ -145,6 +145,19 @@ ok guard_incdec.spg     'after ++ twice: 100\nrefused: reading above 100\nkept: 
 err guard_reentry_static.spg 'again: guard of Box -> reset (line 6)'
 err guard_reentry_chain.spg 'guard of Node -> step_one (line 6) -> step_two (line 12) -> write to Node (line 16)'
 err guard_reentry_alias.spg 'guard of Box -> reset (line 7) -> write to Box (line 13)'
+ok namespace_basic.spg '3\n7\n2\n2\n12'
+err namespace_write_outside.spg 'read-only' "'som.calls'"
+err namespace_duplicate.spg "'som.add' is declared more than once"
+err namespace_me.spg "undefined variable 'me'"
+ok namespace_import.spg '40'
+err namespace_import_private.spg "'tool.hidden' is private to its file"
+err namespace_import_static.spg "'tool.secret' is private to its file"
+ok namespace_reexport.spg '203\n3'
+err namespace_reexport_private.spg "'base.inner' is private to its file"
+err namespace_write_imported.spg "'base.version' cannot be assigned"
+err namespace_write_compound.spg "'base.version' cannot be assigned"
+err namespace_value_private.spg "'base.inner' is private to its file"
+ok namespace_func_value.spg '103\n8\n1001'
 err value_method_clash.spg 'clashes with the built-in method'
 err value_method_nested.spg 'only at the top level'
 err value_method_old_syntax.spg 'declared as int::methods.add'
@@ -286,22 +299,22 @@ err method_return_mismatch.spg 'function returns int but this return gives strin
 # print / printError take any number of arguments (values joined by one space; no arguments = an empty line)
 ok print_variadic.spg    '\na\n1 2\nx 1 2.5 true raw "q"\n[1, 2] arr\n3 3\n1 2 3 4 5 6 7 8 9 10\n1 2 3\n3\n \n  \nonly \n\ne 1 false\nafter\n\nlast'
 
-err cycle_a.spg          'circular import'
+err cycle_a.spg          'circular use'
 err ciclo3_a.spg         'ciclo3_b.spg -> '
-err auto_import.spg      'circular import'
+err auto_import.spg      'circular use'
 err not_exported.spg    'is not exported'
 err inexistente.spg      "has no declaration named 'fantasma'"
 err no_extension.spg     "must end in '.spg'"
 err missing_file.spg 'could not read'
-err import_collision.spg  "'helper' is imported more than once" 'import_collision.spg:2' "'helper' is first imported here" 'import_collision.spg:1'
+err import_collision.spg  "'helper' is imported more than once" 'import_collision.spg:2' "'helper' is first used here" 'import_collision.spg:1'
 err local_conflict.spg    "'helper' conflicts with a local declaration" 'local_conflict.spg:1' "'helper' is also declared here" 'local_conflict.spg:2'
 err local_duplicate.spg "'a' is declared more than once" 'local_duplicate.spg:3' "'a' is first declared here" 'local_duplicate.spg:1'
-err import_clash_list.spg "'two' is imported more than once" "'two' is listed twice in this import"
-err reexport_import_not_reexported.spg "only imported by module" 'export (inc) from "./reexport_origin.spg"'
+err import_clash_list.spg "'two' is imported more than once" "'two' is listed twice in this use"
+err reexport_import_not_reexported.spg "only used by module" 'public (inc) from "./reexport_origin.spg"'
 err reexport_inexistente.spg    "has no declaration named 'fantasma'"
 err reexport_private.spg        "'privada' exists in module" "is not exported"
 err reexport_no_extension.spg   "must end in '.spg'"
-err reexport_cycle.spg          'circular import' 'reexport_cycle_a.spg -> ' 'reexport_cycle_b.spg'
+err reexport_cycle.spg          'circular use' 'reexport_cycle_a.spg -> ' 'reexport_cycle_b.spg'
 err reexport_vs_local.spg       "'inc' is re-exported here, but this file also exports its own" 'reexport_vs_local.spg:1' "'inc' is declared and exported here" 'reexport_vs_local.spg:3'
 err reexport_duplo.spg          "'inc' is re-exported more than once" 'reexport_duplo.spg:2' "'inc' is first re-exported here" 'reexport_duplo.spg:1'
 err reexport_double_list.spg    "'inc' is re-exported more than once" "'inc' is listed twice in this re-export"
@@ -402,13 +415,13 @@ diag enum_mangled_variant.spg 1 "enum 'Color' has no variant 'Purple'"
 diag enum_mangled_bare.spg    1 "'Color' is an enum, not a value"
 diag enum_mangled_cmp.spg     1 "operator Eq not supported for Color and Color"
 
-# install "file.spg": every export, lowest priority; a clash between two installs only fails when the name is USED
+# load "file.spg": every public name, lowest priority; a clash between two loads only fails when the name is USED
 ok install_basic.spg          '15 1 Slow\nFast\nSlow'
 ok install_value_method.spg  '1 2 3'
 ok install_value_method_private.spg  'A\nB'
 ok install_priority.spg       '2 77 20'
 ok install_unused_clash.spg   '30'
-err install_clash_used.spg    "'helper' is installed from both" "line 1" "line 2" "import it by name"
+err install_clash_used.spg    "'helper' is loaded from both" "line 1" "line 2" "use it by name"
 err install_private.spg       "undefined function 'hidden'"
 err install_no_ext.spg        "must end in '.spg'"
 
@@ -548,7 +561,7 @@ err ui_no_method.spg "has no method 'fly'"
 err ui_use_after_kill.spg "this shape was killed"
 err ui_handler_params.spg "expects fn() -> void"
 err ui_resize_params.spg "expects fn(int, int) -> void"
-err ui_native_name.spg "is also the name of a type of install #ui"
+err ui_native_name.spg "is also the name of a type of library #ui"
 err ui_mouse_readonly.spg "cannot assign to 'Window.mouseX'"
 err ui_mouse_string.spg "expects Mouse"
 err ui_hovered_readonly.spg "cannot assign to 'Shape.hovered'"
@@ -644,7 +657,7 @@ if [ "$got" = "$want" ]; then pass=$((pass+1)); tick; else
     fail=$((fail+1)); tick; say "FAIL fmt/double_colon"; echo "  got: $got"; fi
 rm -rf "$fdir"
 
-# ps.* (install #ps): the no-PowerShell path (runs with an empty PATH, so it works the same on every machine)
+# ps.* (load #ps): the no-PowerShell path (runs with an empty PATH, so it works the same on every machine)
 raw=$(timeout 30 env PATH=/nonexistent "$SPG" ok/ps_missing.spg </dev/null 2>&1); code=$?
 want=$(printf 'false\nps.run: PowerShell not found (tried pwsh and powershell)')
 if [ "$code" = 0 ] && [ "$raw" = "$want" ]; then pass=$((pass+1)); tick; else
@@ -684,7 +697,7 @@ ok crypto_basic.spg "$(printf '%s\n' ba7816bf8f01cfea414140de5dae2223b00361a3961
 ok json_typed.spg "spg 3 1.5\ntrue 3.0\n7 fallback 5\n@json.getInt: the value at 'name' is a string, not an integer"
 ok map_set.spg "[ana: 31, bia: 25] 2\ncannot modify a const value (it is read-only); use .copy() to change a copy"
 err map_set_type.spg "@map.set' argument #3 expects int, got string"
-err ps_sem_install.spg "'ps' is an installable library, not a variable: it needs \`install #ps\`"
+err ps_sem_install.spg "'ps' is an installable library, not a variable: it needs \`load #ps\`"
 err ps_arroba.spg "'@ps' is not built in"
 
 # async: `-> task<T>` runs eagerly, `.wait()` reads the result or re-throws the error

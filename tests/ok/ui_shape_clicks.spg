@@ -1,4 +1,4 @@
-install #ui
+load #ui
 let win = ui.window("s", 10, 10)
 let box = win.rect(0.0, 0.0, 5.0, 5.0, 1)
 print(box.clickThrough)

@@ -1,4 +1,4 @@
-import (Vec2, Box, create, sum, points, origin) from "../lib/geometry.spg"
+use (Vec2, Box, create, sum, points, origin) from "../lib/geometry.spg"
 
 let a: Vec2 = create(1, 1)
 let b: Vec2 = Vec2 { x: 10, y: 20 }

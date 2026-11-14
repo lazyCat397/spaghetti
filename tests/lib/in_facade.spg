@@ -1,2 +1,2 @@
-export (onlyA) from "./in_a.spg"
-export fn own() -> int { return 5 }
+public (onlyA) from "./in_a.spg"
+public fn own() -> int { return 5 }

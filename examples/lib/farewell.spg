@@ -1,8 +1,8 @@
-// a helper file with two exports; a file can take only one of them
-export fn farewell(name: string) -> string {
+// a helper file with two public names; a file can take only one of them
+public fn farewell(name: string) -> string {
     return "Goodbye, " + name + "."
 }
 
-export fn wave() -> string {
+public fn wave() -> string {
     return "(waving)"
 }

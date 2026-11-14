@@ -1,5 +1,5 @@
 //! `crypto`: hashes, keyed hashes, encodings, random values and password encryption
-//! (`install #crypto`). a text is hashed and encoded as its UTF-8 bytes. hashes come back as
+//! (`load #crypto`). a text is hashed and encoded as its UTF-8 bytes. hashes come back as
 //! lowercase hex. decoding gives text, so bytes that are not valid UTF-8 are an error, not a
 //! garbled string.
 //!
@@ -21,9 +21,9 @@ use sha2::{Digest, Sha256, Sha512};
 use crate::{CallCtx, Kind, LibError, LibValue, NativeFn, NativeModule};
 
 pub static MODULE: NativeModule = NativeModule {
-    kind: Kind::Install,
+    kind: Kind::Load,
     name: "crypto",
-    doc: "hashes, HMAC, encodings, random values and password encryption (install #crypto)",
+    doc: "hashes, HMAC, encodings, random values and password encryption (load #crypto)",
     structs: &[],
     objects: &[],
     functions: &[

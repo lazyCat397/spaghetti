@@ -1,0 +1,3 @@
+use (base) from "../lib/ns_relay.spg"
+
+print(base.inner(2));

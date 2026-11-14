@@ -1,1 +1,1 @@
-export (Color, next) from "./en_color.spg"
+public (Color, next) from "./en_color.spg"

@@ -1,1 +1,1 @@
-export fn leaf() -> string { return "leaf" }
+public fn leaf() -> string { return "leaf" }

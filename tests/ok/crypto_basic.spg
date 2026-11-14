@@ -1,5 +1,5 @@
 // hashes, HMAC, encodings and password encryption, checked against known answers
-install #crypto
+load #crypto
 print(crypto.sha256("abc"))
 print(crypto.hmacSha256("key", "The quick brown fox jumps over the lazy dog"))
 print(crypto.base64UrlEncode("??>"))

@@ -19,7 +19,7 @@ Highlights:
 - unions (`string or int`), checked at compile time
 - `when` for matching, `try` / `catch` for errors, `async` tasks with `.wait()`
 - pipes (`|>`), lambdas, default parameters, string interpolation (`"${expr}"`)
-- libraries installed with `install #name` (`http`, `json`, `ui`, `sqlite`, `regex`, ...)
+- libraries installed with `load #name` (`http`, `json`, `ui`, `sqlite`, `regex`, ...)
 
 Examples live in `examples/`, numbered in the order they build on each other.
 Start with `examples/01_hello.spg`.
@@ -32,7 +32,7 @@ Start with `examples/01_hello.spg`.
 - `examples/` short learning samples, numbered (`01_hello.spg` ...)
 - `examples/ui/` window demos for the `ui` library (they need a display, so the test suite does not run them)
 - `examples/assets/` fonts and images used by those demos
-- `examples/lib/` small modules imported by `12_modules.spg`
+- `examples/lib/` small modules used by `12_modules.spg`
 - `stdlib/` standard library modules written in Spaghetti
 - `tests/` the regression suite (`tests/run.sh`), with programs grouped by feature
 - `tools/` tests for the extension and the grammar

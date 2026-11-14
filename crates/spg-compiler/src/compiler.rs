@@ -277,7 +277,7 @@ fn compile_body(
             // struct table built above (pass 1b) is what MakeStruct/
             // FieldGet/FieldSet actually use. imports get resolved
             // before compilation gets here
-            TypedStmt::StructDecl { .. } | TypedStmt::EnumDecl { .. } | TypedStmt::Import { .. } => {}
+            TypedStmt::StructDecl { .. } | TypedStmt::EnumDecl { .. } | TypedStmt::Use { .. } => {}
             other => {
                 main_fc.compile_stmt(other)?;
             }
@@ -1122,7 +1122,7 @@ impl<'a> FunctionCompiler<'a> {
             TypedStmt::FunctionDecl { .. } => {}
             TypedStmt::StructDecl { .. } => {}
             TypedStmt::EnumDecl { .. } => {}
-            TypedStmt::Import { .. } => {}
+            TypedStmt::Use { .. } => {}
 
             TypedStmt::ExprStmt(expr) => {
                 self.compile_expr(expr)?;

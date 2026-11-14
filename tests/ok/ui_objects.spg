@@ -1,4 +1,4 @@
-install #ui
+load #ui
 let win = ui.window("obj", 20, 20)
 win.background = ui.hex("#101010")
 let red = win.rect(2.0, 3.0, 4.0, 5.0, ui.hex("#ff3300"))

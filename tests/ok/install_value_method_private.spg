@@ -1,5 +1,5 @@
 // a private value method is used inside its own module; two modules may each have one
-install "../lib/value_method_privA.spg"
-install "../lib/value_method_privB.spg"
+load "../lib/value_method_privA.spg"
+load "../lib/value_method_privB.spg"
 print(useA())
 print(useB())

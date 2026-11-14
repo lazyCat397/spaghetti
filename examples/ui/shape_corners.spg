@@ -1,7 +1,7 @@
-// `install #ui` with each corner on its own.
+// `load #ui` with each corner on its own.
 // topLeftRadius, topRightRadius, bottomRightRadius and bottomLeftRadius set one corner each,
 // in pixels. when the two corners of a side do not fit in it, they are scaled down together.
-install #ui
+load #ui
 
 let win = ui.window("corners", 360, 200)
 win.background = ui.hex("#1b1f27")

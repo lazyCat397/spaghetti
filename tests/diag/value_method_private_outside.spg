@@ -1,2 +1,2 @@
-install "../lib/value_method_privA.spg"
+load "../lib/value_method_privA.spg"
 print("x".tag())

@@ -1,4 +1,4 @@
-//! `toml`: read values from TOML text, the usual config format (`install #toml`). a value is
+//! `toml`: read values from TOML text, the usual config format (`load #toml`). a value is
 //! found by its dotted path (`"server.port"`). a key that is not there gives back the fallback
 //! the program passed. text that is not TOML, or a value of another type, is an error the
 //! program can catch. read only: programs read their config, they do not write it.
@@ -6,9 +6,9 @@
 use crate::{CallCtx, Kind, LibError, LibValue, NativeFn, NativeModule};
 
 pub static MODULE: NativeModule = NativeModule {
-    kind: Kind::Install,
+    kind: Kind::Load,
     name: "toml",
-    doc: "read values from TOML text by their dotted path (install #toml)",
+    doc: "read values from TOML text by their dotted path (load #toml)",
     structs: &[],
     objects: &[],
     functions: &[

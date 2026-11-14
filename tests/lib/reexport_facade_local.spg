@@ -1,2 +1,2 @@
-export (inc) from "./reexport_origin.spg"
-export fn usaInc() -> void { inc() }
+public (inc) from "./reexport_origin.spg"
+public fn usaInc() -> void { inc() }

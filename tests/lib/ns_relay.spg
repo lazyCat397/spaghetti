@@ -1,0 +1,3 @@
+// re-exports the namespace of ns_base.spg: its exported members must travel with it
+use (base) from "ns_base.spg"
+public (base) from "ns_base.spg"

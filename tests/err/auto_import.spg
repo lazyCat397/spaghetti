@@ -1,2 +1,2 @@
-import (x) from "./auto_import.spg"
-export fn x() -> int { return 1 }
+use (x) from "./auto_import.spg"
+public fn x() -> int { return 1 }

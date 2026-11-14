@@ -4,7 +4,7 @@ version = "1.0.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
-# the core of `install #ui`: window, loop, keyboard and rectangles. it knows nothing of
+# the core of `load #ui`: window, loop, keyboard and rectangles. it knows nothing of
 # spg: spg-libs wraps it. the real backend (minifb) is behind a feature; tests use the null one.
 [features]
 default = []
@@ -15,5 +15,5 @@ minifb = { version = "0.28", optional = true }
 # the 8x8 bitmap font of the text: basic Latin and Latin-1 (accents). no features beyond the glyphs
 font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }
 fontdue = "0.8"
-# decodes PNG images (install #ui, win.image). only PNG for now: pure Rust, no other formats
+# decodes PNG images (load #ui, win.image). only PNG for now: pure Rust, no other formats
 png = "0.17"

@@ -1,2 +1,2 @@
-import (middle) from "../lib/middle.spg"
+use (middle) from "../lib/middle.spg"
 print(middle())

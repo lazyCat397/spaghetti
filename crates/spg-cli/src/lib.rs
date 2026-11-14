@@ -285,7 +285,7 @@ fn execute_program(bytecode: &Program, spec: &spg_lexer::FileSpec, program_args:
         eprintln!("warning: a task failed and nobody called .wait() on it: {}", e);
         print_trace(trace);
     }
-    // the checks of `install #test`: listed with their place, and any failure makes the run fail
+    // the checks of `load #test`: listed with their place, and any failure makes the run fail
     let tests = spg_vm::take_test_report();
     print_test_report(&tests);
     let tests_failed = !tests.failures.is_empty();
@@ -334,12 +334,12 @@ fn print_test_report(report: &spg_vm::TestReport) {
 
 /// `spg build file.spg [-o NAME]`: validates the program like `check`, then
 /// writes a standalone executable that runs it
-/// a program that opens a window (`install #ui` in any of its sources) needs the window build
+/// a program that opens a window (`load #ui` in any of its sources) needs the window build
 fn window_program(sources: &[(std::path::PathBuf, String)]) -> bool {
     sources.iter().any(|(_, src)| {
         src.lines().any(|line| {
             let line = line.trim();
-            line.starts_with("install") && line.split_whitespace().any(|word| word == "#ui")
+            line.starts_with("load") && line.split_whitespace().any(|word| word == "#ui")
         })
     })
 }

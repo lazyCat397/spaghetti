@@ -10,10 +10,10 @@ edition.workspace = true
 # http: blocking client with rustls (TLS). pinned: 3.2.1 is the last release that builds on Rust 1.75
 ureq = { version = "=3.2.1", default-features = false, features = ["rustls", "platform-verifier", "gzip"] }
 
-# regex: the pattern engine behind `install #regex`. linear time, so no pattern hangs a match
+# regex: the pattern engine behind `load #regex`. linear time, so no pattern hangs a match
 regex = "1.11"
 # crypto: hashes, keyed hashes, encodings, random values and password encryption for
-# `install #crypto` (the RustCrypto family, all on Rust 1.75)
+# `load #crypto` (the RustCrypto family, all on Rust 1.75)
 sha1 = "0.10"
 sha2 = "0.10"
 md-5 = "0.10"
@@ -25,13 +25,13 @@ aes-gcm = "0.10"
 argon2 = "0.5"
 # pinned: base64ct 1.8 needs edition 2024 (Rust 1.85); 1.6.0 is the last that builds here
 base64ct = "=1.6.0"
-# csv: for `install #csv`
+# csv: for `load #csv`
 csv = "1.3"
-# toml: reads config files for `install #toml`. parser only, no serializer
+# toml: reads config files for `load #toml`. parser only, no serializer
 toml = { version = "0.8", default-features = false, features = ["parse"] }
 # pinned: indexmap 2.14 needs a newer Rust than 1.75; 2.2.6 is the last that builds here
 indexmap = "=2.2.6"
-# ui: the window core for `install #ui`. the real backend is minifb, checked by hand on Windows
+# ui: the window core for `load #ui`. the real backend is minifb, checked by hand on Windows
 ui-core = { path = "../ui-core", features = ["minifb"] }
-# sqlite: a database in one file, for `install #sqlite`. "bundled" compiles SQLite itself, so only a C compiler is needed
+# sqlite: a database in one file, for `load #sqlite`. "bundled" compiles SQLite itself, so only a C compiler is needed
 rusqlite = { version = "0.31", features = ["bundled"] }

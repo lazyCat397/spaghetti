@@ -1,2 +1,2 @@
-export (fa) from "./reexport_cycle_a.spg"
-export fn fb() -> int { return 2 }
+public (fa) from "./reexport_cycle_a.spg"
+public fn fb() -> int { return 2 }

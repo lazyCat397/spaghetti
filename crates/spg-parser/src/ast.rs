@@ -236,7 +236,7 @@ pub enum Stmt {
         name: String,
         type_ann: Option<TypeExpr>,
         value: Expr,
-        exported: bool, // true if preceded by `export`
+        exported: bool, // true if preceded by `public`
         pos: Pos,
     },
 
@@ -245,7 +245,7 @@ pub enum Stmt {
         name: String,
         type_ann: Option<TypeExpr>,
         value: Expr,
-        exported: bool, // true if preceded by `export`
+        exported: bool, // true if preceded by `public`
         pos: Pos,
     },
 
@@ -342,7 +342,7 @@ pub enum Stmt {
         /// instead of demanding it up front. chill.
         return_type: Option<TypeExpr>,
         body: Block,
-        exported: bool, // true if preceded by `export`
+        exported: bool, // true if preceded by `public`
         pos: Pos,
     },
 
@@ -350,6 +350,8 @@ pub enum Stmt {
         name: String,
         fields: Vec<Param>, // reuses Param: name + type
         exported: bool,
+        /// true for `namespace name { }`: no instances, its members are `name.member`
+        namespace: bool,
         /// true when the body has `guard` blocks. the parser already turned them
         /// into `Name.__guard` / `Name.__check`; the checker rewrites every write
         /// to such a struct so the guards run after it (and roll it back on throw).
@@ -372,23 +374,23 @@ pub enum Stmt {
         pos: Pos,
     },
 
-    Import {
+    Use {
         names: Vec<String>,
         from: String,
         pos: Pos,
     },
 
-    /// `install "./file.spg"`: brings in EVERY exported name of that file,
+    /// `load "./file.spg"`: brings in EVERY exported name of that file,
     /// without listing them. consumed by spg-modules, like `Import`.
-    Install {
+    Load {
         from: String,
         pos: Pos,
-        /// `install #name`: `from` is a standard module name
+        /// `load #name`: `from` is a standard module name
         /// (looked up in the standard library folder), not a path
         std: bool,
     },
 
-    /// `export (a, b) from "./y.spg"`: makes names that live in
+    /// `public (a, b) from "./y.spg"`: makes names that live in
     /// another module importable FROM THIS ONE, without declaring
     /// anything here. deliberately not the same as `Import`: an import
     /// only brings a name into this file's own scope, never makes it
@@ -480,7 +482,7 @@ pub struct Param {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
     pub stmts: Vec<Stmt>,
-    /// native libraries enabled by `install #...` (e.g. "powershell")
+    /// native libraries enabled by `load #...` (e.g. "powershell")
     pub natives: Vec<String>,
 }
 
@@ -540,8 +542,8 @@ impl Stmt {
             | Stmt::FunctionDecl { pos, .. }
             | Stmt::StructDecl { pos, .. }
             | Stmt::EnumDecl { pos, .. }
-            | Stmt::Import { pos, .. }
-            | Stmt::Install { pos, .. }
+            | Stmt::Use { pos, .. }
+            | Stmt::Load { pos, .. }
             | Stmt::ReExport { pos, .. }
             | Stmt::Assign { pos, .. }
             | Stmt::IndexAssign { pos, .. }

@@ -1,5 +1,5 @@
-import (inc) from "../lib/reexport_facade.spg"
-import (read) from "../lib/reexport_origin.spg"
+use (inc) from "../lib/reexport_facade.spg"
+use (read) from "../lib/reexport_origin.spg"
 inc()
 inc()
 inc()

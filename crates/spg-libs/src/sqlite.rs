@@ -1,4 +1,4 @@
-//! `sqlite`: a database in one file (`install #sqlite`). a database is named by its path, and
+//! `sqlite`: a database in one file (`load #sqlite`). a database is named by its path, and
 //! `":memory:"` makes one that lives only for the run. the connection opens on first use and
 //! stays open for the rest of the run. values come back as text: read a number with `@into`.
 //! put values into SQL through `?` and the array, never by joining text into the SQL, so a name
@@ -13,9 +13,9 @@ use rusqlite::Connection;
 use crate::{CallCtx, Kind, LibError, LibValue, NativeFn, NativeModule};
 
 pub static MODULE: NativeModule = NativeModule {
-    kind: Kind::Install,
+    kind: Kind::Load,
     name: "sqlite",
-    doc: "a database in one file: exec and query (install #sqlite)",
+    doc: "a database in one file: exec and query (load #sqlite)",
     structs: &[],
     objects: &[],
     functions: &[

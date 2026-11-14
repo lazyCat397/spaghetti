@@ -1,7 +1,7 @@
 // `win.antialias` smooths the edges of the turned and see-through shapes.
 // off (the default) they are stepped, which is faster.
 // press Space to switch it and see the star and the ring change.
-install #ui
+load #ui
 
 let win = ui.window("antialias", 420, 240)
 win.background = ui.hex("#14171f")

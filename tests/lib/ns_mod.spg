@@ -1,0 +1,13 @@
+// a namespace with one exported member and one private member
+public namespace tool {
+   let secret;
+
+   public fn shown(a: int) -> int {
+      secret += 1;
+      return hidden(a);
+   }
+
+   fn hidden(a: int) -> int {
+      return a * 10;
+   }
+}

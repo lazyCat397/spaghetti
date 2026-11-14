@@ -1,2 +1,2 @@
-import (helper) from "../lib/m1.spg"
-import (helper) from "../lib/m2.spg"
+use (helper) from "../lib/m1.spg"
+use (helper) from "../lib/m2.spg"

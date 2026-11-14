@@ -1,1 +1,1 @@
-import (x) from "./does_not_exist.spg"
+use (x) from "./does_not_exist.spg"

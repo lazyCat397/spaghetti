@@ -11,7 +11,7 @@ pub enum TokenKind {
     /// `@math`, `@str`, ... the name gets stored WITHOUT the `@`
     Namespace(String),
 
-    /// `#http` (right after `install`): a standard library. the name is stored WITHOUT the `#`
+    /// `#http` (right after `load`): a standard library. the name is stored WITHOUT the `#`
     StdLib(String),
 
     // keywords (reserved, hands off)
@@ -33,11 +33,12 @@ pub enum TokenKind {
     Continue,
     When,
     Elif,
-    Import,
-    Install,
-    Export,
+    Use,
+    Load,
+    Public,
     From,
     Struct,
+    NamespaceKw,
     Enum,
     /// `guard (me.field) { }` / `guard { }` inside a struct body
     Guard,
@@ -145,11 +146,12 @@ pub fn lookup_keyword(word: &str) -> Option<TokenKind> {
         "and" => Some(TokenKind::AndAnd),
         "or" => Some(TokenKind::OrOr),
         "not" => Some(TokenKind::Not),
-        "import" => Some(TokenKind::Import),
-        "install" => Some(TokenKind::Install),
-        "export" => Some(TokenKind::Export),
+        "use" => Some(TokenKind::Use),
+        "load" => Some(TokenKind::Load),
+        "public" => Some(TokenKind::Public),
         "from" => Some(TokenKind::From),
         "struct" => Some(TokenKind::Struct),
+        "namespace" => Some(TokenKind::NamespaceKw),
         "enum" => Some(TokenKind::Enum),
         "guard" => Some(TokenKind::Guard),
         "true" => Some(TokenKind::Bool(true)),

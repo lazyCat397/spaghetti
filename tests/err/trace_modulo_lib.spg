@@ -1,4 +1,4 @@
-export fn risky(x: int) -> int {
+public fn risky(x: int) -> int {
     let arr = [1, 2, 3]
     return arr[x]
 }

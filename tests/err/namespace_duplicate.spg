@@ -1,0 +1,9 @@
+namespace som {
+   fn add(a: int) -> int {
+      return a;
+   }
+
+   fn add(a: int) -> int {
+      return a;
+   }
+}

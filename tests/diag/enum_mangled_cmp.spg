@@ -1,3 +1,3 @@
-import (Color) from "../lib/en_color.spg"
-import (second) from "../lib/en_other.spg"
+use (Color) from "../lib/en_color.spg"
+use (second) from "../lib/en_other.spg"
 print(Color.Red == second())

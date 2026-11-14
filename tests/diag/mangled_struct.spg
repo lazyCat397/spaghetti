@@ -1,2 +1,2 @@
-import (Point) from "../lib/diaglib.spg"
+use (Point) from "../lib/diaglib.spg"
 let a: int = Point { x: 1 }

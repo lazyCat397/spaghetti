@@ -67,7 +67,7 @@ const cases = [
   ['when is a conditional keyword', 'when (x) {', 'when', 0, 'keyword.control.conditional.spg'],
   ['continue is a loop keyword', 'continue', 'continue', 0, 'keyword.control.loop.spg'],
   ['throw is a trycatch keyword', 'throw "x"', 'throw', 0, 'keyword.control.trycatch.spg'],
-  ['install is an import keyword', 'install #ui', 'install', 0, 'keyword.control.import.spg'],
+  ['install is an import keyword', 'load #ui', 'load', 0, 'keyword.control.import.spg'],
   ['enum name is a type definition', 'enum Color {', 'Color', 0, 'entity.name.type.enum.spg'],
   ['const name is a definition', 'const pi = 3.14', 'pi', 0, 'variable.other.definition.spg'],
   // numbers: hex, binary and scientific forms

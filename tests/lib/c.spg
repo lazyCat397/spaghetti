@@ -1,3 +1,3 @@
-import (sum, lerTotal) from "./base.spg"
-export fn addC() -> void { sum(100) }
-export fn verC() -> int { return lerTotal() }
+use (sum, lerTotal) from "./base.spg"
+public fn addC() -> void { sum(100) }
+public fn verC() -> int { return lerTotal() }

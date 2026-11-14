@@ -1,2 +1,2 @@
-import (v) from "../lib/dir_mod.spg"
+use (v) from "../lib/dir_mod.spg"
 print(v)

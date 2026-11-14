@@ -1,4 +1,4 @@
-install #ui
+load #ui
 let win = ui.window("ev", 10, 10)
 let n = 0
 win.onClose(fn() -> void {

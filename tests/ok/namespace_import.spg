@@ -1,0 +1,4 @@
+// only the members marked `public` leave the file; `tool` itself is exported
+use (tool) from "../lib/ns_mod.spg"
+
+print(tool.shown(4))

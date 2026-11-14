@@ -1,1 +1,1 @@
-import (two, two) from "../lib/diaglib.spg"
+use (two, two) from "../lib/diaglib.spg"

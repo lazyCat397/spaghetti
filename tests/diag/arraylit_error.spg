@@ -1,1 +1,1 @@
-import (ruim) from "../lib/array_literal_error.spg"
+use (ruim) from "../lib/array_literal_error.spg"

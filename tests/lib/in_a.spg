@@ -1,5 +1,5 @@
-export fn helper() -> int { return 1 }
-export fn onlyA() -> int { return 10 }
-export enum Mode { Fast, Slow }
-export struct Box { v: int }
+public fn helper() -> int { return 1 }
+public fn onlyA() -> int { return 10 }
+public enum Mode { Fast, Slow }
+public struct Box { v: int }
 fn hidden() -> int { return 99 }

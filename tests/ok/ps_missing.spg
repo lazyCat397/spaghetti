@@ -1,5 +1,5 @@
-// without PowerShell on the PATH, ps.* must say so instead of crashing. needs `install #ps`
-install #ps
+// without PowerShell on the PATH, ps.* must say so instead of crashing. needs `load #ps`
+load #ps
 print(ps.isAvailable())
 try {
     ps.run("Get-Date")

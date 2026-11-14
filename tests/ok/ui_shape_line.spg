@@ -1,4 +1,4 @@
-install #ui
+load #ui
 let win = ui.window("line", 40, 40)
 let l = win.line(0.0, 0.0, 30.0, 0.0, 4.0, ui.rgb(0, 0, 0))
 print(l.width)

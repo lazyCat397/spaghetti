@@ -1,2 +1,2 @@
-export fn helper() -> int { return 2 }
-export fn onlyB() -> int { return 20 }
+public fn helper() -> int { return 2 }
+public fn onlyB() -> int { return 20 }

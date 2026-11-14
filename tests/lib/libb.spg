@@ -1,1 +1,1 @@
-export fn fb() -> int { return "error-b" }
+public fn fb() -> int { return "error-b" }

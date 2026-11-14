@@ -1,4 +1,4 @@
-import (read, propria, g) from "../lib/reexport_mixed.spg"
+use (read, propria, g) from "../lib/reexport_mixed.spg"
 print(read())
 print(propria())
 print(g)
