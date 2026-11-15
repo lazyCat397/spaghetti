@@ -162,7 +162,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           REPO="${{ github.repository }}"
-          NOTES="## Spaghetti $TAG"
+          NOTES="# Spaghetti $TAG"
 
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             gh release upload "$TAG" assets/* --clobber --repo "$REPO"

@@ -584,7 +584,7 @@ fn initializer_end(tokens: &[Token], start: usize) -> usize {
         matches!(
             t,
             T::Let | T::Const | T::Function | T::Return | T::If | T::While | T::For | T::Try | T::Throw | T::Break | T::Continue
-                | T::Struct | T::Enum | T::Attach | T::Use | T::Public | T::Eof
+                | T::Struct | T::Enum | T::Attach | T::Use | T::From | T::Public | T::Eof
         )
     };
     let mut nest = 0i32;

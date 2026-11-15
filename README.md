@@ -54,4 +54,4 @@ extension, builds the Windows installer and the Linux package, and publishes the
 
 ## License
 
-Licensed under either of the [Apache License, Version 2.0](LICENSE-APACHE) or the [MIT license](LICENSE-MIT), at your option.
+Licensed under either of the [Apache License, Version 2.0](LICENSE-APACHE) or the [MIT license](LICENSE-MIT).

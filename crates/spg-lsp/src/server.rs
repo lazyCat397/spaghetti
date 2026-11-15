@@ -841,37 +841,23 @@ impl<W: Write> Server<W> {
                 // read from the files' own tokens, so it works while the buffer
                 // is half-typed (no full resolve needed).
                 let dir = doc.path.as_ref().and_then(|p| p.parent().map(|d| d.to_path_buf()));
+                // both forms: `use (a, b) from "x"` and `from "x" use (a, b)`
+                for (names, path) in crate::navigate::use_clauses(&tokens) {
+                    let from = Some(path);
+                    let known = match (&dir, &from) {
+                        (Some(d), Some(f)) => self.exports_of(&d.join(f)),
+                        _ => Vec::new(),
+                    };
+                    for n in names {
+                        if seen.insert(n.clone()) {
+                            let kind = known.iter().find(|(k, _)| *k == n).map(|(_, k)| *k).unwrap_or(3);
+                            items.push(with_sort(item(&n, kind, from.as_ref().map(|f| format!("from {}", f)), None), SORT_IMPORTED));
+                        }
+                    }
+                }
                 let mut i = 0;
                 while i < tokens.len() {
                     match &tokens[i].kind {
-                        T::Use => {
-                            let mut names = Vec::new();
-                            let mut j = i + 1;
-                            while j < tokens.len() && tokens[j].kind != T::RBrace && tokens[j].kind != T::From {
-                                if let T::Ident(n) = &tokens[j].kind {
-                                    names.push(n.clone());
-                                }
-                                j += 1;
-                            }
-                            let from = match tokens.get(j + 1).map(|t| &t.kind) {
-                                Some(T::Str(s)) if tokens[j].kind == T::From => Some(s.clone()),
-                                _ => match tokens.get(j + 2).map(|t| &t.kind) {
-                                    Some(T::Str(s)) => Some(s.clone()),
-                                    _ => None,
-                                },
-                            };
-                            let known = match (&dir, &from) {
-                                (Some(d), Some(f)) => self.exports_of(&d.join(f)),
-                                _ => Vec::new(),
-                            };
-                            for n in names {
-                                if seen.insert(n.clone()) {
-                                    let kind = known.iter().find(|(k, _)| *k == n).map(|(_, k)| *k).unwrap_or(3);
-                                    items.push(with_sort(item(&n, kind, from.as_ref().map(|f| format!("from {}", f)), None), SORT_IMPORTED));
-                                }
-                            }
-                            i = j;
-                        }
                         T::Attach => {
                             // `attach #name`: a native library (ps, http) is offered by its
                             // own name, and a standard module offers what it exports (`terminal`)
@@ -1129,13 +1115,6 @@ impl<W: Write> Server<W> {
                         Some(T::StdLib(name)) => spg_modules::standard_module(name).ok().map(|p| p.to_string_lossy().into_owned()),
                         _ => None,
                     },
-                    T::Use => {
-                        let from = (i + 1..tokens.len().min(i + 200)).find(|&j| tokens[j].kind == T::From);
-                        match from.and_then(|j| tokens.get(j + 1)).map(|t| &t.kind) {
-                            Some(T::Str(f)) => Some(f.clone()),
-                            _ => None,
-                        }
-                    }
                     _ => None,
                 };
                 if let Some(f) = file {
@@ -1143,6 +1122,13 @@ impl<W: Write> Server<W> {
                         if let Ok(other) = spg_lexer::Lexer::new(&text).tokenize() {
                             decls.merge(crate::members::Decls::from_tokens(&other));
                         }
+                    }
+                }
+            }
+            for (_, path) in crate::navigate::use_clauses(&tokens) {
+                if let Some(text) = self.source_of(&dir.join(path)) {
+                    if let Ok(other) = spg_lexer::Lexer::new(&text).tokenize() {
+                        decls.merge(crate::members::Decls::from_tokens(&other));
                     }
                 }
             }
@@ -1168,14 +1154,12 @@ impl<W: Write> Server<W> {
                 Some(T::Enum) => 13,
                 Some(T::Let) => 6,
                 Some(T::Const) => 21,
-                // `public (a, b) from "x"`: a re-export list, in parentheses
-                Some(T::LParen) => {
-                    let mut j = i + 2;
-                    while j < tokens.len() && tokens[j].kind != T::RParen {
-                        if let T::Ident(n) = &tokens[j].kind {
-                            out.push((n.clone(), 3));
+                // `public (a, b) from "x"` or `public a, b from "x"`: a re-export list
+                Some(T::LParen) | Some(T::Ident(_)) => {
+                    if let Some((names, end)) = crate::navigate::name_list(&tokens, i + 1) {
+                        if tokens.get(end).map(|t| &t.kind) == Some(&T::From) {
+                            out.extend(names.into_iter().map(|n| (n, 3)));
                         }
-                        j += 1;
                     }
                     continue;
                 }

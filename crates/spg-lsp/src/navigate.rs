@@ -249,26 +249,63 @@ pub fn target(tokens: &[Token], decls: &[Decl], at: usize) -> Option<Target> {
 
 /// the file a name is imported from, if the document imports it
 pub fn import_of(tokens: &[Token], name: &str) -> Option<String> {
+    use_clauses(tokens).into_iter().find(|(names, _)| names.iter().any(|n| n == name)).map(|(_, file)| file)
+}
+
+/// every `use` line of the file: the names it takes and the path they come from.
+/// the forms, all the same: `use (a, b) from "x"`, `use a, b from "x"`, `from "x" use (a, b)`,
+/// `from "x" use a, b`
+pub fn use_clauses(tokens: &[Token]) -> Vec<(Vec<String>, String)> {
+    let mut out = Vec::new();
     for i in 0..tokens.len() {
-        if tokens[i].kind != T::Use {
-            continue;
-        }
-        // the names between `{` and `}`, then `from "file"`
-        let mut names = Vec::new();
-        let mut j = i + 1;
-        while j < tokens.len() && tokens[j].kind != T::From {
-            if let T::Ident(n) = &tokens[j].kind {
-                names.push(n.clone());
+        // `use names from "path"`
+        if tokens[i].kind == T::Use {
+            if let Some((names, end)) = name_list(tokens, i + 1) {
+                if let (Some(T::From), Some(T::Str(path))) = (kind_at(tokens, end), kind_at(tokens, end + 1)) {
+                    out.push((names, path.clone()));
+                }
             }
-            j += 1;
         }
-        if let Some(T::Str(file)) = kind_at(tokens, j + 1) {
-            if names.iter().any(|n| n == name) {
-                return Some(file.clone());
+        // `from "path" use names`
+        if tokens[i].kind == T::From {
+            if let (Some(T::Str(path)), Some(T::Use)) = (kind_at(tokens, i + 1), kind_at(tokens, i + 2)) {
+                if let Some((names, _)) = name_list(tokens, i + 3) {
+                    out.push((names, path.clone()));
+                }
             }
         }
     }
-    None
+    out
+}
+
+/// a name list at `start`: `(a, b)` or `a, b`. returns the names and the index of the
+/// token right after the list
+pub fn name_list(tokens: &[Token], start: usize) -> Option<(Vec<String>, usize)> {
+    let parens = kind_at(tokens, start) == Some(&T::LParen);
+    let mut j = if parens { start + 1 } else { start };
+    let mut names = Vec::new();
+    if parens && kind_at(tokens, j) == Some(&T::RParen) {
+        return Some((names, j + 1));
+    }
+    loop {
+        match kind_at(tokens, j) {
+            Some(T::Ident(n)) => names.push(n.clone()),
+            _ => return None,
+        }
+        j += 1;
+        if kind_at(tokens, j) == Some(&T::Comma) {
+            j += 1;
+        } else {
+            break;
+        }
+    }
+    if parens {
+        if kind_at(tokens, j) != Some(&T::RParen) {
+            return None;
+        }
+        j += 1;
+    }
+    Some((names, j))
 }
 
 /// hover text for a declaration, in the same words the editor shows elsewhere
@@ -364,5 +401,21 @@ mod tests {
         let (sig, active) = method_signature(&t, &d, call_at).unwrap();
         assert_eq!(sig.label(), "sum(k: int) -> int");
         assert_eq!(active, 0);
+    }
+}
+
+#[cfg(test)]
+mod use_forms_tests {
+    use super::*;
+
+    #[test]
+    fn both_use_forms_are_read_the_same() {
+        let src = "from \"./a.spg\" use (x, z)\nuse (y) from \"./b.spg\"\n";
+        let tokens = spg_lexer::Lexer::new(src).tokenize().unwrap();
+        assert_eq!(import_of(&tokens, "x"), Some("./a.spg".to_string()));
+        assert_eq!(import_of(&tokens, "z"), Some("./a.spg".to_string()));
+        assert_eq!(import_of(&tokens, "y"), Some("./b.spg".to_string()));
+        assert_eq!(import_of(&tokens, "nope"), None);
+        assert_eq!(use_clauses(&tokens).len(), 2);
     }
 }

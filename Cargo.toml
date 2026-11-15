@@ -24,6 +24,6 @@ license = "MIT OR Apache-2.0"
 # strip: only removes symbols from the executable.
 # lto = "thin" (was "fat"): fat LTO re-optimizes the whole program on every release build and
 # made CI and the local update script slow; thin keeps most of the gain at a fraction of the time.
-# DO NOT add codegen-units = 1: measured 0.80x (slower on every benchmark).
+# DO NOT add codegen-units = 1: measured 0.80x (slower on every benchmark). annoying.
 strip = true
 lto = "thin"

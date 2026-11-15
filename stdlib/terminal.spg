@@ -1,17 +1,15 @@
-// `attach #terminal`: questions and a bit of console output
+// `attach #terminal`: questions and a bit of console output [v0.1]
 // because apparently readLine isn't quite enough for everything
-// (file helpers live in @file now: @file.readLines, @file.writeLines, ...)
-
-struct Terminal {
-    _v: int
-
-    // the simplest one. ask, receive, done.
-    fn askString(prompt: string) -> string {
+// *=------------->
+// `#terminal` v0.2, from a struct and a constant to a native namespace!
+public namespace terminal {
+    // the simplest one. ask, receive, done
+    public fn askString(prompt: string) -> string {
         return readLine(prompt)
     }
 
-    // sometimes having a fallback is all you need
-    fn askStringOr(prompt: string, fallback: string) -> string {
+    // same thing, but with a fallback
+    public fn askStringOr(prompt: string, fallback: string) -> string {
         try {
             return readLine(prompt)
         } catch (e: string) {
@@ -19,8 +17,8 @@ struct Terminal {
         }
     }
 
-    // numbers are a little trickier, so let's keep asking until we get one
-    fn askInt(prompt: string) -> int {
+    // numbers are a little trickier, we  will ask again until the result is valid
+    public fn askInt(prompt: string) -> int {
         while (true) {
             let raw = readLine(prompt)
             try {
@@ -32,19 +30,17 @@ struct Terminal {
         return 0
     }
 
-    // same thing, but with a fallback
-    // hopefully the user gets it right before we need one :)
-    fn askIntOr(prompt: string, fallback: int) -> int {
+    // fallback version
+    public fn askIntOr(prompt: string, fallback: int) -> int {
         try {
-            return me.askInt(prompt)
+            return askInt(prompt)
         } catch (e: string) {
             return fallback
         }
     }
 
-    // floats get a little extra attention
-    // special values are cool, but not always what we want here
-    fn askFloat(prompt: string) -> float {
+    // floats get a little extra attention..
+    public fn askFloat(prompt: string) -> float {
         while (true) {
             let raw = readLine(prompt)
             let low = @str.toLower(@str.trim(raw))
@@ -61,16 +57,16 @@ struct Terminal {
         return 0.0
     }
 
-    fn askFloatOr(prompt: string, fallback: float) -> float {
+    public fn askFloatOr(prompt: string, fallback: float) -> float {
         try {
-            return me.askFloat(prompt)
+            return askFloat(prompt)
         } catch (e: string) {
             return fallback
         }
     }
 
     // yes/no questions, now with a few extra ways to say yes, idk why
-    fn askYesNo(prompt: string) -> bool {
+    public fn askYesNo(prompt: string) -> bool {
         while (true) {
             let low = @str.toLower(@str.trim(readLine(prompt + " [y/n]: ")))
             if (low == "y" || low == "yes" ) { return true }
@@ -80,9 +76,9 @@ struct Terminal {
         return false
     }
 
-    fn askYesNoOr(prompt: string, fallback: bool) -> bool {
+    public fn askYesNoOr(prompt: string, fallback: bool) -> bool {
         try {
-            return me.askYesNo(prompt)
+            return askYesNo(prompt)
         } catch (e: string) {
             return fallback
         }
@@ -92,13 +88,15 @@ struct Terminal {
     // nothing too fancy, just the basics
 
     // pick a character, pick a width, get a line
-    fn rule(width: int, char: string) -> string {
+    public fn rule(width: int, char: string) -> string {
         return @str.repeat(char, width)
     }
 
     // center some text, more or less
-    // if it doesn't fit, we'll let it be
-    fn center(text: string, width: int) -> string {
+    // also, some terminals might not use monospaced
+    // fonts, and this mostly depends on every
+    // character having around the same size
+    public fn center(text: string, width: int) -> string {
         let space = width - @str.len(text)
         if (space <= 0) { return text }
         let left = space / 2
@@ -107,13 +105,10 @@ struct Terminal {
     }
 
     // a tiny box for your text
-    // suddenly your terminal output looks like you put in some effort
-    fn box(text: string) -> string {
+    public fn box(text: string) -> string {
         let width = @str.len(text)
         let edge = "+" + @str.repeat("-", width + 2) + "+"
         return edge + "\n| " + text + " |\n" + edge
     }
 
 }
-
-public const terminal: Terminal = Terminal { _v: 0 }

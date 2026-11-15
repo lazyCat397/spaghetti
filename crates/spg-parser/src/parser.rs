@@ -282,6 +282,7 @@ impl Parser {
             TokenKind::Enum => self.parse_enum_decl(false),
             TokenKind::Public => self.parse_public(),
             TokenKind::Use => self.parse_use(),
+            TokenKind::From => self.parse_from_use(),
             TokenKind::Attach => self.parse_attach(),
             // `x = ...`, `arr[i] = ...`, and their compound forms
             // (`x += ...`, `arr[i] -= ...`) all start as an ordinary
@@ -685,7 +686,8 @@ impl Parser {
             TokenKind::Enum => self.parse_enum_decl(true),
             TokenKind::Let => self.parse_let(false, true),
             TokenKind::Const => self.parse_let(true, true),
-            TokenKind::LParen => self.parse_re_export(export_pos),
+            // `public (a, b) from "x"` or `public a, b from "x"`
+            TokenKind::LParen | TokenKind::Ident(_) => self.parse_re_export(export_pos),
             _ => {
                 let t = self.peek();
                 Err(ParseError::Unexpected {
@@ -701,7 +703,30 @@ impl Parser {
     fn parse_use(&mut self) -> Result<Stmt, ParseError> {
         let pos = self.peek_pos();
         self.advance(); // import
-        let (names, from) = self.parse_name_list_from(&pos, TokenKind::LParen, TokenKind::RParen)?;
+        let (names, from) = self.parse_names_from()?;
+        Ok(Stmt::Use { names, from, pos })
+    }
+
+    /// `from "./x.spg" use (a, b)`: the path comes first, then the names.
+    /// same meaning as `use (a, b) from "./x.spg"`, the two forms are equivalent.
+    fn parse_from_use(&mut self) -> Result<Stmt, ParseError> {
+        let pos = self.peek_pos();
+        self.advance(); // from
+
+        let from = match self.advance().kind {
+            TokenKind::Str(s) => s,
+            other => {
+                return Err(ParseError::Unexpected {
+                    expected: "string with the module path".to_string(),
+                    found: other,
+                    line: pos.line,
+                    col: pos.col,
+                })
+            }
+        };
+
+        self.expect(TokenKind::Use, "'use'")?;
+        let names = self.parse_names()?;
         Ok(Stmt::Use { names, from, pos })
     }
 
@@ -728,28 +753,34 @@ impl Parser {
     /// `public (a, b) from "./y.spg"`. the `public` keyword is already
     /// consumed, the cursor sits on `{`.
     fn parse_re_export(&mut self, pos: Pos) -> Result<Stmt, ParseError> {
-        let (names, from) = self.parse_name_list_from(&pos, TokenKind::LParen, TokenKind::RParen)?;
+        let (names, from) = self.parse_names_from()?;
         Ok(Stmt::ReExport { names, from, pos })
     }
 
-    /// the `{ a, b } from "path"` tail that `use` and `export ... from`
-    /// have in common. twins.
-    fn parse_name_list_from(&mut self, pos: &Pos, open: TokenKind, close: TokenKind) -> Result<(Vec<String>, String), ParseError> {
-        let open_text = if open == TokenKind::LParen { "'('" } else { "'{'" };
-        let close_text = if close == TokenKind::RParen { "')'" } else { "'}'" };
-        self.expect(open.clone(), open_text)?;
-
+    /// the names of a `use` or `public` line: `(a, b)` or `a, b`, with or without
+    /// parentheses. `()` is an empty list.
+    fn parse_names(&mut self) -> Result<Vec<String>, ParseError> {
+        let parens = self.match_kind(&TokenKind::LParen);
         let mut names = Vec::new();
-        if !self.check(&close) {
-            names.push(self.parse_binding_name()?);
-            while self.match_kind(&TokenKind::Comma) {
-                names.push(self.parse_binding_name()?);
-            }
+        if parens && self.match_kind(&TokenKind::RParen) {
+            return Ok(names);
         }
+        names.push(self.parse_binding_name()?);
+        while self.match_kind(&TokenKind::Comma) {
+            names.push(self.parse_binding_name()?);
+        }
+        if parens {
+            self.expect(TokenKind::RParen, "')'")?;
+        }
+        Ok(names)
+    }
 
-        self.expect(close.clone(), close_text)?;
+    /// the `names from "path"` tail that `use` and `public` have in common
+    fn parse_names_from(&mut self) -> Result<(Vec<String>, String), ParseError> {
+        let names = self.parse_names()?;
         self.expect(TokenKind::From, "'from'")?;
 
+        let pos = self.peek_pos();
         let from = match self.advance().kind {
             TokenKind::Str(s) => s,
             other => {
