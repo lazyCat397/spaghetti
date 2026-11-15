@@ -230,6 +230,8 @@ impl Check<'_> {
                 self.expr(callee)?;
                 args.iter().try_for_each(|a| self.expr(a))
             }
+            // the name of a named arg is a parameter; the value is checked like any argument
+            Expr::NamedArg { value, .. } => self.expr(value),
             Expr::Index { array, index, .. } => {
                 self.expr(array)?;
                 self.expr(index)

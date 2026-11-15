@@ -242,6 +242,12 @@ fn annotate_expr(expr: &mut Expr, file: &str) {
             }
         }
 
+        // the name of a named arg is a parameter, not a reference: only the value is annotated
+        Expr::NamedArg { value, pos, .. } => {
+            stamp(pos, file);
+            annotate_expr(value, file);
+        }
+
         Expr::Index { array, index, pos } => {
             stamp(pos, file);
             annotate_expr(array, file);

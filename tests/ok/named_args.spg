@@ -1,0 +1,7 @@
+fn desenha(x: int, y: int, cor: string = "branco") -> string {
+    return "${x},${y} ${cor}";
+}
+print(desenha(1, 2));
+print(desenha(1, cor: "azul", y: 2));
+print(desenha(y: 5, x: 3));
+print(desenha(7, 8, cor: "verde"));

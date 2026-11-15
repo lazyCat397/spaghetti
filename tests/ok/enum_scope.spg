@@ -4,5 +4,5 @@ fn f(Color: Box) -> int { return Color.Red }
 print(f(Box { Red: 7 }))
 let mine = Color.Green
 print(mine)
-for Color in [1, 2] { print(Color) }
+for (Color in [1, 2]) { print(Color) }
 print(Color.Red)

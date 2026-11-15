@@ -1,4 +1,4 @@
 let m: map<string, int> = ["a": 1]
-for k in m {
+for (k in m) {
     print(k)
 }

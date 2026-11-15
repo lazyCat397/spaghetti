@@ -78,6 +78,11 @@ err() {  # err <file> <fragment> [<fragment>...]  — ALL must appear
 }
 
 ok basic.spg            '42\n6.28\n0\n7\n42'
+ok type_test_names.spg     'enum ok\nint ok\nnone ok'
+ok named_args.spg             '1,2 branco\n1,2 azul\n3,5 branco\n7,8 verde'
+ok named_args_methods.spg     '24\n6\n54\nababab\nabab\nabab'
+ok union_conversion.spg       '2\n5\n3.0\n1.5\n4\n2.5\ns\n7\n9\n2.0'
+ok jit_rollback_array.spg  'caught\n2000\n2000'
 ok newline_statements.spg '1\n5\n1'
 ok diamond.spg          '120\n120'
 ok same_name.spg        '10'
@@ -147,6 +152,16 @@ err guard_reentry_chain.spg 'guard of Node -> step_one (line 6) -> step_two (lin
 err guard_reentry_alias.spg 'guard of Box -> reset (line 7) -> write to Box (line 13)'
 ok namespace_basic.spg '3\n7\n2\n2\n12'
 err namespace_write_outside.spg 'read-only' "'som.calls'"
+err type_test_unknown_name.spg "unknown type name 'strnig'"
+err named_unknown.spg "'f' has no parameter named 'y'"
+err named_duplicate.spg "'f' gets argument 'x' more than once"
+err named_missing.spg "'f' needs argument 'x'"
+err named_before_positional.spg "cannot follow a named one"
+err named_builtin.spg "names an argument, but only a function or method declared with 'fn'"
+err union_conversion_string.spg "may be string, and a string has no implicit conversion to int"
+err union_conversion_needs_name.spg "needs it in a variable first"
+err for_needs_parens.spg "'(' after 'for'"
+err use_needs_parens.spg "'(' before the names"
 err namespace_duplicate.spg "'som.add' is declared more than once"
 err namespace_me.spg "undefined variable 'me'"
 ok namespace_import.spg '40'
@@ -319,8 +334,8 @@ err reexport_vs_local.spg       "'inc' is re-exported here, but this file also e
 err reexport_duplo.spg          "'inc' is re-exported more than once" 'reexport_duplo.spg:2' "'inc' is first re-exported here" 'reexport_duplo.spg:1'
 err reexport_double_list.spg    "'inc' is re-exported more than once" "'inc' is listed twice in this re-export"
 err reexport_not_becoming_local.spg "undefined function 'inc'"
-err ns_old_name.spg      "'sqrt' is no longer a global function; use '@math.sqrt'"
-err ns_clock_antigo.spg     "'clock' is no longer a global function" '@time.unix()' '@time.elapsed()'
+err ns_old_name.spg      "undefined function 'sqrt'"
+err ns_clock_antigo.spg     "undefined function 'clock'"
 err ns_reservado_let.spg    "'@math' is a reserved namespace and cannot be used as a name" '(line 1, column 5)'
 err ns_reservado_fn.spg     "'@time' is a reserved namespace" '(line 1, column 4)'
 err ns_reservado_param.spg  "'@array' is a reserved namespace"
@@ -329,10 +344,10 @@ err ns_no_member.spg       "'@math' is a namespace; use '@math.<name>(...)'"
 err ns_membro_inexistente.spg "namespace '@math' has no member 'foo'"
 err ns_desconhecido.spg     "unknown namespace '@mth'" '(available: @str, @array, @map, @into, @math, @sys, @task, @file, @json, @time, @char)' 'line 1, column 7'
 err ns_arroba_solto.spg     "'@' must be followed by a namespace name" 'line 1, column 14'
-err ns_sintaxe_antiga.spg   "'math.sqrt' uses the old namespace spelling" "use '@math.sqrt'"
-err ns_string_antigo.spg    "'string.len' uses the old namespace spelling; use '@str.len'"
-err ns_transform_antigo.spg "'transform.parseInt' uses the old namespace spelling" "use '@into.int'"
-err ns_time_run_antigo.spg  "'time.run' uses the old namespace spelling" "use '@time.elapsed'"
+err ns_sintaxe_antiga.spg   "undefined variable 'math'"
+err ns_string_antigo.spg    "expected an expression"
+err ns_transform_antigo.spg "undefined variable 'transform'"
+err ns_time_run_antigo.spg  "undefined variable 'time'"
 err ns_time_run_removido.spg "namespace '@time' has no member 'run'"
 err chamada_campo.spg       "'x' is a field of struct 'P', not a method" 'line 3'
 err not_callable_expr.spg   "only functions can be called, and this value is not a function" 'line 2'

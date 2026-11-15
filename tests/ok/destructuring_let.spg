@@ -17,7 +17,7 @@ print(first + second + third);
 let (s, n) = ["oi", "mundo"];
 print("${s} ${n}");
 
-for i in 0..2 {
+for (i in 0..2) {
     let (u, v) = [i, i * 10];
     print(u + v);
 }

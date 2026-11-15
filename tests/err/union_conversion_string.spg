@@ -1,0 +1,2 @@
+fn s(x: int or string) -> int { return x.int(); }
+print(s(1));

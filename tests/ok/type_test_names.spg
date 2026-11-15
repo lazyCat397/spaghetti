@@ -1,0 +1,11 @@
+enum Cor { Vermelho, Azul }
+let c = Cor.Vermelho;
+if (type(c) == "Cor") {
+    print("enum ok");
+}
+if (type(5) == "int") {
+    print("int ok");
+}
+if (type(none) == "none") {
+    print("none ok");
+}

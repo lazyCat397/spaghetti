@@ -488,6 +488,10 @@ struct Undo {
     fresh_ids: AddrSet,
     /// `fresh` size that triggers the next pruning of dead entries (see note_fresh)
     fresh_limit: usize,
+    /// the last address found in `snap_ids` or `fresh_ids`: a store into that object needs no
+    /// lookup. 0 is none. it is cleared wherever an address leaves one of those sets, so it
+    /// never says "skip" for an object the sets no longer hold
+    hot: usize,
 }
 
 thread_local! {
@@ -497,6 +501,7 @@ thread_local! {
 impl Undo {
     /// turns the log into snapshots of the original contents of the objects it touched
     fn compact(&mut self) {
+        self.hot = 0;
         // snapshots of objects that died are dropped, with their addresses. the copies they
         // hold are the only other references they have, so this frees what the call no longer uses
         {
@@ -566,6 +571,7 @@ impl Undo {
 
     /// drops the entries of objects that died (their addresses go with them)
     fn prune_fresh(&mut self) {
+        self.hot = 0;
         let Undo { fresh, fresh_ids, .. } = self;
         fresh.retain(|w| {
             if w.alive() {
@@ -604,11 +610,50 @@ impl Undo {
         self.fresh_ids.clear();
         self.fresh_limit = 0;
         self.limit = 0;
+        self.hot = 0;
     }
 }
 
 /// stores `new` at slot `i` of `o`, logging the value it replaces. returns 1 when the
 /// store can't be done (bad index, or a borrow is active). `new` gets dropped then.
+/// the undo entry for a store that replaced `old` at slot `i` of the object at `addr`. `owner`
+/// makes the reference the log keeps, and runs only when an entry is really needed. an object
+/// already snapshotted in this call, or made in it, needs no entry of its own.
+fn log_undo(addr: usize, i: i64, old: Value, owner: impl FnOnce() -> Obj) {
+    UNDO.with(|u| {
+        let mut u = u.borrow_mut();
+        if u.hot == addr {
+            return;
+        }
+        if u.snap_ids.contains(&addr) || u.fresh_ids.contains(&addr) {
+            u.hot = addr;
+            return;
+        }
+        u.log.push((owner(), i as usize, old));
+        if u.log.len() >= MIN_LOG.max(u.limit) {
+            u.compact();
+        }
+    });
+}
+
+/// `p[i] = new` for an array the native code holds by raw pointer (the way its reads do).
+/// no reference count moves unless the store must be logged: the hot path of a loop that
+/// writes to an array stays a borrow, a bounds check and a swap.
+fn store_arr_raw(p: i64, i: i64, new: Value) -> i64 {
+    if spg_vm::frozen::is_frozen_addr(p as usize) {
+        return 1;
+    }
+    // SAFETY: native code holds `p` alive while it runs; we only borrow it
+    let arr = unsafe { &*(p as *const RefCell<Vec<Value>>) };
+    let old = {
+        let Ok(mut slots) = arr.try_borrow_mut() else { return 1 };
+        let Some(slot) = slots.get_mut(i as usize) else { return 1 };
+        std::mem::replace(slot, new)
+    };
+    log_undo(p as usize, i, old, || Obj::Arr(unsafe { arr_ref(p) }));
+    0
+}
+
 fn store(o: Obj, i: i64, new: Value) -> i64 {
     let old = o.slots().and_then(|mut slots| {
         let slot = slots.get_mut(i as usize)?;
@@ -621,7 +666,11 @@ fn store(o: Obj, i: i64, new: Value) -> i64 {
             UNDO.with(|u| {
                 let mut u = u.borrow_mut();
                 let a = o.addr();
+                if u.hot == a {
+                    return;
+                }
                 if u.snap_ids.contains(&a) || u.fresh_ids.contains(&a) {
+                    u.hot = a;
                     return;
                 }
                 u.log.push((o, i as usize, old));
@@ -667,8 +716,7 @@ unsafe fn rec_ref(p: i64) -> spg_vm::value::StructRef {
 /// stores into `p[i]`. `tag` is the element kind (0 int, 1 bool, 2 float, 3 string).
 /// returns 1 when the store couldn't be done.
 extern "C" fn spg_arr_set(p: i64, i: i64, bits: i64, tag: i64) -> i64 {
-    // SAFETY: as in spg_arr_len
-    store(Obj::Arr(unsafe { arr_ref(p) }), i, value_of(bits, tag))
+    store_arr_raw(p, i, value_of(bits, tag))
 }
 
 /// typed local arrays (see the typed mode in `eligible`): plain bits, refcounted like the others.
@@ -2070,6 +2118,8 @@ fn lower(
     // loop regions: (slots to load from the locals array on entry, slots to store back on exit)
     region: Option<(&[bool], &[bool])>,
     typed: bool,
+    // a loop region counts its own iterations in ctx[1] (its own ctx, allocated per run)
+    count: bool,
 ) {
     let vars: Vec<Variable> = (0..chunk.num_locals).map(|i| Variable::from_u32(i as u32)).collect();
     for (v, k) in vars.iter().zip(slot_kinds) {
@@ -2552,6 +2602,13 @@ fn lower(
                 stack.push((b.ins().bxor_imm(x, 1), K::Bool));
             }
             OpCode::Jump(t) => {
+                // one more iteration of the region's own loop: a jump back to its head (0).
+                // inner loops jump to their own heads, so they never count here
+                if count && *t == 0 {
+                    let c = b.ins().load(I64, MemFlags::trusted(), ctx, 8);
+                    let c1 = b.ins().iadd_imm(c, 1);
+                    b.ins().store(MemFlags::trusted(), c1, ctx, 8);
+                }
                 // past-the-end target: reaching it means the native code went wrong, so fail
                 let target = blocks.get(t).copied().unwrap_or(fail);
                 b.ins().jump(target, &[]);
@@ -3215,7 +3272,7 @@ impl NativeTable {
             {
                 let mut b = FunctionBuilder::new(&mut fctx.func, &mut fbc);
                 let own = self.sigs[i].clone().unwrap();
-                lower(&mut b, chunk, &own, self.slots[i].as_ref().unwrap(), &self.sigs, &self.structs, &refs, h, None, self.typed[i]);
+                lower(&mut b, chunk, &own, self.slots[i].as_ref().unwrap(), &self.sigs, &self.structs, &refs, h, None, self.typed[i], false);
                 b.finalize();
             }
             module.define_function(id, &mut fctx).map_err(|e| format!("{}: {e}", chunk.name))?;
@@ -3275,6 +3332,7 @@ impl NativeTable {
                 h,
                 Some((loads_mask, stores_mask)),
                 false,
+                true,
             );
             b.finalize();
         }

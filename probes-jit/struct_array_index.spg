@@ -28,7 +28,7 @@ fn firstLabel(b: Bag) -> string {
 
 fn forSum(b: Bag) -> int {
     let s = 0
-    for it in b.items {
+    for (it in b.items) {
         s = s + it.n
     }
     return s

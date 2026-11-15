@@ -13,7 +13,7 @@ print(c)
 print("color:", c, @into.string(c))
 print(c == Color.Green, c != Color.Green, c == Color.Red)
 
-for x in Color {
+for (x in Color) {
     print(x, describe(x))
 }
 

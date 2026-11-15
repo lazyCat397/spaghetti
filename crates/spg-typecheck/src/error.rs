@@ -38,14 +38,8 @@ pub enum TypeError {
     /// `int::foo`: the type exists, the property doesn't
     UnknownTypeProperty { ty: String, name: String, pos: Pos },
 
-    /// an old builtin name (`sqrt`, `toUpper`, `clock`, ...) from before
-    /// namespaces. `replacement` is the new name. we moved stuff around.
-    RemovedBuiltin { name: String, replacement: String, pos: Pos },
-
-    /// `math.sqrt(...)`, `list.push(...)`, `transform.toInt(...)`, `time.run()`.
-    /// the namespace spelling from before the `@` days. nostalgia not included.
-    /// `replacement` is the current name, when there is one.
-    OldNamespace { name: String, replacement: Option<String>, pos: Pos },
+    /// `type(x) == "strnig"`: a string compared with `type(...)` must name a type the language has
+    UnknownTypeName { name: String, pos: Pos },
 
     /// `ps.run(...)` / `http.get(...)` in a file with no `attach #ps`.
     NeedsAttach { lib: String, pos: Pos },
@@ -214,6 +208,18 @@ pub enum TypeError {
     NoSuchNativeMethod { found: Ty, method: String, pos: Pos },
     /// `"x".tag()` where `tag` is a method of this type declared in another file without `public`
     ValueMethodNotVisible { type_name: String, method: String, pos: Pos },
+    /// `f(cor: "azul")` where `f` is a builtin, a lambda or a value: named args need a declared `fn`
+    NamedArgNotAllowed { name: String, pos: Pos },
+    /// `x.int()` on `x: int or string`: a string member has no implicit conversion to int (it needs parsing)
+    UnionConversion { target: String, member: String, var: String, pos: Pos },
+    /// `m().int()` on a union value that is not a variable: the conversion needs a name to test
+    UnionConversionNeedsName { target: String, pos: Pos },
+    /// `desenha(cores: 1)` where `desenha` has no param `cores`
+    UnknownArgument { function: String, name: String, pos: Pos },
+    /// `desenha(cor: "a", cor: "b")`, or `cor` given both by position and by name
+    DuplicateArgument { function: String, name: String, pos: Pos },
+    /// a call with named args that leaves out a param without a default value
+    MissingArgument { function: String, name: String, pos: Pos },
 
     /// `p.f` (no call) where `f` is a METHOD, not a field. add the parentheses.
     MethodNotCalled { struct_name: String, method: String, pos: Pos },
@@ -237,8 +243,7 @@ impl TypeError {
             | TypeError::UndefinedVariable { pos, .. }
             | TypeError::UndefinedFunction { pos, .. }
             | TypeError::UnknownTypeProperty { pos, .. }
-            | TypeError::RemovedBuiltin { pos, .. }
-            | TypeError::OldNamespace { pos, .. }
+            | TypeError::UnknownTypeName { pos, .. }
             | TypeError::NeedsAttach { pos, .. }
             | TypeError::NotCallable { pos, .. }
             | TypeError::CaptureAssign { pos, .. }
@@ -294,6 +299,12 @@ impl TypeError {
             | TypeError::MethodNotCalled { pos, .. }
             | TypeError::NoSuchNativeMethod { pos, .. }
             | TypeError::ValueMethodNotVisible { pos, .. }
+            | TypeError::NamedArgNotAllowed { pos, .. }
+            | TypeError::UnknownArgument { pos, .. }
+            | TypeError::UnionConversion { pos, .. }
+            | TypeError::UnionConversionNeedsName { pos, .. }
+            | TypeError::DuplicateArgument { pos, .. }
+            | TypeError::MissingArgument { pos, .. }
             | TypeError::ThrowNotString { pos, .. }
             | TypeError::CatchNotString { pos, .. } => pos,
         }
@@ -393,16 +404,10 @@ impl TypeError {
                 f, "{}'{}' is an installable library, not a variable: it needs `attach #{}` at the top of the file, and is used as {}.member(...)",
                 self.location(), lib, lib, lib
             ),
-            TypeError::OldNamespace { name, replacement, .. } => match replacement {
-                Some(r) => write!(
-                    f, "{}'{}' uses the old namespace spelling; namespaces are written with '@' now, use '{}'",
-                    self.location(), name, r
-                ),
-                None => write!(
-                    f, "{}'{}' is not a builtin; namespaces are written with '@' (@str, @array, @map, @into, @math, @time, @file, @sys)",
-                    self.location(), name
-                ),
-            },
+            TypeError::UnknownTypeName { name, .. } => write!(
+                f, "{}unknown type name '{}' in a type() test: the names are int, float, bool, string, array, map, fn, task, none, or a struct or enum declared in this file",
+                self.location(), name
+            ),
             TypeError::NotCallable { .. } => write!(
                 f, "{}only functions can be called, and this value is not a function",
                 self.location()
@@ -426,10 +431,6 @@ impl TypeError {
                     self.location(), shown(name)
                 ),
             },
-            TypeError::RemovedBuiltin { name, replacement, .. } => write!(
-                f, "{}'{}' is no longer a global function; use '{}'",
-                self.location(), shown(name), replacement
-            ),
             TypeError::ArityMismatch { function_name, expected, found, .. } => write!(
                 f, "{}'{}' expects {} argument(s), got {}",
                 self.location(), shown(function_name), expected, found
@@ -634,6 +635,30 @@ impl TypeError {
                 f, "{}'catch' receives the thrown string, so its variable is a string; write 'catch (e)' or 'catch (e: string)', not {}",
                 self.location(), found
             ),
+            TypeError::UnionConversion { target, member, var, .. } => write!(
+                f, "{}'{}' may be {}, and a {} has no implicit conversion to {}: test its type first and convert that case on its own",
+                self.location(), var, member, member, target
+            ),
+            TypeError::UnionConversionNeedsName { target, .. } => write!(
+                f, "{}converting a union value to {} needs it in a variable first: store it in one, then convert it",
+                self.location(), target
+            ),
+            TypeError::NamedArgNotAllowed { name, .. } => write!(
+                f, "{}'{}:' names an argument, but only a function or method declared with 'fn' takes named arguments; give this argument by position",
+                self.location(), name
+            ),
+            TypeError::UnknownArgument { function, name, .. } => write!(
+                f, "{}'{}' has no parameter named '{}'",
+                self.location(), shown(function), name
+            ),
+            TypeError::DuplicateArgument { function, name, .. } => write!(
+                f, "{}'{}' gets argument '{}' more than once in this call",
+                self.location(), shown(function), name
+            ),
+            TypeError::MissingArgument { function, name, .. } => write!(
+                f, "{}'{}' needs argument '{}': it has no default value, so this call must give it",
+                self.location(), shown(function), name
+            ),
             TypeError::ValueMethodNotVisible { type_name, method, .. } => write!(
                 f, "{}'{}' is a method of {} declared in another file, and it is not exported: add 'public' in front of its declaration to call it from here",
                 self.location(), method, type_name
@@ -711,15 +736,18 @@ impl TypeError {
             | TypeError::UndefinedFunction { .. }
             | TypeError::UnknownTypeProperty { .. }
             | TypeError::UndefinedStruct { .. }
-            | TypeError::RemovedBuiltin { .. }
-            | TypeError::OldNamespace { .. }
             | TypeError::NoSuchField { .. }
             | TypeError::NoSuchMethod { .. }
             | TypeError::NoSuchNativeMethod { .. }
             | TypeError::ValueMethodNotVisible { .. }
+            | TypeError::UnknownArgument { .. }
+            | TypeError::NamedArgNotAllowed { .. }
+            | TypeError::DuplicateArgument { .. }
+            | TypeError::MissingArgument { .. }
             | TypeError::NoSuchVariant { .. }
             | TypeError::DuplicateDeclaration { .. }
             | TypeError::AssociatedOnUnknownType { .. }
+            | TypeError::UnknownTypeName { .. }
             | TypeError::NoAssociatedFunction { .. } => spg_lexer::HINT_NAMES,
             _ => spg_lexer::HINT_TYPES,
         }

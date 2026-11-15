@@ -9,12 +9,12 @@ fn turnRight(d: Direction) -> Direction {
 }
 
 let facing = Direction.North
-for step in 0..5 {
+for (step in 0..5) {
     print(step, facing)
     facing = turnRight(facing)
 }
 
 print("all directions:")
-for d in Direction {
+for (d in Direction) {
     print("-", d, @into.string(d))
 }

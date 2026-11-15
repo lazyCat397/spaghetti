@@ -8,6 +8,6 @@ let stock: map<string, int> = ["apple": 4, "pear": 9]
 stock["apple"] += 1
 print(stock["apple"])
 
-for k in @map.keys(stock) {
+for (k in @map.keys(stock)) {
     print(k, stock[k])
 }

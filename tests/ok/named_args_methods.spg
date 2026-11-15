@@ -1,0 +1,12 @@
+struct Box {
+    w: int
+    fn area(k: int, s: int = 1) -> int { return me.w * k * s; }
+}
+let b = Box { w: 3 };
+print(b.area(s: 2, k: 4));
+print(b.area(k: 2));
+print(b.area(k: 2, s: 9));
+string::methods.add(fn rep(times: int = 2) -> string { return @str.repeat(me, times); });
+print("ab".rep(times: 3));
+print("ab".rep());
+print("ab".rep(2));

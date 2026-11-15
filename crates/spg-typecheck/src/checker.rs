@@ -535,6 +535,25 @@ impl Checker {
         self.struct_defs.contains_key(name) || self.enum_defs.contains_key(name)
     }
 
+    /// `type(x) == "strnig"` (either side): the string literal when it names no type the
+    /// language has. the names `type()` can return, plus the structs and enums of this file.
+    fn unknown_type_test_name(&self, a: &Expr, b: &Expr) -> Option<String> {
+        let lit = if type_test_subject(a).is_some() {
+            b
+        } else if type_test_subject(b).is_some() {
+            a
+        } else {
+            return None;
+        };
+        let Expr::StringLit(name, _) = lit else { return None };
+        const TYPE_NAMES: [&str; 9] = ["int", "float", "bool", "string", "array", "map", "fn", "task", "none"];
+        if TYPE_NAMES.contains(&name.as_str()) || self.is_type_name(name) {
+            None
+        } else {
+            Some(name.clone())
+        }
+    }
+
     /// inside a namespace function, a bare name that is not a local means the namespace's own
     /// static (`calls` -> `som.calls`). a local of the same name always wins.
     fn namespace_member(&self, name: &str) -> Option<String> {
@@ -883,6 +902,129 @@ impl Checker {
             .map(|m| m.internal.clone())
     }
 
+    /// `x.int()` / `@into.int(x)` on a variable `x` of a union type, one branch per member:
+    /// the member that already is the target is the value itself, and every other member is
+    /// converted by its own conversion. the `if` chain's narrowing gives `x` its member's type
+    /// in each branch. a member with no implicit conversion (a string to int) is an error,
+    /// never a guessed parse.
+    fn union_conversion(&mut self, target: &str, var: &str, members: &[Ty], pos: &p::Pos) -> Option<TypedExpr> {
+        let target_ty = match target {
+            "int" => Ty::Int,
+            "float" => Ty::Float,
+            _ => Ty::String,
+        };
+        let mut branches: Vec<(String, p::Expr)> = Vec::new();
+        for member in members {
+            let conv = if *member == target_ty {
+                p::Expr::Ident(var.to_string(), pos.clone())
+            } else {
+                let implicit = match (member, &target_ty) {
+                    (Ty::Float, Ty::Int) | (Ty::Int, Ty::Float) => true,
+                    (Ty::Int | Ty::Float | Ty::Bool, Ty::String) => true,
+                    _ => false,
+                };
+                if !implicit {
+                    self.errors.push(TypeError::UnionConversion {
+                        target: target.to_string(),
+                        member: member.to_string(),
+                        var: var.to_string(),
+                        pos: pos.clone(),
+                    });
+                    return None;
+                }
+                p::Expr::Call {
+                    callee: Box::new(p::Expr::Ident(format!("@into.{}", target), pos.clone())),
+                    args: vec![p::Expr::Ident(var.to_string(), pos.clone())],
+                    pos: pos.clone(),
+                }
+            };
+            branches.push((member.to_string(), conv));
+        }
+        // the last member needs no test: it is what the chain's final else sees
+        let mut rev = branches.into_iter().rev();
+        let (_, last) = rev.next()?;
+        let mut chain = last;
+        for (member_name, conv) in rev {
+            let test = p::Expr::Binary {
+                left: Box::new(p::Expr::Call {
+                    callee: Box::new(p::Expr::Ident("type".to_string(), pos.clone())),
+                    args: vec![p::Expr::Ident(var.to_string(), pos.clone())],
+                    pos: pos.clone(),
+                }),
+                op: BinaryOp::Eq,
+                right: Box::new(p::Expr::StringLit(member_name, pos.clone())),
+                pos: pos.clone(),
+            };
+            chain = p::Expr::IfExpr {
+                cond: Box::new(test),
+                then_branch: Box::new(one_expr_block(conv, pos)),
+                else_branch: Box::new(one_expr_block(chain, pos)),
+                pos: pos.clone(),
+            };
+        }
+        self.check_expr(&chain)
+    }
+
+    /// a call with named args (`desenha(1, cor: "azul")`), put back in parameter order. each
+    /// named arg fills the slot of the param it names; a slot the call leaves out takes that
+    /// param's default. the result is plain positional args, so the rest of the checker
+    /// (types, arity, defaults) runs as it does for any call. `params` excludes `me`.
+    fn order_named_args(&mut self, function: &str, params: &[Param], args: &[Expr], pos: &p::Pos) -> Option<Vec<Expr>> {
+        let positional = args.iter().take_while(|a| !matches!(a, Expr::NamedArg { .. })).count();
+        if positional > params.len() {
+            self.errors.push(TypeError::ArityMismatch {
+                function_name: function.to_string(),
+                expected: params.len(),
+                found: args.len(),
+                pos: pos.clone(),
+            });
+            return None;
+        }
+        let mut slots: Vec<Option<Expr>> = vec![None; params.len()];
+        for (i, arg) in args[..positional].iter().enumerate() {
+            slots[i] = Some(arg.clone());
+        }
+        // the parser keeps every named arg after the positional ones
+        for arg in &args[positional..] {
+            let Expr::NamedArg { name, value, pos: arg_pos } = arg else { continue };
+            match params.iter().position(|p| &p.name == name) {
+                None => {
+                    self.errors.push(TypeError::UnknownArgument {
+                        function: function.to_string(),
+                        name: name.clone(),
+                        pos: arg_pos.clone(),
+                    });
+                    return None;
+                }
+                Some(i) if slots[i].is_some() => {
+                    self.errors.push(TypeError::DuplicateArgument {
+                        function: function.to_string(),
+                        name: name.clone(),
+                        pos: arg_pos.clone(),
+                    });
+                    return None;
+                }
+                Some(i) => slots[i] = Some((**value).clone()),
+            }
+        }
+        let mut ordered = Vec::with_capacity(params.len());
+        for (slot, param) in slots.into_iter().zip(params.iter()) {
+            match (slot, &param.default) {
+                (Some(arg), _) => ordered.push(arg),
+                (None, Some(default)) => ordered.push(default.clone()),
+                (None, None) => {
+                    self.errors.push(TypeError::MissingArgument {
+                        function: function.to_string(),
+                        name: param.name.clone(),
+                        pos: pos.clone(),
+                    });
+                    return None;
+                }
+            }
+        }
+        Some(ordered)
+    }
+
     fn check_method_call(&mut self, object: &Expr, method: &str, args: &[Expr], pos: &p::Pos) -> Option<TypedExpr> {
         // `Type.name(args)`: a call to an associated function. the object is a struct NAME,
         // not a value. a local variable with that name wins (then it's a plain method call)
@@ -965,6 +1107,15 @@ impl Checker {
                 };
                 if *typed_object.ty() == same {
                     return Some(typed_object);
+                }
+                if let Ty::Union(members) = typed_object.ty().clone() {
+                    return match object {
+                        Expr::Ident(var, _) => self.union_conversion(method, var, &members, pos),
+                        _ => {
+                            self.errors.push(TypeError::UnionConversionNeedsName { target: method.to_string(), pos: pos.clone() });
+                            None
+                        }
+                    };
                 }
                 return self.check_builtin_call(format!("@into.{}", method), vec![typed_object], pos);
             }
@@ -1056,6 +1207,20 @@ impl Checker {
             .get(&full_name)
             .map(|sig| sig.params.iter().skip(1).map(|p| resolve_type_expr(&p.type_ann)).collect())
             .unwrap_or_default();
+        // named args of a method: reorder against its params after `me`
+        let ordered: Vec<Expr>;
+        let args: &[Expr] = if args.iter().any(|a| matches!(a, Expr::NamedArg { .. })) {
+            let params = self.functions.get(&full_name).map(|sig| sig.params.clone());
+            match params {
+                Some(params) => {
+                    ordered = self.order_named_args(method, params.get(1..).unwrap_or(&[]), args, pos)?;
+                    &ordered
+                }
+                None => args,
+            }
+        } else {
+            args
+        };
         let mut typed_args = vec![typed_object];
         for (i, arg) in args.iter().enumerate() {
             typed_args.push(self.check_expr_expecting(arg, method_params.get(i))?);
@@ -2936,6 +3101,12 @@ impl Checker {
             Expr::Binary { left, op: BinaryOp::In, right, pos } => self.check_membership(left, right, pos),
 
             Expr::Binary { left, op, right, pos } => {
+                if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
+                    if let Some(name) = self.unknown_type_test_name(left, right) {
+                        self.errors.push(TypeError::UnknownTypeName { name, pos: pos.clone() });
+                        return None;
+                    }
+                }
                 let mut typed_left = self.check_expr(left)?;
                 // `a != none && a.x > 0`: the right side sees what the left side proved
                 let proven = match op {
@@ -3018,26 +3189,6 @@ impl Checker {
                 }
                 let name = match callee.as_ref() {
                     Expr::Ident(n, _) => n.clone(),
-                    // `math.sqrt(x)`: the pre-`@` namespace spelling. only when
-                    // `math` isn't a variable the user declared (a struct
-                    // field holding... nothing callable, but `math.x` is a
-                    // legal field read, so the call is still an error below. sigh.
-                    Expr::Field { object, field, .. }
-                        if matches!(object.as_ref(), Expr::Ident(ns, _)
-                            if matches!(ns.as_str(), "math" | "time" | "list" | "transform")
-                                && self.lookup_var(ns).is_none()) =>
-                    {
-                        let ns = match object.as_ref() {
-                            Expr::Ident(ns, _) => ns.clone(),
-                            _ => unreachable!(),
-                        };
-                        self.errors.push(TypeError::OldNamespace {
-                            name: format!("{}.{}", ns, field),
-                            replacement: crate::builtins::renamed_namespace_call(&ns, field),
-                            pos: pos.clone(),
-                        });
-                        return None;
-                    }
                     // `ps.run(...)` with no `attach #ps` (with it, the lexer already made
                     // it a namespace call). tell them what's missing instead of "undefined ps"
                     Expr::Field { object, .. }
@@ -3071,6 +3222,31 @@ impl Checker {
                     let callee = TypedExpr::Ident { name: name.clone(), ty };
                     return self.check_value_call(callee, args, pos);
                 }
+
+                // `@into.int(x)` on a union variable: the same per-member conversion as `x.int()`
+                if matches!(name.as_str(), "@into.int" | "@into.float" | "@into.string") && args.len() == 1 {
+                    if let Expr::Ident(var, _) = &args[0] {
+                        if let Some(Ty::Union(members)) = self.resolve_name(var) {
+                            let target = name["@into.".len()..].to_string();
+                            return self.union_conversion(&target, var, &members, pos);
+                        }
+                    }
+                }
+
+                // named args of a declared fn: reorder into parameter order first. builtins and
+                // undefined names keep their args as they are (the arm in check_expr reports them)
+                let ordered: Vec<Expr>;
+                let args: &[Expr] = if args.iter().any(|a| matches!(a, Expr::NamedArg { .. })) && !builtin_signatures().contains_key(&name) {
+                    match self.functions.get(&name).map(|sig| sig.params.clone()) {
+                        Some(params) => {
+                            ordered = self.order_named_args(&name, &params, args, pos)?;
+                            &ordered
+                        }
+                        None => args,
+                    }
+                } else {
+                    args
+                };
 
                 // typecheck args once, up front. overload resolution
                 // below matches these typed_args against every
@@ -3108,14 +3284,7 @@ impl Checker {
                 let sig = match self.functions.get(&name).cloned() {
                     Some(sig) => sig,
                     None => {
-                        match crate::builtins::migrated_builtin(&name) {
-                            Some(replacement) => self.errors.push(TypeError::RemovedBuiltin {
-                                name: name.clone(),
-                                replacement: replacement.to_string(),
-                                pos: pos.clone(),
-                            }),
-                            None => self.errors.push(TypeError::UndefinedFunction { name: name.clone(), pos: pos.clone() }),
-                        }
+                        self.errors.push(TypeError::UndefinedFunction { name: name.clone(), pos: pos.clone() });
                         return None;
                     }
                 };
@@ -3169,6 +3338,13 @@ impl Checker {
                     ty: expected_return,
                     builtin: None,
                 })
+            }
+
+            // a named arg only reaches here where a call can't take names: a builtin, a
+            // value call, or somewhere that isn't a call at all
+            Expr::NamedArg { name, pos, .. } => {
+                self.errors.push(TypeError::NamedArgNotAllowed { name: name.clone(), pos: pos.clone() });
+                None
             }
 
             Expr::Index { array, index, pos } => {
@@ -3685,6 +3861,11 @@ enum TypeFact {
 }
 
 /// the basic type a type name stands for: `"int"` is `Ty::Int`. other names are not tested here.
+/// a block whose value is one expression (how an `if` expression's branch is written)
+fn one_expr_block(expr: p::Expr, pos: &p::Pos) -> p::Block {
+    p::Block { stmts: vec![p::Stmt::ExprStmt(expr)], pos: pos.clone() }
+}
+
 fn basic_ty(name: &str) -> Option<Ty> {
     match name {
         "int" => Some(Ty::Int),

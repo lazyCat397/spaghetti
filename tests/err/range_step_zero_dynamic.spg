@@ -1,5 +1,5 @@
 fn f(s: int) {
-    for i in 1..5 step s {
+    for (i in 1..5 step s) {
         print(i)
     }
 }

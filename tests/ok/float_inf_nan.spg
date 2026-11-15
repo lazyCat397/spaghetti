@@ -15,7 +15,7 @@ print((zero / zero).isNaN())
 
 // looking for a minimum: start from float::inf
 let best = float::inf
-for v in [3.0, 1.5, 2.0] {
+for (v in [3.0, 1.5, 2.0]) {
     if (v < best) {
         best = v
     }

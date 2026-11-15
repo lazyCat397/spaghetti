@@ -119,6 +119,14 @@ pub enum Expr {
         pos: Pos,
     },
 
+    /// `desenha(1, cor: "azul")`: an argument named by the parameter it fills. only
+    /// ever a direct element of a `Call`'s args; the checker turns it into a positional arg.
+    NamedArg {
+        name: String,
+        value: Box<Expr>,
+        pos: Pos,
+    },
+
     /// `arr[index]`: reading an element out of an array
     Index {
         array: Box<Expr>,
@@ -502,6 +510,7 @@ impl Expr {
             | Expr::Unary { pos, .. }
             | Expr::IncDec { pos, .. }
             | Expr::Call { pos, .. }
+            | Expr::NamedArg { pos, .. }
             | Expr::Index { pos, .. }
             | Expr::StructLit { pos, .. }
             | Expr::Field { pos, .. }

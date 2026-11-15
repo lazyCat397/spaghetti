@@ -55,7 +55,7 @@ struct Box {
 
     fn total() -> int {
         let t = me.c.n
-        for it in me.items {
+        for (it in me.items) {
             t += it.n
         }
         return t
@@ -77,7 +77,7 @@ print(b.total())
 b.items[0].inc()
 print(b.items[0].n)
 print(b.c.fact(3) + b.items[1].fact(4))
-for i in 0..3 {
+for (i in 0..3) {
     b.c.inc()
 }
 print(c.n)

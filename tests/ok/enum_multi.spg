@@ -2,10 +2,10 @@ use (Color, next) from "../lib/en_facade.spg"
 use (second) from "../lib/en_other.spg"
 
 let c = Color.Red
-for i in 0..4 {
+for (i in 0..4) {
     print(i, c)
     c = next(c)
 }
 print(next(Color.Blue) == Color.Red)
-for x in Color { print(x) }
+for (x in Color) { print(x) }
 print(@into.string(second()))

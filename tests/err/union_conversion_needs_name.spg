@@ -1,0 +1,2 @@
+fn m() -> int or float { return 1; }
+print(m().int());

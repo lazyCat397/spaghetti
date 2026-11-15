@@ -344,6 +344,9 @@ impl<'a> Renamer<'a> {
                 }
             }
 
+            // `cor:` names a parameter, which is never renamed; the value is an ordinary expression
+            Expr::NamedArg { value, .. } => self.rename_expr(value),
+
             Expr::Index { array, index, .. } => {
                 self.rename_expr(array);
                 self.rename_expr(index);

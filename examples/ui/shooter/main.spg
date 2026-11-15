@@ -288,7 +288,7 @@ while (true) {
     if (dt < 0.0) { break }
     if (dt > 0.05) { dt = 0.05 }
 
-    for st in stars {
+    for (st in stars) {
         st.step(dt)
     }
 
@@ -299,16 +299,16 @@ while (true) {
     // start or restart: clear everything and build a new formation
     let wantStart =(state == 0 &&(win.isDown(Key.Enter) || win.isDown(Key.Space))) ||(state == 2 && endTimer <= 0.0 &&(win.isDown(Key.Enter) || win.isDown(Key.R)))
     if (wantStart) {
-        for sh in shots {
+        for (sh in shots) {
             if (sh.alive) { sh.die() }
         }
-        for sh in enemyShots {
+        for (sh in enemyShots) {
             if (sh.alive) { sh.die() }
         }
-        for inv in invaders {
+        for (inv in invaders) {
             if (inv.alive) { inv.die() }
         }
-        for p in sparks {
+        for (p in sparks) {
             if (p.alive) { p.die() }
         }
         shots = []
@@ -375,7 +375,7 @@ while (true) {
         let count = 0
         let minCol = 99.0
         let maxCol = -99.0
-        for inv in invaders {
+        for (inv in invaders) {
             if (inv.alive) {
                 count = count + 1
                 if (inv.col < minCol) { minCol = inv.col }
@@ -404,7 +404,7 @@ while (true) {
                 dir = -dir
                 fy = fy + 14.0
             }
-            for inv in invaders {
+            for (inv in invaders) {
                 if (inv.alive) {
                     inv.place(fx, fy)
                     inv.show(animA)
@@ -421,7 +421,7 @@ while (true) {
                 if (gap < 0.35) { gap = 0.35 }
                 fireTimer = gap
                 let pool: array<Invader> = []
-                for inv in invaders {
+                for (inv in invaders) {
                     if (inv.alive) { pool.push(inv) }
                 }
                 let shooter = @array.pick(pool)
@@ -433,16 +433,16 @@ while (true) {
             }
         }
 
-        for sh in shots {
+        for (sh in shots) {
             sh.step(dt)
         }
-        for sh in enemyShots {
+        for (sh in enemyShots) {
             sh.step(dt)
         }
 
         // your bullets against invaders
-        for sh in shots {
-            for inv in invaders {
+        for (sh in shots) {
+            for (inv in invaders) {
                 if (sh.alive && inv.alive && overlaps(sh.img.x + SHOT_OX, sh.img.y + SHOT_OY, SHOT_W, SHOT_H, inv.frameA.x, inv.frameA.y + INV_OY, INV_W, INV_H)) {
                     // read the position before the invader's images are killed
                     let cx = inv.frameA.x + 16.0
@@ -456,7 +456,7 @@ while (true) {
         }
 
         // their bullets against the ship (short invulnerability after each hit)
-        for sh in enemyShots {
+        for (sh in enemyShots) {
             if (sh.alive && ship.invul <= 0.0 && overlaps(sh.img.x + SHOT_OX, sh.img.y + SHOT_OY, SHOT_W, SHOT_H, ship.x - 14.0, SHIP_Y + 4.0, 28.0, 26.0)) {
                 sh.die()
                 lives = lives - 1
@@ -479,25 +479,25 @@ while (true) {
     }
 
     // effects keep running on every state
-    for p in sparks {
+    for (p in sparks) {
         p.step(dt)
     }
 
     // removes the dead from the lists (only the alive ones are kept)
     let keepS: array<Shot> = []
-    for sh in shots {
+    for (sh in shots) {
         if (sh.alive) { keepS.push(sh) }
     }
     shots = keepS
 
     let keepE: array<Shot> = []
-    for sh in enemyShots {
+    for (sh in enemyShots) {
         if (sh.alive) { keepE.push(sh) }
     }
     enemyShots = keepE
 
     let keepP: array<Spark> = []
-    for p in sparks {
+    for (p in sparks) {
         if (p.alive) { keepP.push(p) }
     }
     sparks = keepP

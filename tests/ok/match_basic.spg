@@ -24,7 +24,7 @@ when (cmd) {
 }
 
 let total: int = 0
-for i in 1..4 {
+for (i in 1..4) {
     when (i) {
         1 { total += 10 }
         2, 3 { total += 100 }

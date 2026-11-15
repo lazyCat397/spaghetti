@@ -28,14 +28,14 @@ print(scores[1])  // 21
 // for with an index, over an array
 let names = ["ana", "bia", "caio"]
 
-for i, name in names {
+for (i, name in names) {
     print("${i}: ${name}")
 }
 
 // for with two names over a map: keys in insertion order
 let ages: map<string, int> = ["ana": 31, "bia": 25]
 
-for name, age in ages {
+for (name, age in ages) {
     print("${name} is ${age}")
 }
 

@@ -57,7 +57,7 @@ fn nested(n: int) -> int {
 }
 fn sumArr(a: array<int>) -> int {
     let t = 0
-    for v in a {
+    for (v in a) {
         if (v == 3) {
             continue
         }

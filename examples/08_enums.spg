@@ -9,7 +9,7 @@ fn next(l: Light) -> Light {
 
 let now = Light.Red
 
-for step in 0..3 {
+for (step in 0..3) {
     print(step, now)
     now = next(now)
 }

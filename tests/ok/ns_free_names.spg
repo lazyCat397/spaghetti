@@ -6,7 +6,7 @@ fn time(a: int) -> int {
 }
 fn sum(list: array<int>) -> int {
     let total: int = 0
-    for n in list {
+    for (n in list) {
         total += n
     }
     return total

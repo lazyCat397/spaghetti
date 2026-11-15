@@ -28,11 +28,10 @@ pub enum ParseError {
     ReservedName { name: String, line: usize, col: usize },
     /// a namespace used without `.member` (e.g. `let x = math`). no.
     NamespaceWithoutMember { name: String, line: usize, col: usize },
-    /// `string.len(...)`: `string` is a type keyword, so the old namespace
-    /// spelling can't even reach the typechecker. good riddance.
-    OldStringNamespace { member: String, line: usize, col: usize },
     /// `a..b` anywhere but a `for .. in` header (`let r = 1..4`)
     RangeOutsideFor { line: usize, col: usize },
+    /// `f(x: 1, 2)`: a positional argument after a named one
+    PositionalAfterNamed { line: usize, col: usize },
     /// a struct with a field AND a method of the same name (`p.x` would be ambiguous)
     FieldMethodClash { struct_name: String, name: String, line: usize, col: usize },
     /// a `guard` rule the parser can see is broken (write to `me`, `return`, unknown field...)
@@ -68,10 +67,10 @@ impl fmt::Display for ParseError {
                 "'@{}' is a reserved namespace and cannot be used as a name (line {}, column {})",
                 name, line, col
             ),
-            ParseError::OldStringNamespace { member, line, col } => write!(
+            ParseError::PositionalAfterNamed { line, col } => write!(
                 f,
-                "'string.{}' uses the old namespace spelling; use '@str.{}' (line {}, column {})",
-                member, member, line, col
+                "a positional argument cannot follow a named one; put it before the named arguments (line {}, column {})",
+                line, col
             ),
             ParseError::GuardError { struct_name, reason, line, col } => write!(
                 f,
@@ -598,9 +597,10 @@ impl Parser {
     fn parse_for_in(&mut self) -> Result<Stmt, ParseError> {
         let pos = self.peek_pos();
         self.advance(); // for
+        self.expect(TokenKind::LParen, "'(' after 'for'")?;
 
-        // `for v in arr` or `for i, v in arr`: with two names, the first is the
-        // position and the second the element
+        // `for (x in arr)` or `for (i, x in arr)`: with two names, the first is the
+        // position (or the key of a map) and the second the element
         let first = self.parse_binding_name()?;
         let (index_var, var_name) = if self.match_kind(&TokenKind::Comma) {
             let second = self.parse_binding_name()?;
@@ -628,10 +628,12 @@ impl Parser {
             } else {
                 None
             };
+            self.expect(TokenKind::RParen, "')' to close the 'for' header")?;
             let body = self.parse_block()?;
             return Ok(Stmt::ForRange { var_name, start: iterable, end, step, body, pos });
         }
 
+        self.expect(TokenKind::RParen, "')' to close the 'for' header")?;
         let body = self.parse_block()?;
 
         Ok(Stmt::ForIn { var_name, index_var, iterable, body, pos })
@@ -686,8 +688,8 @@ impl Parser {
             TokenKind::Enum => self.parse_enum_decl(true),
             TokenKind::Let => self.parse_let(false, true),
             TokenKind::Const => self.parse_let(true, true),
-            // `public (a, b) from "x"` or `public a, b from "x"`
-            TokenKind::LParen | TokenKind::Ident(_) => self.parse_re_export(export_pos),
+            // `public (a, b) from "x"`
+            TokenKind::LParen => self.parse_re_export(export_pos),
             _ => {
                 let t = self.peek();
                 Err(ParseError::Unexpected {
@@ -757,21 +759,19 @@ impl Parser {
         Ok(Stmt::ReExport { names, from, pos })
     }
 
-    /// the names of a `use` or `public` line: `(a, b)` or `a, b`, with or without
-    /// parentheses. `()` is an empty list.
+    /// the names of a `use` or `public` line: always in parentheses, `(a, b)`. `()` is an
+    /// empty list. one form only, so a name list reads the same everywhere.
     fn parse_names(&mut self) -> Result<Vec<String>, ParseError> {
-        let parens = self.match_kind(&TokenKind::LParen);
+        self.expect(TokenKind::LParen, "'(' before the names (write `use (a, b) from \"x\"`)")?;
         let mut names = Vec::new();
-        if parens && self.match_kind(&TokenKind::RParen) {
+        if self.match_kind(&TokenKind::RParen) {
             return Ok(names);
         }
         names.push(self.parse_binding_name()?);
         while self.match_kind(&TokenKind::Comma) {
             names.push(self.parse_binding_name()?);
         }
-        if parens {
-            self.expect(TokenKind::RParen, "')'")?;
-        }
+        self.expect(TokenKind::RParen, "')'")?;
         Ok(names)
     }
 
@@ -1730,12 +1730,24 @@ impl Parser {
 
                 let mut args = Vec::new();
                 if !self.check(&TokenKind::RParen) {
-                    args.push(self.parse_expr()?);
+                    args.push(self.parse_call_arg()?);
                     while self.match_kind(&TokenKind::Comma) {
-                        args.push(self.parse_expr()?);
+                        args.push(self.parse_call_arg()?);
                     }
                 }
                 self.expect(TokenKind::RParen, "')'")?;
+                // once an argument is named, every later one must be too: `f(1, x: 2, 3)` has no order
+                let mut seen_named = false;
+                for arg in &args {
+                    match arg {
+                        Expr::NamedArg { .. } => seen_named = true,
+                        other if seen_named => {
+                            let (line, col) = other.pos().map(|p| (p.line, p.col)).unwrap_or((0, 0));
+                            return Err(ParseError::PositionalAfterNamed { line, col });
+                        }
+                        _ => {}
+                    }
+                }
 
                 expr = Expr::Call { callee: Box::new(expr), args, pos };
             } else if self.check(&TokenKind::LBracket) && !breaks_line {
@@ -1804,6 +1816,19 @@ impl Parser {
         Ok(Expr::StructLit { name, fields, pos })
     }
 
+    /// one argument of a call: `expr`, or `name: expr` (a named argument). `Ident :` is
+    /// only ever a named argument here, since a call argument is never a type or a map key.
+    fn parse_call_arg(&mut self) -> Result<Expr, ParseError> {
+        if matches!(self.peek().kind, TokenKind::Ident(_)) && self.next_is(&TokenKind::Colon) {
+            let pos = self.peek_pos();
+            let name = self.parse_ident_name()?;
+            self.expect(TokenKind::Colon, "':'")?;
+            let value = self.parse_expr()?;
+            return Ok(Expr::NamedArg { name, value: Box::new(value), pos });
+        }
+        self.parse_expr()
+    }
+
     fn parse_struct_field(&mut self) -> Result<(String, Expr), ParseError> {
         let field_name = self.parse_ident_name()?;
         self.expect(TokenKind::Colon, "':'")?;
@@ -1860,14 +1885,6 @@ impl Parser {
             TokenKind::TypeBool if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("bool", pos),
             TokenKind::TypeString if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("string", pos),
             TokenKind::TypeArray if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("array", pos),
-            TokenKind::TypeString if self.check(&TokenKind::Dot) => {
-                self.advance(); // .
-                let member = match &self.peek().kind {
-                    TokenKind::Ident(m) => m.clone(),
-                    _ => String::new(),
-                };
-                Err(ParseError::OldStringNamespace { member, line: pos.line, col: pos.col })
-            }
             TokenKind::Ident(name) => {
                 // `Name {` starts a struct literal, unless we're inside
                 // an if/while condition or a for-in iterable. there,

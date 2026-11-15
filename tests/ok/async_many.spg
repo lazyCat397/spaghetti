@@ -4,11 +4,11 @@ fn one(i: int) -> task<int> {
 }
 
 let ts: array<task<int>> = []
-for i in 0..300 {
+for (i in 0..300) {
     ts.push(one(i))
 }
 let total = 0
-for t in ts {
+for (t in ts) {
     total = total + t.wait()
 }
 print(total)

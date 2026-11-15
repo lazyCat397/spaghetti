@@ -1,0 +1,16 @@
+fn a(x: int or float) -> int { return x.int(); }
+fn b(x: int or float) -> float { return x.float(); }
+fn c(x: int or float) -> string { return x.string(); }
+fn d(x: int or string) -> string { return x.string(); }
+fn e(x: int or float) -> int { return @into.int(x); }
+fn f(x: int or float) -> float { return @into.float(x); }
+print(a(2.7));
+print(a(5));
+print(b(3));
+print(b(1.5));
+print(c(4));
+print(c(2.5));
+print(d("s"));
+print(d(7));
+print(e(9.9));
+print(f(2));

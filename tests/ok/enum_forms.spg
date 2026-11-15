@@ -56,7 +56,7 @@ let r = [Light.Green, Light.Red, Light.Yellow]
 r[0] = Light.Yellow
 print(r, @array.indexOf(r, Light.Red), @array.indexOf(r, Light.Green))
 let count = 0
-for l in Light {
+for (l in Light) {
     if (l == Light.Yellow) { continue }
     count += 1
 }

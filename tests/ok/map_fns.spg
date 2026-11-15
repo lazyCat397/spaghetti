@@ -1,14 +1,14 @@
 let prices: map<string, int> = ["bread": 5, "milk": 8, "egg": 1]
 let doubled = @map.map(prices, fn(k: string, v: int) -> int { return v * 2 })
-for name, price in doubled {
+for (name, price in doubled) {
     print(name, price)
 }
 let cheap = @map.filter(prices, fn(k: string, v: int) -> bool { return v < 6 })
 print(@map.len(cheap))
-for name, price in cheap {
+for (name, price in cheap) {
     print(name)
 }
 let tagged = @map.map(prices, fn(k: string, v: int) -> string { return k + "=" + @into.string(v) })
-for k, t in tagged {
+for (k, t in tagged) {
     print(t)
 }

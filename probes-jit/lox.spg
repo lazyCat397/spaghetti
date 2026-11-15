@@ -462,7 +462,7 @@ struct Interp {
     scopes: array<map<string, Value>>
 
     fn run(program: array<Node>) -> void {
-        for stmt in program {
+        for (stmt in program) {
             me.execute(stmt)
         }
     }
@@ -498,7 +498,7 @@ struct Interp {
     fn executeBlock(stmts: array<Node>) -> void {
         let fresh: map<string, Value> = [:]
         me.scopes.push(fresh)
-        for stmt in stmts {
+        for (stmt in stmts) {
             me.execute(stmt)
         }
         me.scopes.pop()

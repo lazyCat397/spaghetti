@@ -93,6 +93,6 @@ print(p.x)
 if (p.x == 201) {
     print("condition ok, no ambiguity with struct literal")
 }
-for i in [1, 2, 3] {
+for (i in [1, 2, 3]) {
     print(i)
 }

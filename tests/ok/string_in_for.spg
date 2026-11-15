@@ -3,7 +3,7 @@ const fake = "Аbcde"
 const real = "Abcde"
 
 if (!(fake == real)) {
-    for l in fake {
+    for (l in fake) {
         if (!(l in string::lower) or !(l in string::upper)) {
             print(l, @char.code(l))
         }
