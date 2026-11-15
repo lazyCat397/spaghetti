@@ -1578,11 +1578,12 @@ mod tests {
         std::env::set_var("SPG_STD", concat!(env!("CARGO_MANIFEST_DIR"), "/../../stdlib"));
         let text = "attach #http\nattach #ps\nattach #terminal\n\n";
         let labels = labels_of(&complete_at("inst_names_on", text, 3, 0));
-        for want in ["http", "ps", "terminal"] {
+        // a native library is offered by its name; a standard module offers what it exports
+        for want in ["http", "ps", "askString", "rule", "box"] {
             assert!(labels.iter().any(|l| l == want), "missing {want}: {:?}", labels);
         }
         let labels = labels_of(&complete_at("inst_names_off", "\n", 0, 0));
-        assert!(!labels.iter().any(|l| l == "http" || l == "ps" || l == "terminal"), "{:?}", labels);
+        assert!(!labels.iter().any(|l| l == "http" || l == "ps" || l == "askString"), "{:?}", labels);
     }
 
     #[test]
