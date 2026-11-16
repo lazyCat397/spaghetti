@@ -1,0 +1,139 @@
+// `attach #cmp`: tolerant comparisons. the tolerance is always an argument, never hidden
+public namespace cmp {
+    // numbers. the suffix says the type; Rel means the tolerance is a percent of the larger value
+
+    // float: true when |a - b| <= tol
+    public fn nearFloat(a: float, b: float, tol: float) -> bool {
+        return @math.abs(a - b) <= tol
+    }
+
+    // float, relative: true when |a - b| <= pct% of the larger of |a| and |b|
+    public fn nearFloatRel(a: float, b: float, pct: float) -> bool {
+        let biggest = @math.max(@math.abs(a), @math.abs(b))
+        return @math.abs(a - b) <= biggest * pct / 100.0
+    }
+
+    // int: true when |a - b| <= tol
+    public fn nearInt(a: int, b: int, tol: int) -> bool {
+        return @math.abs(a - b) <= tol
+    }
+
+    // strings. case-sensitive edit distance (Levenshtein): true when it is at most maxEdits
+    public fn nearString(a: string, b: string, maxEdits: int) -> bool {
+        return editDistance(a, b) <= maxEdits
+    }
+
+    // strings, ignoring case: same as nearString after lowering both
+    public fn nearStringIgnoreCase(a: string, b: string, maxEdits: int) -> bool {
+        return editDistance(@str.toLower(a), @str.toLower(b)) <= maxEdits
+    }
+
+    // arrays. the ordered ones need the same length and compare pair by pair, so order matters
+    public fn nearArray(a: array<float>, b: array<float>, tol: float) -> bool {
+        if (@array.len(a) != @array.len(b)) {
+            return false
+        }
+        let i = 0
+        while (i < @array.len(a)) {
+            if (!nearFloat(a[i], b[i], tol)) {
+                return false
+            }
+            i += 1
+        }
+        return true
+    }
+
+    public fn nearIntArray(a: array<int>, b: array<int>, tol: int) -> bool {
+        if (@array.len(a) != @array.len(b)) {
+            return false
+        }
+        let i = 0
+        while (i < @array.len(a)) {
+            if (!nearInt(a[i], b[i], tol)) {
+                return false
+            }
+            i += 1
+        }
+        return true
+    }
+
+    public fn nearStringArray(a: array<string>, b: array<string>, maxEdits: int) -> bool {
+        if (@array.len(a) != @array.len(b)) {
+            return false
+        }
+        let i = 0
+        while (i < @array.len(a)) {
+            if (!nearString(a[i], b[i], maxEdits)) {
+                return false
+            }
+            i += 1
+        }
+        return true
+    }
+
+    // float arrays, order ignored: every element of a is matched to a different near element of b.
+    // exact (backtracking), so a tolerance never makes a wrong match stick
+    public fn nearArrayUnordered(a: array<float>, b: array<float>, tol: float) -> bool {
+        if (@array.len(a) != @array.len(b)) {
+            return false
+        }
+        let used: array<bool> = []
+        let j = 0
+        while (j < @array.len(b)) {
+            @array.push(used, false)
+            j += 1
+        }
+        return matchFrom(a, b, used, 0, tol)
+    }
+
+    // helper: can a[i..] be matched to unused elements of b?
+    fn matchFrom(a: array<float>, b: array<float>, used: array<bool>, i: int, tol: float) -> bool {
+        if (i == @array.len(a)) {
+            return true
+        }
+        let j = 0
+        while (j < @array.len(b)) {
+            if (!used[j] && nearFloat(a[i], b[j], tol)) {
+                used[j] = true
+                if (matchFrom(a, b, used, i + 1, tol)) {
+                    return true
+                }
+                used[j] = false
+            }
+            j += 1
+        }
+        return false
+    }
+
+    // helper: classic two-row Levenshtein
+    fn editDistance(a: string, b: string) -> int {
+        let n = @str.len(a)
+        let m = @str.len(b)
+        let prev: array<int> = []
+        let j = 0
+        while (j <= m) {
+            @array.push(prev, j)
+            j += 1
+        }
+        let i = 1
+        while (i <= n) {
+            let cur: array<int> = [i]
+            let ca = @str.charAt(a, i - 1)
+            j = 1
+            while (j <= m) {
+                let cost = 1
+                if (ca == @str.charAt(b, j - 1)) {
+                    cost = 0
+                }
+                let up = prev[j] + 1
+                let left = cur[j - 1] + 1
+                let diag = prev[j - 1] + cost
+                @array.push(cur, @math.min(@math.min(up, left), diag)) // gosh I hate these namespaces
+                j += 1
+            }
+            prev = cur
+            i += 1
+        }
+        return prev[m]
+    }
+}

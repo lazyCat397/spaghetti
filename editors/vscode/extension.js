@@ -35,7 +35,7 @@ class LspClient {
     return new Promise((resolve, reject) => {
       let settled = false;
       const proc = cp.spawn(this.command, ['lsp'], {
-        cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+        cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: stdlibEnv(this.command),
       });
       this.proc = proc;
       proc.on('error', (err) => {
@@ -155,6 +155,20 @@ function resolveBinary() {
   const bundled = path.join(context.extensionPath, 'bin', exe);
   if (fs.existsSync(bundled)) return bundled;
   return 'spg';
+}
+
+/** the server lists `attach #name` from the stdlib folder, found next to its binary. a copy
+ *  bundled with the extension has no stdlib beside it, so point SPG_STD at the installed one */
+function stdlibEnv(command) {
+  if (process.env.SPG_STD) return process.env;
+  const candidates = [];
+  if (path.isAbsolute(command)) {
+    const dir = path.dirname(command);
+    candidates.push(path.join(dir, 'stdlib'), path.join(dir, '..', 'stdlib'));
+  }
+  candidates.push(path.join(process.env.USERPROFILE || process.env.HOME || '', 'Spaghetti', 'stdlib'));
+  const found = candidates.find((p) => fs.existsSync(p));
+  return found ? { ...process.env, SPG_STD: found } : process.env;
 }
 
 function setStatus(state, detail) {

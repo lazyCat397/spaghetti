@@ -1,0 +1,18 @@
+// the cmp library: tolerant comparisons with an explicit tolerance
+attach #cmp
+print(cmp.nearFloat(200.3, 200.7, 0.5))
+print(cmp.nearFloat(200.3, 201.0, 0.5))
+print(cmp.nearString("strijg", "string", 1))
+print(cmp.nearString("sRNfrng", "srnfrng", 1))
+print(cmp.nearArray([1.0, 2.0, 3.0], [1.0, 2.1, 3.0], 0.2))
+print(cmp.nearArray([1.0, 2.0], [1.0, 2.0, 3.0], 0.2))
+print(cmp.nearInt(10, 13, 3))
+print(cmp.nearInt(10, 14, 3))
+print(cmp.nearFloatRel(200.3, 200.7, 0.2))
+print(cmp.nearFloatRel(100.0, 110.0, 5.0))
+print(cmp.nearArrayUnordered([1.0, 2.0, 3.0], [1.0, 3.0, 2.0], 0.1))
+print(cmp.nearArrayUnordered([1.0, 2.0, 2.0], [1.0, 2.0, 3.0], 0.1))
+print(cmp.nearIntArray([1, 2, 3], [1, 2, 4], 1))
+print(cmp.nearStringArray(["ana", "bo"], ["ana", "bu"], 1))
+print(cmp.nearStringIgnoreCase("STRING", "string", 0))
+print(cmp.nearStringIgnoreCase("ABC", "xyz", 1))
