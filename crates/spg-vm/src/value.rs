@@ -108,6 +108,8 @@ pub struct StructDef {
     pub field_names: Vec<String>,
     /// native kind of each field (`None` for fields native can't read or write)
     pub field_kinds: Vec<Option<crate::chunk::NativeKind>>,
+    /// the shape of each field's numbers (see Shape): a u64 or an f32 inside a field prints right
+    pub field_shapes: Vec<Shape>,
 }
 pub type StructRef = Rc<RefCell<(Rc<StructDef>, Vec<Value>)>>;
 
@@ -280,8 +282,69 @@ impl Value {
 impl fmt::Display for Value {
     /// how a value is PRINTED: floats use `print_float` (scientific when huge or tiny)
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write_value(f, self, print_float)
+        write_value(f, self, print_float, &Shape::Plain)
     }
+}
+
+/// what the static type says about the numbers inside a value. the checker writes it as text
+/// (`u` a u64, `f` an f32, `a(..)` an array, `m(k,v)` a map, `o(..)` an optional, `p` anything else),
+/// because at run time a u64 and an int are the same Value. only the leaves that differ matter
+#[derive(Debug, Clone, PartialEq)]
+pub enum Shape {
+    Plain,
+    U64,
+    F32,
+    Array(Box<Shape>),
+    Map(Box<Shape>, Box<Shape>),
+}
+
+impl Shape {
+    pub fn parse(text: &str) -> Shape {
+        let mut chars = text.chars().peekable();
+        parse_shape(&mut chars)
+    }
+}
+
+fn parse_shape(chars: &mut std::iter::Peekable<std::str::Chars>) -> Shape {
+    match chars.next() {
+        Some('u') => Shape::U64,
+        Some('f') => Shape::F32,
+        Some('a') => {
+            chars.next(); // (
+            let inner = parse_shape(chars);
+            chars.next(); // )
+            Shape::Array(Box::new(inner))
+        }
+        Some('m') => {
+            chars.next(); // (
+            let k = parse_shape(chars);
+            chars.next(); // ,
+            let v = parse_shape(chars);
+            chars.next(); // )
+            Shape::Map(Box::new(k), Box::new(v))
+        }
+        // an optional is its value (or none): its shape is the value's
+        Some('o') => {
+            chars.next(); // (
+            let inner = parse_shape(chars);
+            chars.next(); // )
+            inner
+        }
+        _ => Shape::Plain,
+    }
+}
+
+/// the text of a value for `@into.string` or `print`, with the static shape (see `Shape`).
+/// `print` picks the scientific float text, `@into.string` the plain one, as before
+pub fn shaped_text(v: &Value, shape: &str, print: bool) -> String {
+    struct Shaped<'a>(&'a Value, Shape, bool);
+    impl fmt::Display for Shaped<'_> {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            let float: fn(f64) -> String = if self.2 { print_float } else { format_float };
+            write_value(f, self.0, float, &self.1)
+        }
+    }
+    Shaped(v, Shape::parse(shape), print).to_string()
 }
 
 /// the text of a value for `@into.string` (and the string conversions): the same
@@ -290,7 +353,7 @@ pub fn plain_text(v: &Value) -> String {
     struct Plain<'a>(&'a Value);
     impl fmt::Display for Plain<'_> {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            write_value(f, self.0, format_float)
+            write_value(f, self.0, format_float, &Shape::Plain)
         }
     }
     Plain(v).to_string()
@@ -298,19 +361,26 @@ pub fn plain_text(v: &Value) -> String {
 
 /// one value, the layout shared by printing and string conversion. `float` picks
 /// the text of every float inside it (arrays, maps and structs included).
-fn write_value(f: &mut fmt::Formatter<'_>, v: &Value, float: fn(f64) -> String) -> fmt::Result {
+fn write_value(f: &mut fmt::Formatter<'_>, v: &Value, float: fn(f64) -> String, shape: &Shape) -> fmt::Result {
     match v {
+        // a u64 is its bits read unsigned
+        Value::Int(n) if *shape == Shape::U64 => write!(f, "{}", *n as u64),
         Value::Int(n) => write!(f, "{}", n),
+        Value::Float(n) if *shape == Shape::F32 => write!(f, "{}", format_f32(*n)),
         Value::Float(n) => write!(f, "{}", float(*n)),
         Value::Bool(b) => write!(f, "{}", b),
         Value::String(s) => write!(f, "{}", s),
         Value::Array(items) => {
             write!(f, "[")?;
+            let inner = match shape {
+                Shape::Array(inner) => inner.as_ref(),
+                _ => &Shape::Plain,
+            };
             for (i, item) in items.borrow().iter().enumerate() {
                 if i > 0 {
                     write!(f, ", ")?;
                 }
-                write_value(f, item, float)?;
+                write_value(f, item, float, inner)?;
             }
             write!(f, "]")
         }
@@ -320,13 +390,17 @@ fn write_value(f: &mut fmt::Formatter<'_>, v: &Value, float: fn(f64) -> String) 
                 return write!(f, "[:]");
             }
             write!(f, "[")?;
+            let (ks, vs) = match shape {
+                Shape::Map(k, v) => (k.as_ref(), v.as_ref()),
+                _ => (&Shape::Plain, &Shape::Plain),
+            };
             for (i, (k, v)) in m.entries().iter().enumerate() {
                 if i > 0 {
                     write!(f, ", ")?;
                 }
-                write_value(f, k, float)?;
+                write_value(f, k, float, ks)?;
                 write!(f, ": ")?;
-                write_value(f, v, float)?;
+                write_value(f, v, float, vs)?;
             }
             write!(f, "]")
         }
@@ -348,7 +422,8 @@ fn write_value(f: &mut fmt::Formatter<'_>, v: &Value, float: fn(f64) -> String) 
                     write!(f, ", ")?;
                 }
                 write!(f, "{}: ", name)?;
-                write_value(f, value, float)?;
+                let shape = def.field_shapes.get(i).cloned().unwrap_or(Shape::Plain);
+                write_value(f, value, float, &shape)?;
             }
             write!(f, " }}")
         }
@@ -369,6 +444,22 @@ pub fn print_float(n: f64) -> String {
 
 /// how a float shows up on screen. Rust prints `2.0` as `2`, which looks
 /// like an int, so a whole float keeps its `.0` (`-0.0` included). floats, man.
+/// a u64 as text: its bits read as unsigned (`u64::MAX` is 18446744073709551615)
+pub fn format_u64(bits: i64) -> String {
+    format!("{}", bits as u64)
+}
+
+/// `f32` as text: the shortest decimal that reads back as the same f32 (0.1f32 is "0.1", not
+/// the f64 it is stored in). whole numbers keep the `.0` of `format_float`.
+pub fn format_f32(n: f64) -> String {
+    if !n.is_finite() {
+        return format_float(n);
+    }
+    // whole numbers too: the shortest f32 text, then the `.0` that format_float gives whole floats
+    let text = format!("{}", n as f32);
+    if text.contains('.') { text } else { format!("{}.0", text) }
+}
+
 pub fn format_float(n: f64) -> String {
     if n.is_finite() && n.fract() == 0.0 {
         if n == 0.0 && n.is_sign_negative() {

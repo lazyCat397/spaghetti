@@ -1,0 +1,20 @@
+fn shout(name: string) -> string {
+    let out = ""
+        out = name + "!"
+    return out
+}
+print(shout("hi"))
+
+let words = "a"
+    let i = 0
+    while (i < 3) {
+        words = words + "x"
+        i = i + 1
+    }
+print(words)
+
+let tag = "start"
+    if (tag == "start") {
+        tag = "end"
+    }
+print(tag)

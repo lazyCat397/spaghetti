@@ -248,10 +248,6 @@ impl Parser {
             TokenKind::Const => self.parse_let(true, false),
             TokenKind::If => self.parse_if_stmt(),
             TokenKind::When => self.parse_match_stmt(),
-            // `compile VM {` and `compile JIT {` at the start of a line. `compile` is a word only there,
-            // so it stays an ordinary name everywhere else
-            TokenKind::Ident(name) if name == "compile" && self.compile_here("VM") => self.parse_compile(false),
-            TokenKind::Ident(name) if name == "compile" && self.compile_here("JIT") => self.parse_compile(true),
             TokenKind::While => self.parse_while(),
             TokenKind::Do => self.parse_do_while(),
             TokenKind::For => self.parse_for_in(),
@@ -477,8 +473,8 @@ impl Parser {
     fn zero_value(&self, type_ann: Option<&TypeExpr>, pos: &Pos) -> Result<Expr, ParseError> {
         let p = pos.clone();
         let zero = match type_ann {
-            None | Some(TypeExpr::Int) => Some(Expr::IntLit(0, p.clone())),
-            Some(TypeExpr::Float) => Some(Expr::FloatLit(0.0, p.clone())),
+            None | Some(TypeExpr::Int) | Some(TypeExpr::I8) | Some(TypeExpr::I16) | Some(TypeExpr::I32) | Some(TypeExpr::U8) | Some(TypeExpr::U16) | Some(TypeExpr::U32) | Some(TypeExpr::U64) => Some(Expr::IntLit(0, p.clone())),
+            Some(TypeExpr::Float) | Some(TypeExpr::F32) => Some(Expr::FloatLit(0.0, p.clone())),
             Some(TypeExpr::Bool) => Some(Expr::BoolLit(false, p.clone())),
             Some(TypeExpr::String) => Some(Expr::StringLit(String::new(), p.clone())),
             Some(TypeExpr::Optional(_)) => Some(Expr::NoneLit(p.clone())),
@@ -805,7 +801,7 @@ impl Parser {
     /// the same check, `off` tokens ahead of the current one (`public` sits in front)
     fn method_add_at(&self, off: usize) -> bool {
         let at = |k: usize| self.tokens.get(self.pos + off + k).map(|t| &t.kind);
-        matches!(at(0), Some(TokenKind::TypeInt | TokenKind::TypeFloat | TokenKind::TypeBool | TokenKind::TypeString))
+        matches!(at(0), Some(TokenKind::TypeInt | TokenKind::TypeFloat | TokenKind::TypeF32 | TokenKind::TypeBool | TokenKind::TypeString))
             && matches!(at(1), Some(TokenKind::DoubleColon))
             && matches!(at(2), Some(TokenKind::Ident(n)) if n == "methods")
             && matches!(at(3), Some(TokenKind::Dot))
@@ -820,6 +816,7 @@ impl Parser {
         let (ty, type_ann) = match self.advance().kind {
             TokenKind::TypeInt => ("int", TypeExpr::Int),
             TokenKind::TypeFloat => ("float", TypeExpr::Float),
+            TokenKind::TypeF32 => ("f32", TypeExpr::F32),
             TokenKind::TypeBool => ("bool", TypeExpr::Bool),
             _ => ("string", TypeExpr::String),
         };
@@ -873,6 +870,7 @@ impl Parser {
         let mut name = match self.peek().kind.clone() {
             TokenKind::TypeInt => { self.advance(); "int".to_string() }
             TokenKind::TypeFloat => { self.advance(); "float".to_string() }
+            TokenKind::TypeF32 => { self.advance(); "f32".to_string() }
             TokenKind::TypeBool => { self.advance(); "bool".to_string() }
             TokenKind::TypeString => { self.advance(); "string".to_string() }
             _ => self.parse_binding_name()?,
@@ -1257,33 +1255,6 @@ impl Parser {
         }
     }
 
-    /// whether the tokens here read `compile <word> {`, starting a line
-    fn compile_here(&self, word: &str) -> bool {
-        let starts_line = self.pos == 0 || self.starts_new_line();
-        starts_line
-            && self.tokens.get(self.pos + 1).is_some_and(|t| matches!(&t.kind, TokenKind::Ident(m) if m == word))
-    }
-
-    /// `compile VM { ... }` (jit = false) or `compile JIT { ... }` (jit = true)
-    fn parse_compile(&mut self, jit: bool) -> Result<Stmt, ParseError> {
-        let pos = self.peek_pos();
-        self.advance(); // compile
-        let word = if jit { "JIT" } else { "VM" };
-        self.advance(); // VM or JIT
-        if !self.check(&TokenKind::LBrace) {
-            let found = self.peek().kind.clone();
-            let (line, col) = (self.peek().line, self.peek().col);
-            return Err(ParseError::Unexpected {
-                expected: format!("'{{' after 'compile {}' (write it as: compile {} {{ ... }})", word, word),
-                found,
-                line,
-                col,
-            });
-        }
-        let body = self.parse_block()?;
-        Ok(if jit { Stmt::CompileJit { body, pos } } else { Stmt::CompileVm { body, pos } })
-    }
-
     fn parse_block(&mut self) -> Result<Block, ParseError> {
         let pos = self.peek_pos();
         self.expect(TokenKind::LBrace, "'{'")?;
@@ -1337,7 +1308,15 @@ impl Parser {
         let name = match &t.kind {
             TokenKind::Ident(s) => s.clone(),
             TokenKind::TypeInt => "int".to_string(),
+            TokenKind::TypeI8 => "i8".to_string(),
+            TokenKind::TypeI16 => "i16".to_string(),
+            TokenKind::TypeI32 => "i32".to_string(),
+            TokenKind::TypeU8 => "u8".to_string(),
+            TokenKind::TypeU16 => "u16".to_string(),
+            TokenKind::TypeU32 => "u32".to_string(),
+            TokenKind::TypeU64 => "u64".to_string(),
             TokenKind::TypeFloat => "float".to_string(),
+            TokenKind::TypeF32 => "f32".to_string(),
             TokenKind::TypeBool => "bool".to_string(),
             TokenKind::TypeString => "string".to_string(),
             TokenKind::TypeVoid => "void".to_string(),
@@ -1400,7 +1379,15 @@ impl Parser {
         match self.advance().kind {
             TokenKind::Namespace(name) => Err(ParseError::ReservedName { name, line: tline, col: tcol }),
             TokenKind::TypeInt => Ok(TypeExpr::Int),
+            TokenKind::TypeI8 => Ok(TypeExpr::I8),
+            TokenKind::TypeI16 => Ok(TypeExpr::I16),
+            TokenKind::TypeI32 => Ok(TypeExpr::I32),
+            TokenKind::TypeU8 => Ok(TypeExpr::U8),
+            TokenKind::TypeU16 => Ok(TypeExpr::U16),
+            TokenKind::TypeU32 => Ok(TypeExpr::U32),
+            TokenKind::TypeU64 => Ok(TypeExpr::U64),
             TokenKind::TypeFloat => Ok(TypeExpr::Float),
+            TokenKind::TypeF32 => Ok(TypeExpr::F32),
             TokenKind::TypeBool => Ok(TypeExpr::Bool),
             TokenKind::TypeString => Ok(TypeExpr::String),
             TokenKind::TypeVoid => Ok(TypeExpr::Void),
@@ -1763,7 +1750,7 @@ impl Parser {
                 // `x.string()`, `x.int()`, `x.float()`: the type keywords are also
                 // method names after a dot (other names aren't affected)
                 let field = match self.peek().kind {
-                    TokenKind::TypeInt | TokenKind::TypeFloat | TokenKind::TypeString | TokenKind::TypeBool => {
+                    TokenKind::TypeInt | TokenKind::TypeFloat | TokenKind::TypeF32 | TokenKind::TypeString | TokenKind::TypeBool => {
                         let name = self.parse_member_name()?;
                         name
                     }
@@ -1861,6 +1848,7 @@ impl Parser {
         let pos = self.peek_pos();
         match self.advance().kind {
             TokenKind::Int(n) => Ok(Expr::IntLit(n, pos)),
+            TokenKind::UInt(n) => Ok(Expr::UIntLit(n, pos)),
             TokenKind::Float(f) => Ok(Expr::FloatLit(f, pos)),
             TokenKind::Str(s) => Ok(Expr::StringLit(s, pos)),
             TokenKind::Bool(b) => Ok(Expr::BoolLit(b, pos)),
@@ -1882,6 +1870,14 @@ impl Parser {
             }
             TokenKind::TypeInt if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("int", pos),
             TokenKind::TypeFloat if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("float", pos),
+            TokenKind::TypeF32 if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("f32", pos),
+            TokenKind::TypeI8 if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("i8", pos),
+            TokenKind::TypeI16 if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("i16", pos),
+            TokenKind::TypeI32 if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("i32", pos),
+            TokenKind::TypeU8 if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("u8", pos),
+            TokenKind::TypeU16 if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("u16", pos),
+            TokenKind::TypeU32 if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("u32", pos),
+            TokenKind::TypeU64 if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("u64", pos),
             TokenKind::TypeBool if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("bool", pos),
             TokenKind::TypeString if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("string", pos),
             TokenKind::TypeArray if self.check(&TokenKind::DoubleColon) => self.parse_type_prop("array", pos),
@@ -1995,6 +1991,7 @@ fn describe_token(k: &TokenKind) -> String {
         TokenKind::Newline => "the end of the line".to_string(),
         TokenKind::Ident(s) => format!("the name '{}'", s),
         TokenKind::Int(n) => format!("the number {}", n),
+        TokenKind::UInt(n) => format!("the number {}", n),
         TokenKind::Float(x) => format!("the number {}", x),
         TokenKind::Str(_) => "a text".to_string(),
         TokenKind::Bool(b) => format!("'{}'", b),
@@ -2072,7 +2069,15 @@ fn symbol_text(k: &TokenKind) -> &'static str {
         TokenKind::NamespaceKw => "namespace",
         TokenKind::Enum => "enum",
         TokenKind::TypeInt => "int",
+        TokenKind::TypeI8 => "i8",
+        TokenKind::TypeI16 => "i16",
+        TokenKind::TypeI32 => "i32",
+        TokenKind::TypeU8 => "u8",
+        TokenKind::TypeU16 => "u16",
+        TokenKind::TypeU32 => "u32",
+        TokenKind::TypeU64 => "u64",
         TokenKind::TypeFloat => "float",
+        TokenKind::TypeF32 => "f32",
         TokenKind::TypeBool => "bool",
         TokenKind::TypeString => "string",
         TokenKind::TypeVoid => "void",

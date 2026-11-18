@@ -12,11 +12,19 @@ use crate::value::Value;
 
 /// `Copy` since every variant only holds small integers. that makes
 /// cloning an instruction in the hot loop free. no real clone, no drama.
+/// the arithmetic a sized int (`i8`, `u8`, `u64`) can do. see `OpCode::SizedArith`
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SizedOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    Pow,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum OpCode {
-    /// the start of a `compile JIT` block: `block` indexes `jit_blocks`, `end` is the pc after the block.
-    /// the VM runs the block as native code and jumps to `end`; without native code it runs the block's ops
-    JitBlock { block: usize, end: usize },
     // ---- constants / literals (the boring part) ----
     /// push constants[idx]. nothing clever.
     Const(usize),
@@ -58,6 +66,19 @@ pub enum OpCode {
     DivInt,
     ModInt,
     PowInt,
+    /// arithmetic on a u64: its bits are a u64 (`0..=u64::MAX`). wraps at 2^64 by default, an error under
+    /// `#> strict` when the result leaves u64. division and remainder are unsigned
+    U64Arith { op: SizedOp },
+    /// unsigned comparison of two u64 (`<`, `<=`, `>`, `>=`)
+    LtU64,
+    LtEqU64,
+    GtU64,
+    GtEqU64,
+    /// arithmetic on a sized int. the operands are in `lo..=hi`; the result is checked against it.
+    /// `wraps`: `i8` and `u8` wrap into the range (an error under `#> strict`). `u64` does not
+    /// wrap: its range is 0..=i64::MAX, the most the i64 runtime holds, so any result outside it
+    /// is an error, with or without `#> strict`. that is NOT 64-bit unsigned arithmetic.
+    SizedArith { op: SizedOp, lo: i64, hi: i64, wraps: bool, ty: &'static str },
     AddFloat,
     SubFloat,
     MulFloat,
@@ -67,6 +88,8 @@ pub enum OpCode {
     ConcatString,
     NegInt,
     NegFloat,
+    /// rounds the float on top of the stack to single precision (f32). every f32 operation ends with it
+    RoundF32,
 
     // ---- comparison (the fun part) ----
     EqInt,
@@ -370,7 +393,6 @@ impl OpCode {
         match *self {
             OpCode::Jump(t) | OpCode::JumpIfFalse(t) | OpCode::JumpIfNotNone(t) => Some(t),
             OpCode::JumpUnlessLtConst(_, t) | OpCode::JumpUnlessGtConst(_, t) | OpCode::JumpUnlessLtEqConst(_, t) | OpCode::JumpUnlessGtEqConst(_, t) | OpCode::JumpUnlessEqConst(_, t) | OpCode::JumpUnlessNotEqConst(_, t) | OpCode::JumpUnlessLt(t) | OpCode::JumpUnlessLtLocals(_, _, t) | OpCode::JumpUnlessLtLocalConst(_, _, t) | OpCode::JumpUnlessGt(t) | OpCode::JumpUnlessGtLocals(_, _, t) | OpCode::JumpUnlessGtLocalConst(_, _, t) | OpCode::JumpUnlessLtEq(t) | OpCode::JumpUnlessLtEqLocals(_, _, t) | OpCode::JumpUnlessLtEqLocalConst(_, _, t) | OpCode::JumpUnlessGtEq(t) | OpCode::JumpUnlessGtEqLocals(_, _, t) | OpCode::JumpUnlessGtEqLocalConst(_, _, t) | OpCode::JumpUnlessEq(t) | OpCode::JumpUnlessEqLocals(_, _, t) | OpCode::JumpUnlessEqLocalConst(_, _, t) | OpCode::JumpUnlessNotEq(t) | OpCode::JumpUnlessNotEqLocals(_, _, t) | OpCode::JumpUnlessNotEqLocalConst(_, _, t) => Some(t),
-            OpCode::JitBlock { end, .. } => Some(end),
             OpCode::PushHandler { catch_target } => Some(catch_target),
             _ => None,
         }
@@ -380,7 +402,6 @@ impl OpCode {
         match self {
             OpCode::Jump(t) | OpCode::JumpIfFalse(t) | OpCode::JumpIfNotNone(t) => Some(t),
             OpCode::JumpUnlessLtConst(_, t) | OpCode::JumpUnlessGtConst(_, t) | OpCode::JumpUnlessLtEqConst(_, t) | OpCode::JumpUnlessGtEqConst(_, t) | OpCode::JumpUnlessEqConst(_, t) | OpCode::JumpUnlessNotEqConst(_, t) | OpCode::JumpUnlessLt(t) | OpCode::JumpUnlessLtLocals(_, _, t) | OpCode::JumpUnlessLtLocalConst(_, _, t) | OpCode::JumpUnlessGt(t) | OpCode::JumpUnlessGtLocals(_, _, t) | OpCode::JumpUnlessGtLocalConst(_, _, t) | OpCode::JumpUnlessLtEq(t) | OpCode::JumpUnlessLtEqLocals(_, _, t) | OpCode::JumpUnlessLtEqLocalConst(_, _, t) | OpCode::JumpUnlessGtEq(t) | OpCode::JumpUnlessGtEqLocals(_, _, t) | OpCode::JumpUnlessGtEqLocalConst(_, _, t) | OpCode::JumpUnlessEq(t) | OpCode::JumpUnlessEqLocals(_, _, t) | OpCode::JumpUnlessEqLocalConst(_, _, t) | OpCode::JumpUnlessNotEq(t) | OpCode::JumpUnlessNotEqLocals(_, _, t) | OpCode::JumpUnlessNotEqLocalConst(_, _, t) => Some(t),
-            OpCode::JitBlock { end, .. } => Some(end),
             OpCode::PushHandler { catch_target } => Some(catch_target),
             _ => None,
         }
@@ -396,7 +417,7 @@ pub struct Loc {
 }
 
 /// the static type of a local, as native code can hold it. `None` for anything else
-/// (strings, structs, maps, ...): a `compile JIT` block can't read those.
+/// (strings, structs, maps, ...): native code can't hold those.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SlotTy {
     Int,
@@ -404,15 +425,6 @@ pub enum SlotTy {
     Bool,
     String,
     Array(Box<SlotTy>),
-}
-
-/// one `compile JIT` block of a chunk. `start` is the JitBlock op, `end` the pc after the block,
-/// `entry` the static types of the locals when the block starts (a snapshot of the scope)
-#[derive(Debug, Clone)]
-pub struct JitBlockInfo {
-    pub start: usize,
-    pub end: usize,
-    pub entry: Vec<Option<SlotTy>>,
 }
 
 #[derive(Debug, Clone)]
@@ -435,11 +447,6 @@ pub struct Chunk {
     pub origin: Vec<usize>,
     /// a `-> task<T>` function: its call hands back a task (see `TaskCell`), not the T
     pub is_task: bool,
-    /// (start, end) pcs in plain code of every `compile VM` block. native code never runs them.
-    /// only the plain code (the one spg-jit reads) is meant to be checked against this
-    pub vm_only: Vec<(usize, usize)>,
-    /// every `compile JIT` block of this chunk, in source order (plain code)
-    pub jit_blocks: Vec<JitBlockInfo>,
     /// the static type of each local slot, where it's known (see `SlotTy`)
     pub slot_types: Vec<Option<SlotTy>>,
 }
@@ -455,8 +462,6 @@ impl Chunk {
             num_locals: 0,
             arity: 0,
             native_sig: None,
-            vm_only: Vec::new(),
-            jit_blocks: Vec::new(),
             slot_types: Vec::new(),
             is_task: false,
             origin: Vec::new(),

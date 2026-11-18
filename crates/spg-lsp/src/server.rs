@@ -1843,11 +1843,16 @@ mod tests {
                 assert!(!labels.iter().any(|l| l == "now"), "leak in {:?}", text);
             }
         }
-        // `@into` has exactly its three members
+        // `@into` has its conversions: the ones for float, int, string, f32, and each sized int with its `w` name
+        // (`i64` is `int`, so there is no `@into.i64` of its own)
         let into = labels_of(&complete_at("compl_into", "let a = @into.\n", 0, 14));
         let mut sorted = into.clone();
         sorted.sort();
-        assert_eq!(sorted, vec!["float", "int", "string"]);
+        assert_eq!(
+            sorted,
+            vec!["f32", "float", "i16", "i16w", "i32", "i32w", "i8", "i8w", "int", "string",
+                 "u16", "u16w", "u32", "u32w", "u64", "u64w", "u8", "u8w"]
+        );
     }
 
     #[test]

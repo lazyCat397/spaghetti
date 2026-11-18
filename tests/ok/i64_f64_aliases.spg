@@ -1,0 +1,12 @@
+let a: i64 = 9600000000;
+let b: int = 5;
+let c: f64 = 2.5;
+let d: float = 0.5;
+print(a + b);
+print(c + d);
+print(type(a));
+print(i64::max);
+print(f64::epsilon > 0.0);
+let z = 0;
+let w: i64 = z;
+print(w);

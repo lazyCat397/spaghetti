@@ -201,7 +201,6 @@ impl Check<'_> {
                 }
                 else_branch.as_ref().map_or(Ok(()), |b| self.block(b))
             }
-            Stmt::CompileVm { body, .. } | Stmt::CompileJit { body, .. } => self.block(body),
             Stmt::Try { try_block, catch_block, .. } => {
                 self.block(try_block)?;
                 self.block(catch_block)

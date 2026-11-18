@@ -253,17 +253,6 @@
           "name": "keyword.control.use.spg"
         },
         {
-          "match": "((?<![\\p{L}\\p{N}_])compile(?![\\p{L}\\p{N}_]))(\\s+)((?<![\\p{L}\\p{N}_])(?:VM|JIT)(?![\\p{L}\\p{N}_]))",
-          "captures": {
-            "1": {
-              "name": "keyword.control.compile.spg"
-            },
-            "3": {
-              "name": "keyword.control.compile.target.spg"
-            }
-          }
-        },
-        {
           "match": "(?<![\\p{L}\\p{N}_])(?:step)(?![\\p{L}\\p{N}_])(?=\\s+[-(\\p{L}_\\p{N}])",
           "name": "keyword.control.loop.step.spg"
         },

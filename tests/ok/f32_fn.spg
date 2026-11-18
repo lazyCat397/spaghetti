@@ -1,0 +1,5 @@
+fn half(x: f32) -> f32 {
+    return x / 2.0;
+}
+let v: f32 = 3.0;
+print(half(v));

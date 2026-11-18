@@ -1,0 +1,6 @@
+const MAX: u64 = 18446744073709551615;
+let m: map<string, u64> = ["a": MAX];
+print(m);
+print(@into.string(m));
+let g: map<string, f32> = ["x": 0.1];
+print(g);

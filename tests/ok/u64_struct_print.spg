@@ -1,0 +1,16 @@
+struct Inner {
+    id: u64,
+    ratio: f32,
+}
+struct Outer {
+    name: string,
+    big: u64,
+    inner: Inner,
+    plain: int,
+}
+const MAX: u64 = 18446744073709551615;
+let o: Outer = Outer { name: "x", big: MAX, inner: Inner { id: MAX, ratio: 0.1 }, plain: -5 };
+print(o);
+print(@into.string(o));
+let xs: array<Outer> = [o];
+print(xs);

@@ -38,6 +38,18 @@ pub enum TypeError {
     /// `int::foo`: the type exists, the property doesn't
     UnknownTypeProperty { ty: String, name: String, pos: Pos },
 
+    /// `const X: i8 = 300;`. the literal does not fit the declared sized type. wrap is not for literals.
+    IntOutOfRange { value: i64, ty: Ty, pos: Pos },
+
+    /// a literal above i64::MAX where it is not a u64 (`target` is what it was expected to be, int if none)
+    UIntOutOfRange { value: u64, target: Ty, pos: Pos },
+
+    /// `@into.i8(300)` with a literal: the value does not fit. known at compile time. the `w` name wraps it
+    IntoOutOfRange { value: i64, ty: Ty, pos: Pos },
+
+    /// `const X: f32 = 1e39;`: the literal is beyond f32's range
+    FloatOutOfRange { value: f64, pos: Pos },
+
     /// `type(x) == "strnig"`: a string compared with `type(...)` must name a type the language has
     UnknownTypeName { name: String, pos: Pos },
 
@@ -243,6 +255,10 @@ impl TypeError {
             | TypeError::UndefinedVariable { pos, .. }
             | TypeError::UndefinedFunction { pos, .. }
             | TypeError::UnknownTypeProperty { pos, .. }
+            | TypeError::IntOutOfRange { pos, .. }
+            | TypeError::IntoOutOfRange { pos, .. }
+            | TypeError::UIntOutOfRange { pos, .. }
+            | TypeError::FloatOutOfRange { pos, .. }
             | TypeError::UnknownTypeName { pos, .. }
             | TypeError::NeedsAttach { pos, .. }
             | TypeError::NotCallable { pos, .. }
@@ -415,6 +431,22 @@ impl TypeError {
             TypeError::CaptureAssign { name, .. } => write!(
                 f, "{}a lambda cannot assign '{}': it is a copy of a variable from the function it was written in",
                 self.location(), shown(name)
+            ),
+            TypeError::FloatOutOfRange { value, .. } => write!(
+                f, "{}the value {} does not fit f32 (its largest value is about 3.4e38)",
+                self.location(), value
+            ),
+            TypeError::UIntOutOfRange { value, target, .. } => write!(
+                f, "{}the value {} does not fit {}: a number above 9223372036854775807 needs a u64",
+                self.location(), value, target
+            ),
+            TypeError::IntoOutOfRange { value, ty, .. } => write!(
+                f, "{}the value {} does not fit {} (range {}): use @into.{}w to wrap it into the range",
+                self.location(), value, ty, sized_range(ty), ty
+            ),
+            TypeError::IntOutOfRange { value, ty, .. } => write!(
+                f, "{}the value {} does not fit {} (range {})",
+                self.location(), value, ty, sized_range(ty)
             ),
             TypeError::UnknownTypeProperty { ty, name, .. } => write!(
                 f, "{}type '{}' has no property '{}'",
@@ -766,4 +798,12 @@ fn shown(name: &str) -> String {
         }
     }
     base.to_string()
+}
+
+/// the range of a sized int type, for the message. the numbers come from `Ty::sized_bounds`.
+pub fn sized_range(ty: &crate::typed_ast::Ty) -> String {
+    match ty.sized_bounds() {
+        Some((lo, hi)) => format!("{}..={}", lo, hi),
+        None => String::new(),
+    }
 }

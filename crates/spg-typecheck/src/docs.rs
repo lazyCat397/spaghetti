@@ -100,8 +100,21 @@ pub fn builtin_doc(name: &str) -> Option<&'static str> {
 
         // ---- @into: conversions ----
         "@into.string" => "the value as text",
-        "@into.int" => "the number as an int, or the text parsed as an int (error if it isn't one)",
+        "@into.int" => "the number as an int, the text parsed as an int (error if it isn't one), or a sized int (i8, u8, ...) back as int",
         "@into.float" => "the number as a float, or the text parsed as a float (error if it isn't one)",
+        "@into.i8" => "the int as i8, error if it does not fit",
+        "@into.i8w" => "the int as i8, wrapped into its range (300 -> 44 for u8)",
+        "@into.i16" => "the int as i16, error if it does not fit",
+        "@into.i16w" => "the int as i16, wrapped into its range (300 -> 44 for u8)",
+        "@into.i32" => "the int as i32, error if it does not fit",
+        "@into.i32w" => "the int as i32, wrapped into its range (300 -> 44 for u8)",
+        "@into.u8" => "the int as u8, error if it does not fit",
+        "@into.u8w" => "the int as u8, wrapped into its range (300 -> 44 for u8)",
+        "@into.u16" => "the int as u16, error if it does not fit",
+        "@into.u16w" => "the int as u16, wrapped into its range (300 -> 44 for u8)",
+        "@into.u32" => "the int as u32, error if it does not fit",
+        "@into.u32w" => "the int as u32, wrapped into its range (300 -> 44 for u8)",
+        "@into.u64" => "the int as u64, error if it does not fit",
 
         // ---- @time ----
 

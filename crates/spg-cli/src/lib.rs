@@ -181,18 +181,12 @@ fn run_cmd(args: &[String], execute: bool) -> i32 {
         Ok(b) => b,
         Err(code) => return code,
     };
-    // native code is generated from the plain (unfused) bytecode, which is what
-    // spg-jit understands. the VM keeps running the optimized program
-    // the plain (unfused) program: native code is generated from it, and the static check of
-    // `compile JIT` reads it. the check runs even with --no-jit, since the contract is the program's
+    // native code is generated from the plain (unfused) bytecode, which is what spg-jit understands.
+    // the VM keeps running the optimized program
     let plain = match build(std::path::Path::new(file), false, friendly, strict) {
         Ok(b) => b,
         Err(code) => return code,
     };
-    if let Err(msg) = spg_jit::check_blocks(&plain) {
-        eprintln!("error: {}: {}", file, msg);
-        return 1;
-    }
     let native_src = if jit { Some(plain) } else { None };
 
     if !execute {
@@ -463,12 +457,6 @@ fn run_bundle(bundle: bundle::Bundle, args: &[String]) -> i32 {
     };
     // native code is an optimization. without its plain copy the VM just runs everything
     let native_src = compile(false).ok();
-    if let Some(plain) = &native_src {
-        if let Err(msg) = spg_jit::check_blocks(plain) {
-            eprintln!("error: {}", msg);
-            return 1;
-        }
-    }
     execute_program(&bytecode, &spec, args.to_vec(), false, false, native_src.as_ref(), false)
 }
 

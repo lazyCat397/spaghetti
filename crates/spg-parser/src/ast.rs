@@ -51,7 +51,23 @@ pub struct Pos {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeExpr {
     Int,
+    /// `i8`: a signed 8-bit int. the value is still an int at run time; the range is checked at compile time
+    I8,
+    /// `i16`: -32768..=32767 (same rule as i8)
+    I16,
+    /// `i32`: -2147483648..=2147483647 (same rule as i8)
+    I32,
+    /// `u8`: an unsigned 8-bit int, 0..=255
+    U8,
+    /// `u16`: 0..=65535
+    U16,
+    /// `u32`: 0..=4294967295
+    U32,
+    /// `u64`: an unsigned 64-bit int. this phase: 0..=i64::MAX (the int runtime is i64, see sized_bounds)
+    U64,
     Float,
+    /// `f32`: a float rounded to single precision after every operation (the VM keeps f64 storage)
+    F32,
     Bool,
     String,
     Void,
@@ -77,6 +93,8 @@ pub enum TypeExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     IntLit(i64, Pos),
+    /// an int literal above i64::MAX: its bits as u64. only typed where a u64 is expected
+    UIntLit(u64, Pos),
     FloatLit(f64, Pos),
     StringLit(String, Pos),
     BoolLit(bool, Pos),
@@ -279,14 +297,6 @@ pub enum Stmt {
         body: Block,
         pos: Pos,
     },
-
-    /// `compile VM { body }`: an ordinary block that always runs in the VM (to debug
-    /// and compare). native code never runs it, nor any loop that touches it.
-    CompileVm { body: Block, pos: Pos },
-
-    /// `compile JIT { body }`: a block that must run as native code. checked before the run:
-    /// a block that native code can't hold is a compile error, with its line and reason.
-    CompileJit { body: Block, pos: Pos },
 
     /// `do { body } while (cond)`: the body runs before the first check
     DoWhile {
@@ -499,6 +509,7 @@ impl Expr {
     pub fn pos(&self) -> Option<&Pos> {
         match self {
             Expr::IntLit(_, p)
+            | Expr::UIntLit(_, p)
             | Expr::FloatLit(_, p)
             | Expr::StringLit(_, p)
             | Expr::BoolLit(_, p)
@@ -539,8 +550,6 @@ impl Stmt {
             | Stmt::Match { pos, .. }
             | Stmt::While { pos, .. }
             | Stmt::DoWhile { pos, .. }
-            | Stmt::CompileVm { pos, .. }
-            | Stmt::CompileJit { pos, .. }
             | Stmt::ForIn { pos, .. }
             | Stmt::ForRange { pos, .. }
             | Stmt::Return { pos, .. }

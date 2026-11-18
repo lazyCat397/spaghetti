@@ -1,0 +1,8 @@
+const STEP: i16 = 1000;
+let x: i16 = 0;
+let i: int = 0;
+while (i < 100) {
+    x = x + STEP;
+    i = i + 1;
+}
+print(x);

@@ -1,0 +1,8 @@
+const TOP: u8 = 255;
+const ZERO: u8 = 0;
+const BIG: u64 = 9223372036854775807;
+let n: u64 = 1234567890;
+print(TOP);
+print(ZERO);
+print(BIG);
+print(n);

@@ -12,6 +12,22 @@ use crate::builtins::BuiltinId;
 #[derive(Debug, Clone)]
 pub enum Ty {
     Int,
+    /// `f32`: a float rounded to single precision (see ast TypeExpr::F32)
+    F32,
+    /// `i8`: a sized int, -128..=127. a separate type from `int`: no implicit mix, no implicit widening
+    I8,
+    /// `i16`: -32768..=32767
+    I16,
+    /// `i32`: -2147483648..=2147483647
+    I32,
+    /// `u8`: 0..=255
+    U8,
+    /// `u16`: 0..=65535
+    U16,
+    /// `u32`: 0..=4294967295
+    U32,
+    /// `u64`: this phase 0..=i64::MAX
+    U64,
     Float,
     Bool,
     String,
@@ -87,11 +103,37 @@ impl Ty {
 /// "expected type" through the whole checker. `let m = [:]` with no
 /// annotation is rejected (`EmptyMapNeedsType`). `let a = []`
 /// with no annotation stays `array<void>`, like it always did.
+impl Ty {
+    /// the inclusive range of a sized int type, as i64 bounds. `None` for everything else.
+    /// `u64` stops at i64::MAX on purpose: the int runtime is i64, so a bigger value could
+    /// not be stored or printed right yet. one table, used by the literal check and its message.
+    pub fn sized_bounds(&self) -> Option<(i64, i64)> {
+        match self {
+            Ty::I8 => Some((i8::MIN as i64, i8::MAX as i64)),
+            Ty::I16 => Some((i16::MIN as i64, i16::MAX as i64)),
+            Ty::I32 => Some((i32::MIN as i64, i32::MAX as i64)),
+            Ty::U8 => Some((0, u8::MAX as i64)),
+            Ty::U16 => Some((0, u16::MAX as i64)),
+            Ty::U32 => Some((0, u32::MAX as i64)),
+            Ty::U64 => Some((0, i64::MAX)),
+            _ => None,
+        }
+    }
+}
+
 impl PartialEq for Ty {
     fn eq(&self, other: &Ty) -> bool {
         match (self, other) {
             (Ty::Int, Ty::Int)
+            | (Ty::I8, Ty::I8)
+            | (Ty::I16, Ty::I16)
+            | (Ty::I32, Ty::I32)
+            | (Ty::U8, Ty::U8)
+            | (Ty::U16, Ty::U16)
+            | (Ty::U32, Ty::U32)
+            | (Ty::U64, Ty::U64)
             | (Ty::Float, Ty::Float)
+            | (Ty::F32, Ty::F32)
             | (Ty::Bool, Ty::Bool)
             | (Ty::String, Ty::String)
             | (Ty::Void, Ty::Void)
@@ -121,7 +163,15 @@ impl std::fmt::Display for Ty {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Ty::Int => write!(f, "int"),
+            Ty::I8 => write!(f, "i8"),
+            Ty::I16 => write!(f, "i16"),
+            Ty::I32 => write!(f, "i32"),
+            Ty::U8 => write!(f, "u8"),
+            Ty::U16 => write!(f, "u16"),
+            Ty::U32 => write!(f, "u32"),
+            Ty::U64 => write!(f, "u64"),
             Ty::Float => write!(f, "float"),
+            Ty::F32 => write!(f, "f32"),
             Ty::Bool => write!(f, "bool"),
             Ty::String => write!(f, "string"),
             Ty::Void => write!(f, "void"),
@@ -186,7 +236,11 @@ pub enum ArrayFnKind {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedExpr {
     IntLit(i64),
+    /// an int literal the checker has already range-checked for a sized type (`i8`). runs as an int
+    SizedIntLit { value: i64, ty: Ty },
     FloatLit(f64),
+    /// a float literal checked for f32: the value is already rounded to single precision
+    F32Lit(f64),
     StringLit(String),
     BoolLit(bool),
     ArrayLit { items: Vec<TypedExpr>, ty: Ty },
@@ -318,7 +372,9 @@ impl TypedExpr {
     pub fn ty(&self) -> &Ty {
         match self {
             TypedExpr::IntLit(_) => &Ty::Int,
+            TypedExpr::SizedIntLit { ty, .. } => ty,
             TypedExpr::FloatLit(_) => &Ty::Float,
+            TypedExpr::F32Lit(_) => &Ty::F32,
             TypedExpr::StringLit(_) => &Ty::String,
             TypedExpr::BoolLit(_) => &Ty::Bool,
             TypedExpr::ArrayLit { ty, .. } => ty,
@@ -390,10 +446,6 @@ pub enum TypedStmt {
 
     While { cond: TypedExpr, body: TypedBlock },
 
-    /// `compile VM { }`: a block the compiler marks as VM-only (see `Chunk::vm_only`)
-    CompileVm { body: TypedBlock },
-    /// `compile JIT { }`: a block that must be native code (see `Chunk::jit_blocks`)
-    CompileJit { body: TypedBlock },
     DoWhile { body: TypedBlock, cond: TypedExpr },
 
     /// `map_source` is set for `for k, v in map`: `iterable` is then the map's keys,

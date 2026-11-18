@@ -4,6 +4,8 @@
 pub enum TokenKind {
     // literals (the stuff people type)
     Int(i64),
+    /// an integer literal above i64::MAX (up to u64::MAX): only valid where a u64 is expected
+    UInt(u64),
     Float(f64),
     Str(String),
     Bool(bool),
@@ -45,7 +47,15 @@ pub enum TokenKind {
 
     // primitive types (type keywords, not plain idents)
     TypeInt,
+    TypeI8,
+    TypeI16,
+    TypeI32,
+    TypeU8,
+    TypeU16,
+    TypeU32,
+    TypeU64,
     TypeFloat,
+    TypeF32,
     TypeBool,
     TypeString,
     TypeVoid,
@@ -157,8 +167,17 @@ pub fn lookup_keyword(word: &str) -> Option<TokenKind> {
         "true" => Some(TokenKind::Bool(true)),
         "false" => Some(TokenKind::Bool(false)),
         "none" => Some(TokenKind::NoneLit),
-        "int" => Some(TokenKind::TypeInt),
-        "float" => Some(TokenKind::TypeFloat),
+        // `i64` is `int`: the same type, another name. same for `f64` and `float`
+        "int" | "i64" => Some(TokenKind::TypeInt),
+        "i8" => Some(TokenKind::TypeI8),
+        "i16" => Some(TokenKind::TypeI16),
+        "i32" => Some(TokenKind::TypeI32),
+        "u8" => Some(TokenKind::TypeU8),
+        "u16" => Some(TokenKind::TypeU16),
+        "u32" => Some(TokenKind::TypeU32),
+        "u64" => Some(TokenKind::TypeU64),
+        "float" | "f64" => Some(TokenKind::TypeFloat),
+        "f32" => Some(TokenKind::TypeF32),
         "bool" => Some(TokenKind::TypeBool),
         "string" => Some(TokenKind::TypeString),
         "void" => Some(TokenKind::TypeVoid),

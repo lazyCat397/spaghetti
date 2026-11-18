@@ -1,0 +1,11 @@
+const MAX: u64 = 18446744073709551615;
+const BIG: u64 = 9223372036854775808;
+let xs: array<u64> = [MAX, BIG, 1];
+print(xs);
+print(@into.string(xs));
+let fs: array<f32> = [0.1, 2.5];
+print(fs);
+print(@into.float(MAX));
+print(@into.f32(MAX));
+print(@into.u8w(MAX));
+print(@into.i8w(BIG));

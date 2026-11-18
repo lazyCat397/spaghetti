@@ -1,0 +1,4 @@
+const M: u64 = 9223372036854775807;
+const ONE: u64 = 1;
+let s: u64 = M + ONE;
+print(s);

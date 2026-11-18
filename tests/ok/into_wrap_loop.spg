@@ -1,0 +1,8 @@
+let acc: int = 0;
+let i: int = 0;
+while (i < 1000) {
+    let w: u8 = @into.u8w(acc + 77);
+    acc = @into.int(w);
+    i = i + 1;
+}
+print(acc);

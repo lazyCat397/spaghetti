@@ -1,0 +1,13 @@
+print(@into.i8(100));
+print(@into.i8w(300));
+print(@into.i8w(-129));
+print(@into.u8w(-1));
+print(@into.u8w(256));
+print(@into.i16w(40000));
+print(@into.u16w(70000));
+print(@into.i32w(3000000000));
+print(@into.u32w(-1));
+print(@into.i64(42));
+print(@into.u64(7));
+let x: int = 500;
+print(@into.u8w(x));

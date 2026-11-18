@@ -141,26 +141,10 @@ pub trait NativeCalls {
         LoopOutcome::Never
     }
 
-    /// runs a `compile JIT` block natively, on the locals of the frame running it
-    fn run_block(&self, chunk: usize, block: usize, locals: &mut [Value]) -> BlockOutcome {
-        let _ = (chunk, block, locals);
-        BlockOutcome::Off
-    }
-
     /// the `--jit-report` lines: what the backend made of each function and loop. empty when it has none
     fn report_lines(&self) -> Vec<String> {
         Vec::new()
     }
-}
-
-/// what the native backend did with a `compile JIT` block
-pub enum BlockOutcome {
-    /// ran natively: the VM goes on after the block
-    Ran,
-    /// native code gave up in the middle: the block's effects so far stay, and the program fails
-    Failed,
-    /// no native code for it (--no-jit): the VM runs the block's own ops
-    Off,
 }
 
 /// how many frames a trace keeps before it starts just counting
@@ -594,6 +578,9 @@ impl<'p> Vm<'p> {
             // the typechecker only allows int**int with non-mixed types, so a
             // negative exponent is a valid spg program, not a bug (see arith::pow)
             OpCode::PowInt => binary_int(frame, |a, b| arith::pow(a, b))?,
+            OpCode::SizedArith { op, lo, hi, wraps, ty } => {
+                binary_int(frame, |a, b| arith::sized(op, a, b, lo, hi, wraps, ty))?
+            }
             OpCode::AddFloat => binary_float(frame, |a, b| a + b)?,
             OpCode::SubFloat => binary_float(frame, |a, b| a - b)?,
             OpCode::MulFloat => binary_float(frame, |a, b| a * b)?,
@@ -613,6 +600,10 @@ impl<'p> Vm<'p> {
             OpCode::NegFloat => {
                 let v = expect_float(frame.pop()?)?;
                 frame.push(Value::Float(-v));
+            }
+            OpCode::RoundF32 => {
+                let v = expect_float(frame.pop()?)?;
+                frame.push(Value::Float(v as f32 as f64));
             }
 
             // ---- comparison (the fun part) ----
@@ -641,6 +632,11 @@ impl<'p> Vm<'p> {
                 frame.push(Value::Bool(a != b));
             }
             OpCode::LtInt => binary_int_cmp(frame, |a, b| a < b)?,
+            OpCode::LtU64 => binary_int_cmp(frame, |a, b| (a as u64) < (b as u64))?,
+            OpCode::LtEqU64 => binary_int_cmp(frame, |a, b| (a as u64) <= (b as u64))?,
+            OpCode::GtU64 => binary_int_cmp(frame, |a, b| (a as u64) > (b as u64))?,
+            OpCode::GtEqU64 => binary_int_cmp(frame, |a, b| (a as u64) >= (b as u64))?,
+            OpCode::U64Arith { op } => binary_int(frame, |a, b| arith::u64_arith(op, a, b))?,
             OpCode::GtInt => binary_int_cmp(frame, |a, b| a > b)?,
             OpCode::LtEqInt => binary_int_cmp(frame, |a, b| a <= b)?,
             OpCode::GtEqInt => binary_int_cmp(frame, |a, b| a >= b)?,
@@ -791,20 +787,6 @@ impl<'p> Vm<'p> {
             OpCode::FreezeConst => {
                 let v = frame.pop()?;
                 frame.push(crate::frozen::copy_frozen(&v));
-            }
-            OpCode::JitBlock { block, end } => {
-                let outcome = match &self.native {
-                    Some(native) => native.run_block(frame.chunk_id, block, &mut frame.locals),
-                    None => BlockOutcome::Off,
-                };
-                match outcome {
-                    BlockOutcome::Ran => frame.ip = end,
-                    BlockOutcome::Off => {}
-                    BlockOutcome::Failed => {
-                        let line = frame.chunk.locs.get(frame.ip - 1).map_or(0, |l| l.line);
-                        return Err(RuntimeError::JitBlockFailed { line });
-                    }
-                }
             }
             OpCode::Jump(target) => frame.ip = target,
             OpCode::JumpIfFalse(target) => {

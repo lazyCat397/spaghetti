@@ -1,0 +1,4 @@
+#> strict
+const MAX: u64 = 18446744073709551615;
+const ONE: u64 = 1;
+print(MAX + ONE);

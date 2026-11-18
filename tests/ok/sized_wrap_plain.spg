@@ -1,0 +1,5 @@
+const STEP: u8 = 200;
+let u: u8 = 0;
+u = u + STEP;
+u = u + STEP;
+print(u);

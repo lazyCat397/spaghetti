@@ -1,0 +1,12 @@
+const ONE: i8 = 124;
+const LOW: i8 = -128;
+const HIGH: i8 = 127;
+let z: i8 = -5;
+fn same(x: i8) -> i8 {
+    return x;
+}
+print(ONE);
+print(LOW);
+print(HIGH);
+print(z);
+print(same(42));

@@ -3,6 +3,7 @@
 ../examples/09_errors.spg
 ../examples/10_pipes.spg
 ../examples/12_modules.spg
+../examples/14_value_methods.spg
 err/charat_neg.spg
 err/charat_oob.spg
 err/charat_oob_utf8.spg
@@ -30,7 +31,8 @@ lang/struct_test.spg
 ok/array_eq_empty.spg
 ok/basic.spg
 ok/builtin_homonimo.spg
-ok/compile_vm.spg
+ok/cmp_lib.spg
+ok/compile_is_a_name.spg
 ok/copy_user_method.spg
 ok/defaults.spg
 ok/dir_strict_return_if.spg
@@ -44,14 +46,23 @@ ok/guard_other_struct.spg
 ok/install_basic.spg
 ok/install_priority.spg
 ok/install_unused_clash.spg
+ok/install_value_method_private.spg
+ok/jit_loop_total.spg
 ok/jit_native_enum.spg
 ok/jit_native_logic.spg
 ok/jit_native_struct_fail.spg
 ok/jit_native_struct_return.spg
 ok/jit_native_void_throw.spg
+ok/jit_rollback_array.spg
+ok/jit_strings.spg
 ok/lambdas.spg
 ok/match_basic.spg
 ok/multiline_expr.spg
+ok/named_args_methods.spg
+ok/namespace_basic.spg
+ok/namespace_func_value.spg
+ok/namespace_import.spg
+ok/namespace_reexport.spg
 ok/newline_statements.spg
 ok/ns_free_names.spg
 ok/ns_lib.spg
@@ -79,3 +90,4 @@ ok/throw_catch.spg
 ok/trace_catch.spg
 ok/type_builtin.spg
 ok/ui_events.spg
+ok/value_methods.spg

@@ -1,0 +1,2 @@
+const X: u8 = 256;
+print(X);

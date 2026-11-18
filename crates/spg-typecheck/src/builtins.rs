@@ -183,6 +183,32 @@ pub enum BuiltinId {
     FloatToInt,
     ParseInt,
     ParseFloat,
+    // @into.i8 .. @into.u64 (and the `w` ones): range-checked conversions, see arith::into_sized
+    IntoI8,
+    IntoI8W,
+    IntoI16,
+    IntoI16W,
+    IntoI32,
+    IntoI32W,
+    IntoU8,
+    IntoU8W,
+    IntoU16,
+    IntoU16W,
+    IntoU32,
+    IntoU32W,
+    IntoU64,
+    IntoI64,
+    // f32: text (for print and @into.string), identity to float, and rounding from float
+    F32ToString,
+    F32ToFloat,
+    FloatToF32,
+    // u64: text, the checked conversion to int, and the wrapping conversion of any int to u64 (`@into.u64w`)
+    U64ToString,
+    U64ToInt,
+    IntoU64W,
+    // u64 to float and to f32: the unsigned value, rounded once
+    U64ToFloat,
+    U64ToF32,
 
     // ---- I/O (print and friends) ----
     ReadLine,
@@ -673,6 +699,68 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
     add("@into.int", BuiltinSig { id: BuiltinId::ParseInt, params: vec![Ty::String], return_type: Ty::Int });
     add("@into.float", BuiltinSig { id: BuiltinId::IntToFloat, params: vec![Ty::Int], return_type: Ty::Float });
     add("@into.float", BuiltinSig { id: BuiltinId::ParseFloat, params: vec![Ty::String], return_type: Ty::Float });
+    // what an `@into.T` takes: an int, or any sized int (converted through its value, checked against T)
+    let into_sources = [Ty::Int, Ty::I8, Ty::I16, Ty::I32, Ty::U8, Ty::U16, Ty::U32, Ty::U64];
+    for src in into_sources.iter().cloned() {
+        add("@into.i8", BuiltinSig { id: BuiltinId::IntoI8, params: vec![src], return_type: Ty::I8 });
+    }
+    for src in into_sources.iter().cloned() {
+        add("@into.i8w", BuiltinSig { id: BuiltinId::IntoI8W, params: vec![src], return_type: Ty::I8 });
+    }
+    for src in into_sources.iter().cloned() {
+        add("@into.i16", BuiltinSig { id: BuiltinId::IntoI16, params: vec![src], return_type: Ty::I16 });
+    }
+    for src in into_sources.iter().cloned() {
+        add("@into.i16w", BuiltinSig { id: BuiltinId::IntoI16W, params: vec![src], return_type: Ty::I16 });
+    }
+    for src in into_sources.iter().cloned() {
+        add("@into.i32", BuiltinSig { id: BuiltinId::IntoI32, params: vec![src], return_type: Ty::I32 });
+    }
+    for src in into_sources.iter().cloned() {
+        add("@into.i32w", BuiltinSig { id: BuiltinId::IntoI32W, params: vec![src], return_type: Ty::I32 });
+    }
+    for src in into_sources.iter().cloned() {
+        add("@into.u8", BuiltinSig { id: BuiltinId::IntoU8, params: vec![src], return_type: Ty::U8 });
+    }
+    for src in into_sources.iter().cloned() {
+        add("@into.u8w", BuiltinSig { id: BuiltinId::IntoU8W, params: vec![src], return_type: Ty::U8 });
+    }
+    for src in into_sources.iter().cloned() {
+        add("@into.u16", BuiltinSig { id: BuiltinId::IntoU16, params: vec![src], return_type: Ty::U16 });
+    }
+    for src in into_sources.iter().cloned() {
+        add("@into.u16w", BuiltinSig { id: BuiltinId::IntoU16W, params: vec![src], return_type: Ty::U16 });
+    }
+    for src in into_sources.iter().cloned() {
+        add("@into.u32", BuiltinSig { id: BuiltinId::IntoU32, params: vec![src], return_type: Ty::U32 });
+    }
+    for src in into_sources.iter().cloned() {
+        add("@into.u32w", BuiltinSig { id: BuiltinId::IntoU32W, params: vec![src], return_type: Ty::U32 });
+    }
+    // `@into.u64(int)` checks the range (>= 0); `@into.u64w(x)` is the bits of any int (the wrap of 2^64)
+    for src in into_sources.iter().cloned().filter(|s| *s != Ty::U64) {
+        add("@into.u64", BuiltinSig { id: BuiltinId::IntoU64, params: vec![src], return_type: Ty::U64 });
+    }
+    for src in into_sources.iter().cloned().filter(|s| *s != Ty::U64) {
+        add("@into.u64w", BuiltinSig { id: BuiltinId::IntoU64W, params: vec![src], return_type: Ty::U64 });
+    }
+    // a u64 is already a u64: the identity
+    add("@into.u64", BuiltinSig { id: BuiltinId::IntoI64, params: vec![Ty::U64], return_type: Ty::U64 });
+    add("@into.u64w", BuiltinSig { id: BuiltinId::IntoI64, params: vec![Ty::U64], return_type: Ty::U64 });
+    // `@into.int` (and `@into.i64`, the same name) takes any integer back to int: an identity, since every
+    // sized value already fits its type. `@into.i64` is read as `@into.int`: `i64` is the same type
+    for p in [Ty::Int, Ty::I8, Ty::I16, Ty::I32, Ty::U8, Ty::U16, Ty::U32] {
+        add("@into.int", BuiltinSig { id: BuiltinId::IntoI64, params: vec![p], return_type: Ty::Int });
+    }
+    // a u64 above i64::MAX has no int: that is an error, not a wrap
+    add("@into.int", BuiltinSig { id: BuiltinId::U64ToInt, params: vec![Ty::U64], return_type: Ty::Int });
+    add("@into.string", BuiltinSig { id: BuiltinId::U64ToString, params: vec![Ty::U64], return_type: Ty::String });
+    add("@into.float", BuiltinSig { id: BuiltinId::U64ToFloat, params: vec![Ty::U64], return_type: Ty::Float });
+    add("@into.f32", BuiltinSig { id: BuiltinId::U64ToF32, params: vec![Ty::U64], return_type: Ty::F32 });
+    add("@into.int", BuiltinSig { id: BuiltinId::FloatToInt, params: vec![Ty::F32], return_type: Ty::Int });
+    add("@into.string", BuiltinSig { id: BuiltinId::F32ToString, params: vec![Ty::F32], return_type: Ty::String });
+    add("@into.float", BuiltinSig { id: BuiltinId::F32ToFloat, params: vec![Ty::F32], return_type: Ty::Float });
+    add("@into.f32", BuiltinSig { id: BuiltinId::FloatToF32, params: vec![Ty::Float], return_type: Ty::F32 });
 
     // ---- time ----
 

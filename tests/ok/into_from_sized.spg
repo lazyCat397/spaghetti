@@ -1,0 +1,12 @@
+let a: i8 = -5;
+let b: u16 = 60000;
+let c: u8 = 200;
+let d: i32 = -70000;
+print(@into.u8w(a));
+print(@into.i16w(b));
+print(@into.i8w(c));
+print(@into.i32(c));
+print(@into.u64(b));
+print(@into.int(a));
+print(@into.i16w(d));
+print(@into.u8(c));

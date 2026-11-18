@@ -35,7 +35,7 @@ enum Edge<'a> {
     /// a call through a local name, resolved once the whole body is seen
     Value(String, usize),
     /// a call of a lambda bound to a local name: its body runs here
-    Lambda(&'a TypedBlock, usize),
+    Lambda(&'a TypedBlock),
     /// a guarded write to a struct type: runs that type's guard
     Write(String, usize),
 }
@@ -139,7 +139,7 @@ fn search_edges<'a>(
                     }
                 }
             }
-            Edge::Lambda(body, _) => {
+            Edge::Lambda(body) => {
                 // a lambda runs as part of the function that called it: its steps are on the path
                 if search_edges(&block_edges(body), target, bodies, visited, path) {
                     return true;
@@ -180,7 +180,7 @@ fn block_edges(b: &TypedBlock) -> Vec<Edge<'_>> {
                 }
                 match walk.bound.get(&name) {
                     Some(Bound::Fn(f)) => out.push(Edge::Call(f.clone(), line)),
-                    Some(Bound::Lambda(body)) => out.push(Edge::Lambda(body, line)),
+                    Some(Bound::Lambda(body)) => out.push(Edge::Lambda(body)),
                     None => {}
                 }
             }
@@ -237,7 +237,7 @@ fn stmt_edges<'a>(s: &'a TypedStmt, line: usize, walk: &mut Walk<'a>) {
                 walk_block(b, walk);
             }
         }
-        TypedStmt::Block { body } | TypedStmt::CompileVm { body } | TypedStmt::CompileJit { body } => walk_block(body, walk),
+        TypedStmt::Block { body } => walk_block(body, walk),
         TypedStmt::While { cond, body } | TypedStmt::DoWhile { body, cond } => {
             expr_edges(cond, line, walk);
             walk_block(body, walk);

@@ -1,0 +1,2 @@
+let e: i8 = -1;
+print(@into.u8(e));

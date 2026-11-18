@@ -1,0 +1,5 @@
+#> strict
+const A: i8 = -100;
+const B: i8 = -20;
+let s: i8 = A + B;
+print(s);

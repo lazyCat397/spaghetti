@@ -1,0 +1,3 @@
+const Z: u8 = 0;
+const A: u8 = 5;
+print(A / Z);

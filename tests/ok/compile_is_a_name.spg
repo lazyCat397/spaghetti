@@ -1,0 +1,28 @@
+fn plain(x: int) -> int {
+    return x * 2
+}
+
+fn guarded(x: int) -> int {
+        print("guarded runs")
+    return x + 1
+}
+
+let total = 0
+let i = 0
+while (i < 100) {
+    total = total + plain(i)
+    i = i + 1
+}
+print("plain loop", total)
+
+let j = 0
+let acc = 0
+while (j < 100) {
+        acc = acc + j
+    j = j + 1
+}
+print("vm loop", acc)
+
+let compile = 7
+print("name ok", compile)
+print(guarded(3))

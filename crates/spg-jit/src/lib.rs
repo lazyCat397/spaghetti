@@ -34,7 +34,7 @@ use cranelift_codegen::isa::CallConv;
 use cranelift_codegen::ir::immediates::Ieee64;
 use cranelift_codegen::ir::{
     immediates::Offset32,
-    types::{F64, I128, I64},
+    types::{F32, F64, I128, I64},
     AbiParam, Block, FuncRef, InstBuilder, MemFlags, Signature, StackSlotData, StackSlotKind, Type, UserFuncName,
     Value as CV,
 };
@@ -963,62 +963,11 @@ pub struct NativeTable {
     reasons: Vec<Option<Refusal>>,
     /// why each loop that was tried is not native, by (chunk, exit)
     refused: RefCell<HashMap<(usize, usize), Refusal>>,
-    /// the native code of every `compile JIT` block, by (chunk, block)
-    blocks: RefCell<HashMap<(usize, usize), Rc<Region>>>,
 }
 
 impl NativeCalls for NativeTable {
     fn report_lines(&self) -> Vec<String> {
         self.build_report()
-    }
-
-    fn run_block(&self, chunk: usize, block: usize, locals: &mut [Value]) -> spg_vm::vm::BlockOutcome {
-        use spg_vm::vm::BlockOutcome;
-        let Some(region) = self.blocks.borrow().get(&(chunk, block)).cloned() else {
-            return BlockOutcome::Off;
-        };
-        if locals.len() != region.nlocals {
-            return BlockOutcome::Failed;
-        }
-        let mut buf = vec![0i64; region.nlocals];
-        for &(s, k) in &region.loads {
-            buf[s] = match (k, &locals[s]) {
-                (K::Int, Value::Int(n)) => *n,
-                (K::Float, Value::Float(f)) => f.to_bits() as i64,
-                (K::Bool, Value::Bool(b)) => *b as i64,
-                (K::Array(_), Value::Array(_)) | (K::String, Value::String(_)) => 0,
-                _ => return BlockOutcome::Failed,
-            };
-        }
-        // the region takes its own reference to each array or string it reads, as a loop region does
-        for &(s, k) in &region.loads {
-            match (k, &locals[s]) {
-                (K::Array(_), Value::Array(a)) => buf[s] = Rc::into_raw(a.clone()) as i64,
-                (K::String, Value::String(st)) => buf[s] = Rc::into_raw(st.clone()) as i64,
-                _ => {}
-            }
-        }
-        let mut ctx = [0i64; 2];
-        let cp = ctx.as_mut_ptr() as i64;
-        let run = unsafe { std::mem::transmute::<usize, extern "C" fn(i64, i64, i64) -> i64>(region.ptr) };
-        run(cp, 0, buf.as_mut_ptr() as i64);
-        // no replay follows a block: the writes made before a failure stay, since the program stops there
-        UNDO.with(|u| u.borrow_mut().finish(true));
-        // the prints made before a failure happened, in the VM too: they stay
-        settle_output(true);
-        if ctx[0] != 0 {
-            return BlockOutcome::Failed;
-        }
-        for &(s, k) in &region.stores {
-            let tag = match k {
-                K::Float => 2,
-                K::Bool => 1,
-                K::String => 3,
-                _ => 0,
-            };
-            locals[s] = value_of(buf[s], tag);
-        }
-        BlockOutcome::Ran
     }
 
     fn may_have(&self, func_index: usize) -> bool {
@@ -1231,14 +1180,6 @@ pub enum Reason {
     JumpOutOfLoop,
     /// the loop doesn't end with its backward jump
     NotALoop,
-    /// touches a `compile VM` block, which always runs in the VM
-    VmBlock,
-    /// contains a `compile JIT` block: the block runs as native code of its own
-    JitBlock,
-    /// jumps out of a `compile JIT` block (a break or continue of an outer loop, or a jump past its end)
-    JumpOutOfBlock,
-    /// returns from inside a `compile JIT` block: a block is not a function
-    ReturnInBlock,
     /// native code generation failed
     Internal,
 }
@@ -1330,15 +1271,19 @@ fn step(chunk: &Chunk, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::value::Struct
         OpCode::AddInt | OpCode::SubInt | OpCode::MulInt | OpCode::DivInt | OpCode::ModInt => {
             bin(st, K::Int, K::Int, K::Int)?
         }
+        OpCode::SizedArith { .. } => bin(st, K::Int, K::Int, K::Int)?,
         OpCode::NegInt => un(st, K::Int, K::Int)?,
         OpCode::AddFloat | OpCode::SubFloat | OpCode::MulFloat | OpCode::DivFloat | OpCode::ModFloat
         | OpCode::PowFloat => bin(st, K::Float, K::Float, K::Float)?,
         OpCode::NegFloat => un(st, K::Float, K::Float)?,
+        OpCode::RoundF32 => un(st, K::Float, K::Float)?,
         OpCode::ConcatString => bin(st, K::String, K::String, K::String)?,
         OpCode::EqString | OpCode::NotEqString => bin(st, K::String, K::String, K::Bool)?,
         OpCode::LtInt | OpCode::GtInt | OpCode::LtEqInt | OpCode::GtEqInt => {
             bin(st, K::Int, K::Int, K::Bool)?
         }
+        OpCode::LtU64 | OpCode::GtU64 | OpCode::LtEqU64 | OpCode::GtEqU64 => bin(st, K::Int, K::Int, K::Bool)?,
+        OpCode::U64Arith { .. } => bin(st, K::Int, K::Int, K::Int)?,
         // the compiler emits EqInt for `==` on enums (the VM reads a variant as its index).
         // so an enum compares as an int here, but only with an enum of the same type.
         OpCode::EqInt | OpCode::NotEqInt => {
@@ -1478,6 +1423,22 @@ fn step(chunk: &Chunk, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::value::Struct
                 // exact conversions: `as` in Rust, which saturates and maps NaN to 0. math is weird.
                 BuiltinId::IntToFloat => (&[K::Int], K::Float),
                 BuiltinId::FloatToInt => (&[K::Float], K::Int),
+                BuiltinId::F32ToFloat | BuiltinId::FloatToF32 => (&[K::Float], K::Float),
+                BuiltinId::IntoU64W | BuiltinId::U64ToInt => (&[K::Int], K::Int),
+                BuiltinId::IntoI8 => (&[K::Int], K::Int),
+                BuiltinId::IntoI8W => (&[K::Int], K::Int),
+                BuiltinId::IntoI16 => (&[K::Int], K::Int),
+                BuiltinId::IntoI16W => (&[K::Int], K::Int),
+                BuiltinId::IntoI32 => (&[K::Int], K::Int),
+                BuiltinId::IntoI32W => (&[K::Int], K::Int),
+                BuiltinId::IntoU8 => (&[K::Int], K::Int),
+                BuiltinId::IntoU8W => (&[K::Int], K::Int),
+                BuiltinId::IntoU16 => (&[K::Int], K::Int),
+                BuiltinId::IntoU16W => (&[K::Int], K::Int),
+                BuiltinId::IntoU32 => (&[K::Int], K::Int),
+                BuiltinId::IntoU32W => (&[K::Int], K::Int),
+                BuiltinId::IntoU64 => (&[K::Int], K::Int),
+                BuiltinId::IntoI64 => (&[K::Int], K::Int),
                 // math: the same results and the same failures as the VM's builtins (see math1/math2)
                 BuiltinId::Sin | BuiltinId::Cos | BuiltinId::Tan | BuiltinId::Asin | BuiltinId::Acos
                 | BuiltinId::Atan | BuiltinId::Exp | BuiltinId::Log | BuiltinId::Log2 | BuiltinId::Log10
@@ -1565,7 +1526,6 @@ fn step(chunk: &Chunk, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::value::Struct
             st.truncate(base);
             st.push(K::Struct(*def_index));
         }
-        OpCode::JitBlock { .. } => return Err(Reason::JitBlock),
         // globals, maps, the rest of the builtins: still in the VM
         _ => return Err(Reason::Opcode),
     }
@@ -1621,8 +1581,6 @@ fn eligible(program: &Program) -> (Vec<bool>, Vec<Option<Vec<K>>>, Vec<bool>, Ve
             reasons[i] = Some(refusal(Reason::Signature));
         } else if c.arity > MAX_ARITY {
             reasons[i] = Some(refusal(Reason::Arity));
-        } else if let Some(&(start, _)) = c.vm_only.first() {
-            reasons[i] = Some(Refusal { pc: Some(start), op: String::new(), reason: Reason::VmBlock });
         } else {
             elig[i] = true;
         }
@@ -2316,6 +2274,73 @@ fn lower(
                 let r = if matches!(op, OpCode::DivInt) { b.ins().sdiv(x, y) } else { b.ins().srem(x, y) };
                 stack.push((r, K::Int));
             }
+            OpCode::SizedArith { op: sop, lo, hi, .. } => {
+                use spg_vm::chunk::SizedOp;
+                let (y, _) = stack.pop().unwrap();
+                let (x, _) = stack.pop().unwrap();
+                // native code only takes the in-range fast path. anything else fails the call and the VM
+                // reruns it: wrap, the `#> strict` error, or the u64 error. the rule lives in arith::sized,
+                // so the JIT never decides an edge case by itself
+                match *sop {
+                    SizedOp::Div | SizedOp::Mod => {
+                        // by zero, and by -1 (the VM decides that one too)
+                        let zero = b.ins().iconst(I64, 0);
+                        let minus1 = b.ins().iconst(I64, -1);
+                        let z = b.ins().icmp(IntCC::Equal, y, zero);
+                        let m = b.ins().icmp(IntCC::Equal, y, minus1);
+                        let bad = b.ins().bor(z, m);
+                        guard(b, h, bad, fail, heap_temps(&stack));
+                        // the quotient and the remainder of in-range operands stay in range
+                        let r = if *sop == SizedOp::Div { b.ins().sdiv(x, y) } else { b.ins().srem(x, y) };
+                        stack.push((r, K::Int));
+                    }
+                    SizedOp::Pow => {
+                        // always the VM: power is not on the native fast path
+                        let always = b.ins().iconst(I64, 1);
+                        guard(b, h, always, fail, heap_temps(&stack));
+                        let unreachable_value = b.ins().iconst(I64, 0);
+                        stack.push((unreachable_value, K::Int));
+                    }
+                    SizedOp::Add | SizedOp::Sub | SizedOp::Mul => {
+                        let (r, overflow) = match *sop {
+                            SizedOp::Add => {
+                                let r = b.ins().iadd(x, y);
+                                let x1 = b.ins().bxor(x, r);
+                                let x2 = b.ins().bxor(y, r);
+                                let both = b.ins().band(x1, x2);
+                                let zero = b.ins().iconst(I64, 0);
+                                (r, b.ins().icmp(IntCC::SignedLessThan, both, zero))
+                            }
+                            SizedOp::Sub => {
+                                let r = b.ins().isub(x, y);
+                                let x1 = b.ins().bxor(x, y);
+                                let x2 = b.ins().bxor(x, r);
+                                let both = b.ins().band(x1, x2);
+                                let zero = b.ins().iconst(I64, 0);
+                                (r, b.ins().icmp(IntCC::SignedLessThan, both, zero))
+                            }
+                            _ => {
+                                // widen to 128 bits. the product fits iff sign-extending its low half gives it back
+                                let x128 = b.ins().sextend(I128, x);
+                                let y128 = b.ins().sextend(I128, y);
+                                let p = b.ins().imul(x128, y128);
+                                let r = b.ins().ireduce(I64, p);
+                                let back = b.ins().sextend(I128, r);
+                                (r, b.ins().icmp(IntCC::NotEqual, p, back))
+                            }
+                        };
+                        // the 64-bit result must also be inside the sized range
+                        let lo_c = b.ins().iconst(I64, *lo);
+                        let hi_c = b.ins().iconst(I64, *hi);
+                        let below = b.ins().icmp(IntCC::SignedLessThan, r, lo_c);
+                        let above = b.ins().icmp(IntCC::SignedGreaterThan, r, hi_c);
+                        let out = b.ins().bor(below, above);
+                        let bad = b.ins().bor(overflow, out);
+                        guard(b, h, bad, fail, heap_temps(&stack));
+                        stack.push((r, K::Int));
+                    }
+                }
+            }
             OpCode::NegInt => {
                 let (x, _) = stack.pop().unwrap();
                 let min = b.ins().iconst(I64, i64::MIN);
@@ -2345,6 +2370,12 @@ fn lower(
             OpCode::NegFloat => {
                 let (x, _) = stack.pop().unwrap();
                 stack.push((b.ins().fneg(x), K::Float));
+            }
+            // f32: round to single precision and back to the f64 storage, as the VM does
+            OpCode::RoundF32 => {
+                let (x, _) = stack.pop().unwrap();
+                let single = b.ins().fdemote(F32, x);
+                stack.push((b.ins().fpromote(F64, single), K::Float));
             }
             OpCode::ConcatString => {
                 let (y, _) = stack.pop().unwrap();
@@ -2572,6 +2603,65 @@ fn lower(
                 let c = b.ins().icmp(cc, x, y);
                 stack.push((b.ins().uextend(I64, c), K::Bool));
             }
+            // u64 order: unsigned compares of the same bits
+            OpCode::LtU64 | OpCode::GtU64 | OpCode::LtEqU64 | OpCode::GtEqU64 => {
+                let (y, _) = stack.pop().unwrap();
+                let (x, _) = stack.pop().unwrap();
+                let cc = match op {
+                    OpCode::LtU64 => IntCC::UnsignedLessThan,
+                    OpCode::GtU64 => IntCC::UnsignedGreaterThan,
+                    OpCode::LtEqU64 => IntCC::UnsignedLessThanOrEqual,
+                    _ => IntCC::UnsignedGreaterThanOrEqual,
+                };
+                let c = b.ins().icmp(cc, x, y);
+                stack.push((b.ins().uextend(I64, c), K::Bool));
+            }
+            // u64 arithmetic: the native path takes the cases with no unsigned overflow and no zero divisor.
+            // the rest (a carry, a zero divisor, power) fails the call, and the VM decides (wrap, strict, error)
+            OpCode::U64Arith { op: sop } => {
+                use spg_vm::chunk::SizedOp;
+                let (y, _) = stack.pop().unwrap();
+                let (x, _) = stack.pop().unwrap();
+                match *sop {
+                    SizedOp::Add => {
+                        let r = b.ins().iadd(x, y);
+                        // unsigned carry: the sum is below an operand
+                        let bad = b.ins().icmp(IntCC::UnsignedLessThan, r, x);
+                        guard(b, h, bad, fail, heap_temps(&stack));
+                        stack.push((r, K::Int));
+                    }
+                    SizedOp::Sub => {
+                        let r = b.ins().isub(x, y);
+                        // unsigned borrow: the minuend is below the subtrahend
+                        let bad = b.ins().icmp(IntCC::UnsignedLessThan, x, y);
+                        guard(b, h, bad, fail, heap_temps(&stack));
+                        stack.push((r, K::Int));
+                    }
+                    SizedOp::Mul => {
+                        // the unsigned product fits in 64 bits iff the high half of the product is zero
+                        let r = b.ins().imul(x, y);
+                        let hi = b.ins().umulhi(x, y);
+                        let zero = b.ins().iconst(I64, 0);
+                        let bad = b.ins().icmp(IntCC::NotEqual, hi, zero);
+                        guard(b, h, bad, fail, heap_temps(&stack));
+                        stack.push((r, K::Int));
+                    }
+                    SizedOp::Div | SizedOp::Mod => {
+                        let zero = b.ins().iconst(I64, 0);
+                        let bad = b.ins().icmp(IntCC::Equal, y, zero);
+                        guard(b, h, bad, fail, heap_temps(&stack));
+                        let r = if *sop == SizedOp::Div { b.ins().udiv(x, y) } else { b.ins().urem(x, y) };
+                        stack.push((r, K::Int));
+                    }
+                    SizedOp::Pow => {
+                        // always the VM: power is not on the native fast path
+                        let always = b.ins().iconst(I64, 1);
+                        guard(b, h, always, fail, heap_temps(&stack));
+                        let unreachable_value = b.ins().iconst(I64, 0);
+                        stack.push((unreachable_value, K::Int));
+                    }
+                }
+            }
             OpCode::EqValue | OpCode::NotEqValue => {
                 // enums only (the checker refused everything else): same type, so compare the variant index
                 let (y, _) = stack.pop().unwrap();
@@ -2707,6 +2797,38 @@ fn lower(
                     continue;
                 }
                 let x = args[0].0;
+                // `@into.T(v)`: the value itself when it fits. otherwise the VM converts it (wrap, or the error)
+                if let Some((lo, hi)) = into_bounds(*id) {
+                    let lo_c = b.ins().iconst(I64, lo);
+                    let hi_c = b.ins().iconst(I64, hi);
+                    let below = b.ins().icmp(IntCC::SignedLessThan, x, lo_c);
+                    let above = b.ins().icmp(IntCC::SignedGreaterThan, x, hi_c);
+                    let bad = b.ins().bor(below, above);
+                    guard(b, h, bad, fail, heap_temps(&stack));
+                    stack.push((x, K::Int));
+                    continue;
+                }
+                // a u64 as int: the native path takes the bits that are not negative; the VM reports the rest
+                if matches!(id, BuiltinId::U64ToInt) {
+                    let zero = b.ins().iconst(I64, 0);
+                    let bad = b.ins().icmp(IntCC::SignedLessThan, x, zero);
+                    guard(b, h, bad, fail, heap_temps(&stack));
+                    stack.push((x, K::Int));
+                    continue;
+                }
+                if matches!(id, BuiltinId::F32ToFloat) {
+                    stack.push((x, K::Float));
+                    continue;
+                }
+                if matches!(id, BuiltinId::FloatToF32) {
+                    let single = b.ins().fdemote(F32, x);
+                    stack.push((b.ins().fpromote(F64, single), K::Float));
+                    continue;
+                }
+                if matches!(id, BuiltinId::IntoI64) {
+                    stack.push((x, K::Int));
+                    continue;
+                }
                 if matches!(id, BuiltinId::IntToFloat) {
                     stack.push((b.ins().fcvt_from_sint(F64, x), K::Float));
                     continue;
@@ -3044,9 +3166,7 @@ pub fn build(program: &Program, vm_structs: &[Rc<spg_vm::value::StructDef>]) -> 
         compiled,
         reasons,
         refused: RefCell::new(HashMap::new()),
-        blocks: RefCell::new(HashMap::new()),
     };
-    table.compile_blocks()?;
     Ok(table)
 }
 
@@ -3137,10 +3257,6 @@ impl NativeTable {
             OpCode::Jump(h) if h < exit - 1 => h,
             _ => return Err(at(exit - 1, &plain.code[exit - 1], Reason::NotALoop)),
         };
-        // a `compile VM` block always runs in the VM: a loop that touches one is never native
-        if let Some(&(start, _)) = plain.vm_only.iter().find(|&&(s, e)| s < exit && head < e) {
-            return Err(Refusal { pc: Some(start), op: String::new(), reason: Reason::VmBlock });
-        }
         let mut touched: BTreeSet<usize> = BTreeSet::new();
         let mut assigned: BTreeSet<usize> = BTreeSet::new();
         for op in &plain.code[head..exit] {
@@ -3343,34 +3459,6 @@ impl NativeTable {
         Ok(ptr)
     }
 
-    /// compiles every `compile JIT` block ahead of the run. the static check has passed, so a refusal here is a bug
-    fn compile_blocks(&self) -> Result<(), String> {
-        for (ci, chunk) in chunks_of(&self.plain) {
-            for b in 0..chunk.jit_blocks.len() {
-                match self.compile_block(ci, b) {
-                    Ok(region) => {
-                        self.blocks.borrow_mut().insert((ci, b), Rc::new(region));
-                    }
-                    Err(r) => {
-                        let start = chunk.jit_blocks[b].start;
-                        let line = chunk.locs.get(r.pc.unwrap_or(start)).map_or(0, |l| l.line);
-                        return Err(format!("line {line}: compile JIT block cannot be native: {}", explain_refusal(&self.plain, &r)));
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// the native code of one `compile JIT` block of chunk `chunk`
-    fn compile_block(&self, chunk: usize, block: usize) -> Result<Region, Refusal> {
-        let plain = self.plain_chunk(chunk).ok_or_else(|| refusal(Reason::Internal))?;
-        let info = plain.jit_blocks.get(block).ok_or_else(|| refusal(Reason::Internal))?;
-        let plan = plan_block(plain, info, &self.sigs, &self.structs)?;
-        let ptr = self.codegen(&plan.rc, &plan.slots, &plan.loads_mask, &plan.stores_mask)?;
-        Ok(Region { ptr, head: info.start, nlocals: plain.num_locals, loads: plan.loads, stores: plan.stores })
-    }
-
     /// the plain chunk with this index (`functions.len()` is main)
     fn plain_chunk(&self, chunk: usize) -> Option<&Chunk> {
         if chunk == self.plain.functions.len() {
@@ -3443,13 +3531,6 @@ impl NativeTable {
             };
             lines.push(format!("    loop in {}{}: {state}", self.chunk_name(chunk), line_of(plain, Some(head))));
         }
-        lines.push("  compile JIT blocks:".to_string());
-        for (ci, chunk) in chunks_of(&self.plain) {
-            for (b, info) in chunk.jit_blocks.iter().enumerate() {
-                let state = if self.blocks.borrow().contains_key(&(ci, b)) { "native" } else { "not native" };
-                lines.push(format!("    block in {}{}: {state}", self.chunk_name(ci), line_of(chunk, Some(info.start))));
-            }
-        }
         lines
     }
 }
@@ -3484,10 +3565,6 @@ pub fn explain_refusal(program: &Program, r: &Refusal) -> String {
         Reason::ArrayFieldWrite => "writes into an array (an array field or an element of a struct array): the undo log would keep each old value alive, slower than the VM".to_string(),
         Reason::JumpOutOfLoop => "jumps out of the loop by another route than its exit".to_string(),
         Reason::NotALoop => "does not end with its backward jump".to_string(),
-        Reason::VmBlock => "touches a `compile VM` block, which always runs in the VM".to_string(),
-        Reason::JitBlock => "contains a `compile JIT` block, which runs as native code of its own".to_string(),
-        Reason::JumpOutOfBlock => "jumps out of the `compile JIT` block (a break, a continue, or a jump past its end)".to_string(),
-        Reason::ReturnInBlock => "returns from inside the `compile JIT` block: a block can't return".to_string(),
         Reason::Internal => "native code generation failed".to_string(),
     }
 }
@@ -3501,159 +3578,24 @@ fn chunk_name_of(program: &Program, chunk: usize) -> String {
     }
 }
 
-/// every chunk of the plain program: the functions in order, then main (at index `functions.len()`)
-fn chunks_of(program: &Program) -> Vec<(usize, &Chunk)> {
-    program.functions.iter().enumerate().chain(std::iter::once((program.functions.len(), &program.main))).collect()
-}
-
-/// the native kind of a static slot type
-fn slot_kind(t: &spg_vm::chunk::SlotTy) -> K {
-    use spg_vm::chunk::SlotTy;
-    match t {
-        SlotTy::Int => K::Int,
-        SlotTy::Float => K::Float,
-        SlotTy::Bool => K::Bool,
-        SlotTy::String => K::String,
-        SlotTy::Array(e) => K::Array(match e.as_ref() {
-            SlotTy::Float => ElemKind::Float,
-            SlotTy::Bool => ElemKind::Bool,
-            SlotTy::String => ElemKind::String,
-            _ => ElemKind::Int,
-        }),
+/// the range an `@into` builtin converts into (None: no range, the identity). the native code only
+/// takes values inside it; anything else the VM converts (wrap, or the error)
+fn into_bounds(id: BuiltinId) -> Option<(i64, i64)> {
+    match id {
+        BuiltinId::IntoI8 => Some((-128, 127)),
+        BuiltinId::IntoI8W => Some((-128, 127)),
+        BuiltinId::IntoI16 => Some((-32768, 32767)),
+        BuiltinId::IntoI16W => Some((-32768, 32767)),
+        BuiltinId::IntoI32 => Some((-2147483648, 2147483647)),
+        BuiltinId::IntoI32W => Some((-2147483648, 2147483647)),
+        BuiltinId::IntoU8 => Some((0, 255)),
+        BuiltinId::IntoU8W => Some((0, 255)),
+        BuiltinId::IntoU16 => Some((0, 65535)),
+        BuiltinId::IntoU16W => Some((0, 65535)),
+        BuiltinId::IntoU32 => Some((0, 4294967295)),
+        BuiltinId::IntoU32W => Some((0, 4294967295)),
+        BuiltinId::IntoU64 => Some((0, i64::MAX)),
+        BuiltinId::IntoU64W => Some((0, i64::MAX)),
+        _ => None,
     }
-}
-
-/// a refusal from a region's own pcs, moved to the plain chunk: `by` is where the region starts
-fn shift(r: Refusal, by: usize) -> Refusal {
-    Refusal { pc: r.pc.map(|p| p + by), ..r }
-}
-
-/// the instructions of one `compile JIT` block as a chunk of their own. jumps to the block's end
-/// become the chunk's end, and the chunk ends by jumping there, so native code falls out where the block does
-fn block_chunk(plain: &Chunk, start: usize, end: usize) -> Result<Chunk, Refusal> {
-    let mut rc = plain.clone();
-    rc.code = plain.code[start..end].to_vec();
-    rc.locs = Vec::new();
-    rc.origin = Vec::new();
-    rc.jit_blocks = Vec::new();
-    rc.vm_only = Vec::new();
-    // the block's ops are 0..len, then the closing jump at len, and the exit (where lower stores the
-    // locals back) is the pc after that jump: len + 1, which is where a jump to the block's end goes
-    let len = end - start;
-    for i in 0..rc.code.len() {
-        let op = rc.code[i];
-        if matches!(op, OpCode::Return) {
-            return Err(at(i, &op, Reason::ReturnInBlock));
-        }
-        if let Some(t) = rc.code[i].jump_target_mut() {
-            let old = *t;
-            *t = if old == end {
-                len + 1
-            } else if old >= start && old < end {
-                old - start
-            } else {
-                return Err(at(i, &op, Reason::JumpOutOfBlock));
-            };
-        }
-    }
-    rc.code.push(OpCode::Jump(len + 1));
-    Ok(rc)
-}
-
-/// what one `compile JIT` block needs to run as native code: its region chunk, the kinds of its slots,
-/// and what it loads on entry and stores on exit. the same plan serves the static check and the build
-struct BlockPlan {
-    rc: Chunk,
-    slots: Vec<K>,
-    loads: Vec<(usize, K)>,
-    stores: Vec<(usize, K)>,
-    loads_mask: Vec<bool>,
-    stores_mask: Vec<bool>,
-}
-
-fn plan_block(plain: &Chunk, info: &spg_vm::chunk::JitBlockInfo, sigs: &[Option<Sig>], structs: &[Rc<spg_vm::value::StructDef>]) -> Result<BlockPlan, Refusal> {
-    // the block's ops start after its marker: the region is what the marker guards, and pcs are counted from there
-    let start = info.start + 1;
-    let rc = block_chunk(plain, start, info.end).map_err(|r| shift(r, start))?;
-    // the kinds on entry come from the compiler's snapshot of the scope: the program is typed, so they don't depend on the run
-    let mut init: Vec<Option<K>> = vec![None; plain.num_locals];
-    for (s, t) in info.entry.iter().enumerate() {
-        if let (Some(t), Some(slot)) = (t, init.get_mut(s)) {
-            *slot = Some(slot_kind(t));
-        }
-    }
-    let slots = check_init(&rc, &init, K::Int, sigs, structs, false).map_err(|r| shift(r, start))?;
-    let mut read: BTreeSet<usize> = BTreeSet::new();
-    let mut written: BTreeSet<usize> = BTreeSet::new();
-    for op in &rc.code {
-        match op {
-            OpCode::GetLocal(s) => {
-                read.insert(*s);
-            }
-            OpCode::SetLocal(s) => {
-                written.insert(*s);
-            }
-            _ => {}
-        }
-    }
-    // a refusal about slot `s` points at its first write, in plain pcs
-    let refuse_write = |s: usize, reason: Reason| {
-        let pc = rc.code.iter().position(|op| matches!(op, OpCode::SetLocal(x) if *x == s)).unwrap_or(0);
-        shift(at(pc, &rc.code[pc], reason), start)
-    };
-    let mut loads = Vec::new();
-    for &s in &read {
-        if let Some(k) = init[s] {
-            loads.push((s, k));
-        }
-    }
-    let mut stores = Vec::new();
-    for &s in &written {
-        let k = slots[s];
-        let outer = info.entry.get(s).is_some_and(|t| t.is_some());
-        if is_heap(k) {
-            // an outer string is handed back to its local with the block's new value. an outer array can't be,
-            // yet: the VM would keep the old one
-            if outer && k == K::String {
-                stores.push((s, k));
-            } else if outer {
-                return Err(refuse_write(s, Reason::HeapAssigned));
-            }
-            continue;
-        }
-        if !matches!(k, K::Int | K::Float | K::Bool) {
-            return Err(refuse_write(s, Reason::LocalKind));
-        }
-        stores.push((s, k));
-    }
-    let mut loads_mask = vec![false; plain.num_locals];
-    for (s, _) in &loads {
-        loads_mask[*s] = true;
-    }
-    let mut stores_mask = vec![false; plain.num_locals];
-    for (s, _) in &stores {
-        stores_mask[*s] = true;
-    }
-    Ok(BlockPlan { rc, slots, loads, stores, loads_mask, stores_mask })
-}
-
-/// the static check of `compile JIT`: every block must be native code. the first block that can't be is an
-/// error, with its line and why. `spg check` and `spg run` both run it, before anything executes
-pub fn check_blocks(program: &Program) -> Result<(), String> {
-    let (elig, _, _, _) = eligible(program);
-    let sigs: Vec<Option<Sig>> = program
-        .functions
-        .iter()
-        .enumerate()
-        .map(|(i, c)| if elig[i] { c.native_sig.clone() } else { None })
-        .collect();
-    for (_, chunk) in chunks_of(program) {
-        for info in &chunk.jit_blocks {
-            if let Err(r) = plan_block(chunk, info, &sigs, &program.struct_defs) {
-                let line = chunk.locs.get(r.pc.unwrap_or(info.start)).map_or(0, |l| l.line);
-                return Err(format!("line {line}: compile JIT block cannot be native: {}", explain_refusal(program, &r)));
-            }
-        }
-    }
-    Ok(())
 }

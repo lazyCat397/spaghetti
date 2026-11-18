@@ -1,0 +1,4 @@
+#> strict
+const Z: u32 = 0;
+const ONE: u32 = 1;
+print(Z - ONE);

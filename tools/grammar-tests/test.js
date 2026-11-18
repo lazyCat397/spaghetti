@@ -56,9 +56,6 @@ const cases = [
   ['max after :: is a constant', 'print(int::max)', 'max', 0, 'constant.other.type-property.spg'],
   ['single colon is not the operator', 'let a: int = 1', ':', 0, null, 'keyword.operator.type-property.spg'],
   // compile: the word and its target, with or without braces
-  ['compile is a keyword', 'compile JIT {', 'compile', 0, 'keyword.control.compile.spg'],
-  ['compile JIT target', 'compile JIT {', 'JIT', 0, 'keyword.control.compile.target.spg'],
-  ['compile VM without braces', 'compile VM', 'VM', 0, 'keyword.control.compile.target.spg'],
   ['compile is not part of a longer name', 'let compiled = 1', 'compiled', 0, null, 'keyword.control.compile.spg'],
   // the remaining keywords of the lexer
   ['do is a loop keyword', 'do {', 'do', 0, 'keyword.control.loop.spg'],

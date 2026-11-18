@@ -1,0 +1,16 @@
+const A: i16 = 30000;
+const P: i16 = 2;
+const SEVEN: i16 = 15;
+let s: i16 = A + A;
+let p: i16 = P ** SEVEN;
+const L: i16 = -32768;
+let d: i32 = 2000000000;
+let m: i32 = d + d;
+let n: i32 = -2147483648;
+print(s);
+print(p);
+print(L == -32768);
+print(L < 0);
+print(m);
+print(n - 1);
+print(d + 1);

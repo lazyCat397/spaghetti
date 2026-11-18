@@ -1,0 +1,2 @@
+print(@into.u8w(300));
+print(@into.u8(255));

@@ -7,6 +7,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::chunk::SizedOp;
 use crate::error::RuntimeError;
 
 static STRICT: AtomicBool = AtomicBool::new(false);
@@ -97,6 +98,115 @@ pub(crate) fn pow(a: i64, b: i64) -> Result<i64, RuntimeError> {
         Some(v) => Ok(v),
         None => overflow(a.wrapping_pow(e), "power"),
     }
+}
+
+/// arithmetic on a sized int. the operands are already in `lo..=hi`. the result is computed in i64
+/// (checked), then checked against the range. `wraps` types (`i8`, `u8`) wrap into the range, like
+/// `int` wraps at 64 bits; `#> strict` makes any such case an error. a wrap from i64 is exact here,
+/// because the range size (256) divides 2^64. `u64` (`wraps` false) never wraps: any result outside
+/// 0..=i64::MAX, including a 64-bit overflow, is an error.
+pub(crate) fn sized(op: SizedOp, a: i64, b: i64, lo: i64, hi: i64, wraps: bool, ty: &'static str) -> Result<i64, RuntimeError> {
+    let (name, wide, wrapped) = match op {
+        SizedOp::Add => ("addition", a.checked_add(b), a.wrapping_add(b)),
+        SizedOp::Sub => ("subtraction", a.checked_sub(b), a.wrapping_sub(b)),
+        SizedOp::Mul => ("multiplication", a.checked_mul(b), a.wrapping_mul(b)),
+        SizedOp::Div => {
+            if b == 0 {
+                return Err(RuntimeError::DivisionByZero);
+            }
+            ("division", a.checked_div(b), a.wrapping_div(b))
+        }
+        SizedOp::Mod => {
+            if b == 0 {
+                return Err(RuntimeError::DivisionByZero);
+            }
+            ("remainder", a.checked_rem(b), a.wrapping_rem(b))
+        }
+        // same clamp as `pow` for int: a negative exponent is valid and gives 1
+        SizedOp::Pow => {
+            let e = b.max(0).min(u32::MAX as i64) as u32;
+            ("power", a.checked_pow(e), a.wrapping_pow(e))
+        }
+    };
+    match wide {
+        Some(v) if (lo..=hi).contains(&v) => Ok(v),
+        // out of range, or the i64 itself overflowed (then `wrapped` is the 64-bit wrap)
+        _ => {
+            if !wraps || STRICT.load(Ordering::Relaxed) {
+                return Err(RuntimeError::SizedOutOfRange { ty, op: name, lo, hi, wraps });
+            }
+            Ok(wrap_into(wrapped, lo, hi))
+        }
+    }
+}
+
+/// arithmetic on a u64. the bits are the u64 (a negative i64 is a large u64). the result wraps at 2^64,
+/// like `int` wraps at 2^64, and `#> strict` makes a result that leaves u64 an error. division by zero
+/// is an error, as for the other types.
+pub(crate) fn u64_arith(op: SizedOp, a: i64, b: i64) -> Result<i64, RuntimeError> {
+    let (x, y) = (a as u64, b as u64);
+    let (r, overflow, name) = match op {
+        SizedOp::Add => {
+            let (r, o) = x.overflowing_add(y);
+            (r, o, "addition")
+        }
+        SizedOp::Sub => {
+            let (r, o) = x.overflowing_sub(y);
+            (r, o, "subtraction")
+        }
+        SizedOp::Mul => {
+            let (r, o) = x.overflowing_mul(y);
+            (r, o, "multiplication")
+        }
+        SizedOp::Div => {
+            if y == 0 {
+                return Err(RuntimeError::DivisionByZero);
+            }
+            (x / y, false, "division")
+        }
+        SizedOp::Mod => {
+            if y == 0 {
+                return Err(RuntimeError::DivisionByZero);
+            }
+            (x % y, false, "remainder")
+        }
+        // a negative exponent cannot come from a u64; a huge one overflows anyway
+        SizedOp::Pow => {
+            let e = y.min(u32::MAX as u64) as u32;
+            let (r, o) = x.overflowing_pow(e);
+            (r, o, "power")
+        }
+    };
+    if overflow && STRICT.load(Ordering::Relaxed) {
+        return Err(RuntimeError::UnsignedOverflow { op: name });
+    }
+    Ok(r as i64)
+}
+
+/// `@into.T(v)` / `@into.Tw(v)`: an int into a sized type. in range: the value itself. out of range:
+/// `wraps` (the `w` names) wraps it, the others are an error that names the `w` version.
+pub(crate) fn into_sized(value: i64, lo: i64, hi: i64, wraps: bool, ty: &'static str, suggest_wrap: bool) -> Result<i64, RuntimeError> {
+    // a u64 target: its bits are the value (a wrap of 2^64 is the identity on bits); an int must be >= 0
+    if ty == "u64" {
+        return if wraps || value >= 0 {
+            Ok(value)
+        } else {
+            Err(RuntimeError::IntoOutOfRange { value, ty, lo, hi, suggest_wrap })
+        };
+    }
+    if (lo..=hi).contains(&value) {
+        Ok(value)
+    } else if wraps {
+        Ok(wrap_into(value, lo, hi))
+    } else {
+        Err(RuntimeError::IntoOutOfRange { value, ty, lo, hi, suggest_wrap })
+    }
+}
+
+/// `v` moved into `lo..=hi` modulo the range size (`hi - lo + 1`). `i8` and `u8` only.
+fn wrap_into(v: i64, lo: i64, hi: i64) -> i64 {
+    let width = (hi as i128) - (lo as i128) + 1;
+    (((v as i128) - (lo as i128)).rem_euclid(width) + lo as i128) as i64
 }
 
 #[cfg(test)]

@@ -1,0 +1,14 @@
+const A: u16 = 60000;
+const B: u16 = 10000;
+const Z: u32 = 0;
+const ONE: u32 = 1;
+const BIG: u32 = 4000000000;
+const HALF: u32 = 500000000;
+let s: u16 = A + B;
+let d: u32 = Z - ONE;
+let t: u32 = BIG + HALF;
+print(s);
+print(d);
+print(t);
+print(BIG > HALF);
+print(4294967295 == d);

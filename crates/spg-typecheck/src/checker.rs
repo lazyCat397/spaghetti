@@ -437,8 +437,6 @@ impl Checker {
                     }
                 }
                 Stmt::While { body, .. } => self.collect_return_types_in_stmts(&body.stmts, found),
-                Stmt::CompileVm { body, .. } => self.collect_return_types_in_stmts(&body.stmts, found),
-                Stmt::CompileJit { body, .. } => self.collect_return_types_in_stmts(&body.stmts, found),
                 Stmt::DoWhile { body, .. } => self.collect_return_types_in_stmts(&body.stmts, found),
                 Stmt::Match { arms, else_branch, .. } => {
                     for arm in arms {
@@ -726,7 +724,50 @@ impl Checker {
     /// `Ty::Any`/`Ty::AnyArray`/`Ty::AnyMap` without messing up FunctionSig. a
     /// name can have several overloads. the first whose arity and arg
     /// types both match wins. simple rule, no drama.
+    /// a builtin call. `@math` functions take f32 too: an f32 argument goes in as the float it is (exact),
+    /// the function runs in f64, and a float result comes back rounded to f32. one rounding, at the end,
+    /// so the result is the f32 nearest to the f64 result
     fn check_builtin_call(&mut self, name: String, typed_args: Vec<TypedExpr>, pos: &p::Pos) -> Option<TypedExpr> {
+        // `@into.T(literal)` without `w`: a literal that does not fit T is an error here, at compile time.
+        // the `w` names wrap, so they take any literal
+        // `@into.T(x)` with x a u64, T not u64 and not the `w` name: the u64 must fit an int first, then T is checked
+        let typed_args: Vec<TypedExpr> = match (into_checked_target(&name), typed_args.as_slice()) {
+            (Some(target), [arg]) if target != Ty::U64 && arg.ty() == &Ty::U64 => {
+                let arg = arg.clone();
+                vec![TypedExpr::Call {
+                    callee: Box::new(TypedExpr::Ident { name: "@into.int".to_string(), ty: Ty::Int }),
+                    args: vec![arg],
+                    ty: Ty::Int,
+                    builtin: Some(BuiltinId::U64ToInt),
+                }]
+            }
+            _ => typed_args,
+        };
+        if let (Some(target), [arg]) = (into_checked_target(&name), typed_args.as_slice()) {
+            // the literal's value, `-` included (a negated literal is a unary node over the literal)
+            let literal = match arg {
+                TypedExpr::IntLit(v) => Some(*v),
+                TypedExpr::Unary { op: UnaryOp::Neg, expr, .. } => match &**expr {
+                    TypedExpr::IntLit(v) => v.checked_neg(),
+                    _ => None,
+                },
+                _ => None,
+            };
+            if let (Some(value), Some((lo, hi))) = (literal, target.sized_bounds()) {
+                if !(lo..=hi).contains(&value) {
+                    self.errors.push(TypeError::IntoOutOfRange { value, ty: target.clone(), pos: pos.clone() });
+                }
+            }
+        }
+        if !name.starts_with("@math.") || !typed_args.iter().any(|a| a.ty() == &Ty::F32) {
+            return self.check_builtin_call_plain(name, typed_args, pos);
+        }
+        let args: Vec<TypedExpr> = typed_args.into_iter().map(f32_to_float).collect();
+        let call = self.check_builtin_call_plain(name, args, pos)?;
+        Some(if call.ty() == &Ty::Float { float_to_f32(call) } else { call })
+    }
+
+    fn check_builtin_call_plain(&mut self, name: String, typed_args: Vec<TypedExpr>, pos: &p::Pos) -> Option<TypedExpr> {
         let builtins = builtin_signatures();
         let overloads = builtins.get(&name).expect("the caller checked that this is a builtin");
         // `print` / `printError` take ANY number of args (zero
@@ -745,6 +786,8 @@ impl Checker {
                         });
                     }
                 }
+                // an f32 is printed as its own shortest text, not as the f64 it is stored in
+                let typed_args: Vec<TypedExpr> = typed_args.into_iter().map(f32_as_text).collect();
                 return Some(TypedExpr::Call {
                     callee: Box::new(TypedExpr::Ident { name, ty: Ty::Void }),
                     args: typed_args,
@@ -766,11 +809,16 @@ impl Checker {
         // struct, ...): the same text `print` shows. consistency, always.
         if name == "@into.string"
             && typed_args.len() == 1
-            && !matches!(typed_args[0].ty(), Ty::Int | Ty::Float | Ty::Bool)
+            && !matches!(typed_args[0].ty(), Ty::Int | Ty::Float | Ty::Bool | Ty::F32 | Ty::U64)
         {
+            // a value with u64 or f32 inside carries its shape, so those numbers read right
+            let mut args = typed_args;
+            if let Some(shape) = type_shape(args[0].ty()) {
+                args.push(TypedExpr::StringLit(shape));
+            }
             return Some(TypedExpr::Call {
                 callee: Box::new(TypedExpr::Ident { name, ty: Ty::String }),
-                args: typed_args,
+                args,
                 ty: Ty::String,
                 builtin: Some(BuiltinId::AnyToString),
             });
@@ -1451,7 +1499,9 @@ impl Checker {
             }
 
             Stmt::Const { name, type_ann, value, exported, pos } => {
-                let typed_value = self.check_expr(value)?;
+                // same as `let`: the annotation is the expected type, so `const X: i8 = 124` is checked against i8
+                let hint = type_ann.as_ref().map(resolve_type_expr);
+                let typed_value = self.check_expr_expecting(value, hint.as_ref())?;
                 let inferred = typed_value.ty().clone();
                 if inferred == Ty::Void {
                     self.errors.push(TypeError::VoidValue { pos: pos.clone() });
@@ -1664,23 +1714,6 @@ impl Checker {
                     self.errors.push(TypeError::NonBoolCondition { found: typed_cond.ty().clone(), pos: pos.clone() });
                 }
                 Some(TypedStmt::DoWhile { body: typed_body, cond: typed_cond })
-            }
-
-            // `compile VM { }`: an ordinary block. the compiler marks its code as VM-only
-            Stmt::CompileVm { body, .. } => {
-                // a block scope, like `if`: names declared inside stay inside
-                self.push_scope();
-                let typed_body = self.check_block(body);
-                self.pop_scope();
-                Some(TypedStmt::CompileVm { body: typed_body })
-            }
-
-            // `compile JIT { }`: an ordinary block too. the compiler records it, and spg-jit checks it
-            Stmt::CompileJit { body, .. } => {
-                self.push_scope();
-                let typed_body = self.check_block(body);
-                self.pop_scope();
-                Some(TypedStmt::CompileJit { body: typed_body })
             }
 
             Stmt::While { cond, body, pos } => {
@@ -2621,6 +2654,51 @@ impl Checker {
             Some(other) => other,
             None => return self.check_expr(expr),
         };
+        // a literal above i64::MAX is a u64 bit pattern when a u64 is expected; any other type is an error here
+        if let Expr::UIntLit(n, pos) = expr {
+            return Some(match target {
+                Ty::U64 => TypedExpr::SizedIntLit { value: *n as i64, ty: Ty::U64 },
+                other => {
+                    self.errors.push(TypeError::UIntOutOfRange { value: *n, target: other.clone(), pos: pos.clone() });
+                    match other.sized_bounds() {
+                        Some(_) => TypedExpr::SizedIntLit { value: 0, ty: other.clone() },
+                        None => TypedExpr::IntLit(0),
+                    }
+                }
+            });
+        }
+        // a float literal for f32: rounded once, here. beyond f32's range is an error at the literal
+        if let Ty::F32 = target {
+            if let Some(v) = literal_float(expr) {
+                let pos = match expr {
+                    Expr::Unary { pos, .. } | Expr::FloatLit(_, pos) => pos.clone(),
+                    _ => return None,
+                };
+                let rounded = match f32_literal(v) {
+                    Some(r) => r as f64,
+                    None => {
+                        self.errors.push(TypeError::FloatOutOfRange { value: v, pos });
+                        v
+                    }
+                };
+                return Some(TypedExpr::F32Lit(rounded));
+            }
+        }
+        // an int literal (`-` included) for a sized type: checked against the range, here and only here
+        if let Some((lo, hi)) = target.sized_bounds() {
+            if let Some(v) = literal_int(expr) {
+                let pos = match expr {
+                    Expr::Unary { pos, .. } | Expr::IntLit(_, pos) => pos.clone(),
+                    _ => return None,
+                };
+                // out of range: the error is recorded, but the literal still gets its declared type,
+                // so the name stays declared and no second, cascading error follows (one error, one diagnostic)
+                if !(lo..=hi).contains(&v) {
+                    self.errors.push(TypeError::IntOutOfRange { value: v, ty: target.clone(), pos: pos.clone() });
+                }
+                return Some(TypedExpr::SizedIntLit { value: v, ty: target.clone() });
+            }
+        }
         match (expr, target) {
             (Expr::ArrayLit(items, lit_pos), Ty::Array(elem)) => {
                 let mut typed_items = Vec::new();
@@ -2971,6 +3049,34 @@ impl Checker {
                 TypedExpr::ArrayLit { items, ty: Ty::Array(Box::new(Ty::String)) }
             }
             ("int", "bits") => TypedExpr::IntLit(64),
+            // sized ints: their range, typed as that type. `u64::max` is i64::MAX, the u64 range of this phase
+            ("i8", "max") | ("i8", "min") | ("i16", "max") | ("i16", "min") | ("i32", "max") | ("i32", "min")
+            | ("u8", "max") | ("u8", "min") | ("u16", "max") | ("u16", "min") | ("u32", "max") | ("u32", "min")
+            | ("u64", "max") | ("u64", "min") => {
+                let sty = match ty { "i8" => Ty::I8, "i16" => Ty::I16, "i32" => Ty::I32, "u8" => Ty::U8, "u16" => Ty::U16, "u32" => Ty::U32, _ => Ty::U64 };
+                // u64::max is u64::MAX: all bits set (-1 as i64), not the int range's top
+                let value = match (sty.clone(), name) {
+                    (Ty::U64, "max") => -1,
+                    _ => {
+                        let (lo, hi) = sty.sized_bounds().expect("a sized type has a range");
+                        if name == "max" { hi } else { lo }
+                    }
+                };
+                TypedExpr::SizedIntLit { value, ty: sty }
+            }
+            ("i8", "bits") => TypedExpr::IntLit(8),
+            ("i16", "bits") => TypedExpr::IntLit(16),
+            ("i32", "bits") => TypedExpr::IntLit(32),
+            ("u8", "bits") => TypedExpr::IntLit(8),
+            ("u16", "bits") => TypedExpr::IntLit(16),
+            ("u32", "bits") => TypedExpr::IntLit(32),
+            ("u64", "bits") => TypedExpr::IntLit(64),
+            // f32: the values of f32 itself, already single precision
+            ("f32", "max") => TypedExpr::F32Lit(f32::MAX as f64),
+            ("f32", "min") => TypedExpr::F32Lit(f32::MIN as f64), // most negative, like float::min
+            ("f32", "epsilon") => TypedExpr::F32Lit(f32::EPSILON as f64),
+            ("f32", "inf") => TypedExpr::F32Lit(f64::INFINITY),
+            ("f32", "nan") => TypedExpr::F32Lit(f64::NAN),
             // the characters of text: plain strings, so `in` and `for` work on them directly
             ("string", "newline") => TypedExpr::StringLit("\n".to_string()),
             ("string", "tab") => TypedExpr::StringLit("\t".to_string()),
@@ -3001,6 +3107,11 @@ impl Checker {
         match expr {
             Expr::TypeProp { ty, name, pos } => self.check_type_prop(ty, name, pos),
             Expr::IntLit(n, _) => Some(TypedExpr::IntLit(*n)),
+            // without a u64 expected, it is an error: the value does not fit an int
+            Expr::UIntLit(n, pos) => {
+                self.errors.push(TypeError::UIntOutOfRange { value: *n, target: Ty::Int, pos: pos.clone() });
+                Some(TypedExpr::IntLit(0))
+            }
             Expr::FloatLit(f, _) => Some(TypedExpr::FloatLit(*f)),
             Expr::StringLit(s, _) => Some(TypedExpr::StringLit(s.clone())),
             Expr::BoolLit(b, _) => Some(TypedExpr::BoolLit(*b)),
@@ -3107,7 +3218,8 @@ impl Checker {
                         return None;
                     }
                 }
-                let mut typed_left = self.check_expr(left)?;
+                // a literal above i64::MAX is typed by its other operand (below): it is not checked here
+                let mut typed_left = if matches!(&**left, Expr::UIntLit(..)) { TypedExpr::IntLit(0) } else { self.check_expr(left)? };
                 // `a != none && a.x > 0`: the right side sees what the left side proved
                 let proven = match op {
                     BinaryOp::And => narrowing(left).0,
@@ -3119,7 +3231,9 @@ impl Checker {
                     BinaryOp::Or => type_facts(left).1,
                     _ => Vec::new(),
                 };
-                let checked_right = if proven.is_empty() && type_proven.is_empty() {
+                let checked_right = if matches!(&**right, Expr::UIntLit(..)) {
+                    Some(TypedExpr::IntLit(0))
+                } else if proven.is_empty() && type_proven.is_empty() {
                     self.check_expr(right)
                 } else {
                     self.push_scope();
@@ -3132,6 +3246,37 @@ impl Checker {
                 let mut typed_right = checked_right?;
                 if matches!(op, BinaryOp::Coalesce) {
                     return self.coalesce(typed_left, typed_right, pos);
+                }
+                // an int literal next to a sized int takes that type, as in Rust: `x + 120` with x: i8.
+                // the literal is checked against the range there (out of range is an error at the literal).
+                // a plain int variable is never adapted: mixing it with a sized int stays an error
+                if (literal_int(left).is_some() || matches!(&**left, Expr::UIntLit(..))) && typed_left.ty() == &Ty::Int && typed_right.ty().sized_bounds().is_some() {
+                    let target = typed_right.ty().clone();
+                    typed_left = self.check_expr_expecting(left, Some(&target))?;
+                }
+                if (literal_int(right).is_some() || matches!(&**right, Expr::UIntLit(..))) && typed_right.ty() == &Ty::Int && typed_left.ty().sized_bounds().is_some() {
+                    let target = typed_left.ty().clone();
+                    typed_right = self.check_expr_expecting(right, Some(&target))?;
+                }
+                // a literal above i64::MAX that no u64 took is an error, here (its other operand had no u64)
+                if let Expr::UIntLit(n, p) = &**left {
+                    if typed_left.ty() == &Ty::Int {
+                        self.errors.push(TypeError::UIntOutOfRange { value: *n, target: Ty::Int, pos: p.clone() });
+                    }
+                }
+                if let Expr::UIntLit(n, p) = &**right {
+                    if typed_right.ty() == &Ty::Int {
+                        self.errors.push(TypeError::UIntOutOfRange { value: *n, target: Ty::Int, pos: p.clone() });
+                    }
+                }
+                // a float literal next to an f32 takes f32, as an int literal takes a sized int
+                if literal_float(left).is_some() && typed_left.ty() == &Ty::Float && typed_right.ty() == &Ty::F32 {
+                    let target = typed_right.ty().clone();
+                    typed_left = self.check_expr_expecting(left, Some(&target))?;
+                }
+                if literal_float(right).is_some() && typed_right.ty() == &Ty::Float && typed_left.ty() == &Ty::F32 {
+                    let target = typed_left.ty().clone();
+                    typed_right = self.check_expr_expecting(right, Some(&target))?;
                 }
                 let result_ty = self.binary_result_type(op, typed_left.ty(), typed_right.ty(), pos)?;
                 // `==` / `!=` on two values of the same enum: the VM compares them
@@ -3166,6 +3311,7 @@ impl Checker {
                 let ty = match (op, typed_expr.ty()) {
                     (UnaryOp::Neg, Ty::Int) => Ty::Int,
                     (UnaryOp::Neg, Ty::Float) => Ty::Float,
+                    (UnaryOp::Neg, Ty::F32) => Ty::F32,
                     (UnaryOp::Not, Ty::Bool) => Ty::Bool,
                     (_, other) => {
                         self.errors.push(TypeError::InvalidOperandTypes {
@@ -3659,6 +3805,10 @@ impl Checker {
         let ty = match (op, left, right) {
             (Add | Sub | Mul | Div | Mod | Pow, Ty::Int, Ty::Int) => Ty::Int,
             (Add | Sub | Mul | Div | Mod | Pow, Ty::Float, Ty::Float) => Ty::Float,
+            (Add | Sub | Mul | Div | Mod | Pow, Ty::F32, Ty::F32) => Ty::F32,
+            // arithmetic between two values of the same sized type: the result has that type, and the
+            // compiler wraps it (or errors, for u64 / strict). mixed sized types and `int` stay errors
+            (Add | Sub | Mul | Div | Mod | Pow, a, b) if a == b && a.sized_bounds().is_some() => a.clone(),
             (Add, Ty::String, Ty::String) => Ty::String, // string concatenation
 
             // `x == none`, `x != none`, and an optional against a plain value (`x == 3`)
@@ -3676,7 +3826,11 @@ impl Checker {
             }
             (Eq | NotEq, a, b) if a == b => Ty::Bool,
             (Lt | Gt | LtEq | GtEq, Ty::Int, Ty::Int) => Ty::Bool,
+            // ordering between two values of the same sized type (`i8`, `u8`, `u64`): the values are
+            // always inside their range, so the int comparison is already the right one
+            (Lt | Gt | LtEq | GtEq, a, b) if a == b && a.sized_bounds().is_some() => Ty::Bool,
             (Lt | Gt | LtEq | GtEq, Ty::Float, Ty::Float) => Ty::Bool,
+            (Lt | Gt | LtEq | GtEq, Ty::F32, Ty::F32) => Ty::Bool,
 
             (And | Or, Ty::Bool, Ty::Bool) => Ty::Bool,
 
@@ -3755,6 +3909,90 @@ fn always_returns(stmts: &[Stmt], exh: &std::collections::HashSet<(Option<String
 
 /// the value of an integer literal, `-` included (`3`, `-3`). `None` for
 /// anything that has to be computed. used to classify a range `step`.
+/// the value of an integer literal, `-` included (`3`, `-3`). `None` for
+/// anything that has to be computed. used to classify a range `step`.
+/// a float literal (`-` included), as the value it names
+fn literal_float(e: &Expr) -> Option<f64> {
+    match e {
+        Expr::FloatLit(f, _) => Some(*f),
+        Expr::Unary { op: UnaryOp::Neg, expr, .. } => match &**expr {
+            Expr::FloatLit(f, _) => Some(-*f),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// `f32` value of a float literal, or an error when it is beyond f32's range
+fn f32_literal(value: f64) -> Option<f32> {
+    let r = value as f32;
+    if r.is_infinite() && value.is_finite() { None } else { Some(r) }
+}
+
+/// an f32 value as text for print and @into.string: the shortest text that reads back as the same f32
+fn f32_as_text(a: TypedExpr) -> TypedExpr {
+    // a u64 is printed unsigned: its bits are the number, as the static type says
+    let builtin = match a.ty() {
+        Ty::F32 => BuiltinId::F32ToString,
+        Ty::U64 => BuiltinId::U64ToString,
+        // an array, map or optional holding u64 or f32: its text with the shape of its numbers
+        other => match type_shape(other) {
+            Some(shape) => {
+                return TypedExpr::Call {
+                    callee: Box::new(TypedExpr::Ident { name: "@into.string".to_string(), ty: Ty::String }),
+                    args: vec![a, TypedExpr::StringLit(shape), TypedExpr::StringLit("print".to_string())],
+                    ty: Ty::String,
+                    builtin: Some(BuiltinId::AnyToString),
+                };
+            }
+            None => return a,
+        },
+    };
+    TypedExpr::Call {
+        callee: Box::new(TypedExpr::Ident { name: "@into.string".to_string(), ty: Ty::String }),
+        args: vec![a],
+        ty: Ty::String,
+        builtin: Some(builtin),
+    }
+}
+
+/// an f32 value as a float: exact, the same number in f64 (`@into.float`)
+fn f32_to_float(a: TypedExpr) -> TypedExpr {
+    if a.ty() != &Ty::F32 {
+        return a;
+    }
+    TypedExpr::Call {
+        callee: Box::new(TypedExpr::Ident { name: "@into.float".to_string(), ty: Ty::Float }),
+        args: vec![a],
+        ty: Ty::Float,
+        builtin: Some(BuiltinId::F32ToFloat),
+    }
+}
+
+/// a float rounded to f32 (`@into.f32`): the one rounding of an f32 result
+fn float_to_f32(a: TypedExpr) -> TypedExpr {
+    TypedExpr::Call {
+        callee: Box::new(TypedExpr::Ident { name: "@into.f32".to_string(), ty: Ty::F32 }),
+        args: vec![a],
+        ty: Ty::F32,
+        builtin: Some(BuiltinId::FloatToF32),
+    }
+}
+
+/// the sized type of a non-wrapping `@into.T` name (`@into.i8` -> i8). the `w` names return None
+fn into_checked_target(name: &str) -> Option<Ty> {
+    match name {
+        "@into.i8" => Some(Ty::I8),
+        "@into.i16" => Some(Ty::I16),
+        "@into.i32" => Some(Ty::I32),
+        "@into.u8" => Some(Ty::U8),
+        "@into.u16" => Some(Ty::U16),
+        "@into.u32" => Some(Ty::U32),
+        "@into.u64" => Some(Ty::U64),
+        _ => None,
+    }
+}
+
 fn literal_int(e: &Expr) -> Option<i64> {
     match e {
         Expr::IntLit(n, _) => Some(*n),
@@ -3808,7 +4046,15 @@ fn stmt_always_returns(stmt: &Stmt, exh: &std::collections::HashSet<(Option<Stri
 pub fn resolve_type_expr(t: &TypeExpr) -> Ty {
     match t {
         TypeExpr::Int => Ty::Int,
+        TypeExpr::I8 => Ty::I8,
+        TypeExpr::I16 => Ty::I16,
+        TypeExpr::I32 => Ty::I32,
+        TypeExpr::U8 => Ty::U8,
+        TypeExpr::U16 => Ty::U16,
+        TypeExpr::U32 => Ty::U32,
+        TypeExpr::U64 => Ty::U64,
         TypeExpr::Float => Ty::Float,
+        TypeExpr::F32 => Ty::F32,
         TypeExpr::Bool => Ty::Bool,
         TypeExpr::String => Ty::String,
         TypeExpr::Void => Ty::Void,
@@ -4015,11 +4261,29 @@ fn push_unique(list: &mut Vec<Ty>, t: Ty) {
     }
 }
 
+/// the static shape of the numbers inside a type that differ from an int's text: a u64 (`u`), an f32 (`f`),
+/// and arrays, maps and optionals of them. None when the type holds no such number (a plain value prints as before).
+/// structs and enums are not walked: their fields are not in the value (see Shape in spg-vm)
+pub fn type_shape(ty: &Ty) -> Option<String> {
+    match ty {
+        Ty::U64 => Some("u".to_string()),
+        Ty::F32 => Some("f".to_string()),
+        Ty::Optional(inner) => type_shape(inner),
+        Ty::Array(inner) => type_shape(inner).map(|s| format!("a({})", s)),
+        Ty::Map(k, v) => match (type_shape(k), type_shape(v)) {
+            (None, None) => None,
+            (ks, vs) => Some(format!("m({},{})", ks.unwrap_or_else(|| "p".to_string()), vs.unwrap_or_else(|| "p".to_string()))),
+        },
+        _ => None,
+    }
+}
+
 /// the name of a value type's method namespace, when `ty` is one of them
 fn value_type_of_ty(ty: &Ty) -> Option<&'static str> {
     match ty {
         Ty::Int => Some("int"),
         Ty::Float => Some("float"),
+        Ty::F32 => Some("f32"),
         Ty::Bool => Some("bool"),
         Ty::String => Some("string"),
         _ => None,

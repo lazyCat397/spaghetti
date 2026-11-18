@@ -1,0 +1,13 @@
+const LOW: i8 = -128;
+const HIGH: i8 = 127;
+const ZERO: u8 = 0;
+const ONE: u64 = 1;
+let a: u8 = 255;
+let b: u8 = ZERO;
+let big: u64 = 9223372036854775807;
+print(LOW < HIGH);
+print(HIGH >= LOW);
+print(a > b);
+print(b == ZERO);
+print(big > ONE);
+print(LOW == HIGH);

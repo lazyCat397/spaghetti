@@ -300,6 +300,34 @@ pub(crate) fn call_builtin_on_stack(stack: &mut Vec<Value>, id: BuiltinId, argc:
         IsNaN => Value::Bool(as_float(pop!()).is_nan()),
         IntToFloat => Value::Float(as_int(pop!()) as f64),
         FloatToInt => Value::Int(as_float(pop!()) as i64),
+        F32ToString => Value::String(Rc::new(crate::value::format_f32(as_float(pop!())))),
+        F32ToFloat => Value::Float(as_float(pop!())),
+        FloatToF32 => Value::Float(as_float(pop!()) as f32 as f64),
+        U64ToString => Value::String(Rc::new(crate::value::format_u64(as_int(pop!())))),
+        U64ToInt => {
+            let v = as_int(pop!());
+            if v < 0 {
+                return Err(RuntimeError::U64NotInt { value: v as u64 });
+            }
+            Value::Int(v)
+        }
+        IntoU64W => Value::Int(crate::arith::into_sized(as_int(pop!()), 0, i64::MAX, true, "u64", false)?),
+        U64ToFloat => Value::Float(as_int(pop!()) as u64 as f64),
+        U64ToF32 => Value::Float(as_int(pop!()) as u64 as f32 as f64),
+        IntoI8 => Value::Int(crate::arith::into_sized(as_int(pop!()), -128, 127, false, "i8", true)?),
+        IntoI8W => Value::Int(crate::arith::into_sized(as_int(pop!()), -128, 127, true, "i8", false)?),
+        IntoI16 => Value::Int(crate::arith::into_sized(as_int(pop!()), -32768, 32767, false, "i16", true)?),
+        IntoI16W => Value::Int(crate::arith::into_sized(as_int(pop!()), -32768, 32767, true, "i16", false)?),
+        IntoI32 => Value::Int(crate::arith::into_sized(as_int(pop!()), -2147483648, 2147483647, false, "i32", true)?),
+        IntoI32W => Value::Int(crate::arith::into_sized(as_int(pop!()), -2147483648, 2147483647, true, "i32", false)?),
+        IntoU8 => Value::Int(crate::arith::into_sized(as_int(pop!()), 0, 255, false, "u8", true)?),
+        IntoU8W => Value::Int(crate::arith::into_sized(as_int(pop!()), 0, 255, true, "u8", false)?),
+        IntoU16 => Value::Int(crate::arith::into_sized(as_int(pop!()), 0, 65535, false, "u16", true)?),
+        IntoU16W => Value::Int(crate::arith::into_sized(as_int(pop!()), 0, 65535, true, "u16", false)?),
+        IntoU32 => Value::Int(crate::arith::into_sized(as_int(pop!()), 0, 4294967295, false, "u32", true)?),
+        IntoU32W => Value::Int(crate::arith::into_sized(as_int(pop!()), 0, 4294967295, true, "u32", false)?),
+        IntoU64 => Value::Int(crate::arith::into_sized(as_int(pop!()), 0, i64::MAX, false, "u64", false)?),
+        IntoI64 => Value::Int(as_int(pop!())),
         _ => {
             // generic path: operands popped in reverse push order, same as Call/MakeArray
             let len = stack.len();
@@ -523,7 +551,20 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
         // the variant's name (`Value`'s Display prints that, so the name is the name)
         EnumToString => Value::String(Rc::new(args.remove(0).to_string())),
         TypeOf => Value::String(Rc::new(args.remove(0).type_label())),
-        AnyToString => Value::String(Rc::new(crate::value::plain_text(&args.remove(0)))),
+        // the value, then (optionally) the static shape of its numbers, then (optionally) "print" for the
+        // print float text. no shape: the plain text, as before
+        AnyToString => {
+            let v = args.remove(0);
+            let shape = match args.first() {
+                Some(Value::String(s)) => Some(s.as_str().to_string()),
+                _ => None,
+            };
+            let print = matches!(args.get(1), Some(Value::String(s)) if s.as_str() == "print");
+            Value::String(Rc::new(match shape {
+                Some(shape) => crate::value::shaped_text(&v, &shape, print),
+                None => crate::value::plain_text(&v),
+            }))
+        }
         BoolToString => Value::String(Rc::new(match args.remove(0) {
             Value::Bool(b) => b.to_string(),
             other => panic!("VM bug: builtin expected bool, got {}", other.type_name()),
@@ -836,6 +877,34 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
         // ---- @into (conversions, which are always a lie) ----
         IntToFloat => Value::Float(as_int(args.remove(0)) as f64),
         FloatToInt => Value::Int(as_float(args.remove(0)) as i64),
+        F32ToString => Value::String(Rc::new(crate::value::format_f32(as_float(args.remove(0))))),
+        F32ToFloat => Value::Float(as_float(args.remove(0))),
+        FloatToF32 => Value::Float(as_float(args.remove(0)) as f32 as f64),
+        U64ToString => Value::String(Rc::new(crate::value::format_u64(as_int(args.remove(0))))),
+        U64ToInt => {
+            let v = as_int(args.remove(0));
+            if v < 0 {
+                return Err(RuntimeError::U64NotInt { value: v as u64 });
+            }
+            Value::Int(v)
+        }
+        IntoU64W => Value::Int(crate::arith::into_sized(as_int(args.remove(0)), 0, i64::MAX, true, "u64", false)?),
+        U64ToFloat => Value::Float(as_int(args.remove(0)) as u64 as f64),
+        U64ToF32 => Value::Float(as_int(args.remove(0)) as u64 as f32 as f64),
+        IntoI8 => Value::Int(crate::arith::into_sized(as_int(args.remove(0)), -128, 127, false, "i8", true)?),
+        IntoI8W => Value::Int(crate::arith::into_sized(as_int(args.remove(0)), -128, 127, true, "i8", false)?),
+        IntoI16 => Value::Int(crate::arith::into_sized(as_int(args.remove(0)), -32768, 32767, false, "i16", true)?),
+        IntoI16W => Value::Int(crate::arith::into_sized(as_int(args.remove(0)), -32768, 32767, true, "i16", false)?),
+        IntoI32 => Value::Int(crate::arith::into_sized(as_int(args.remove(0)), -2147483648, 2147483647, false, "i32", true)?),
+        IntoI32W => Value::Int(crate::arith::into_sized(as_int(args.remove(0)), -2147483648, 2147483647, true, "i32", false)?),
+        IntoU8 => Value::Int(crate::arith::into_sized(as_int(args.remove(0)), 0, 255, false, "u8", true)?),
+        IntoU8W => Value::Int(crate::arith::into_sized(as_int(args.remove(0)), 0, 255, true, "u8", false)?),
+        IntoU16 => Value::Int(crate::arith::into_sized(as_int(args.remove(0)), 0, 65535, false, "u16", true)?),
+        IntoU16W => Value::Int(crate::arith::into_sized(as_int(args.remove(0)), 0, 65535, true, "u16", false)?),
+        IntoU32 => Value::Int(crate::arith::into_sized(as_int(args.remove(0)), 0, 4294967295, false, "u32", true)?),
+        IntoU32W => Value::Int(crate::arith::into_sized(as_int(args.remove(0)), 0, 4294967295, true, "u32", false)?),
+        IntoU64 => Value::Int(crate::arith::into_sized(as_int(args.remove(0)), 0, i64::MAX, false, "u64", false)?),
+        IntoI64 => Value::Int(as_int(args.remove(0))),
         ParseInt => {
             let s = as_string(args.remove(0));
             s.trim().parse::<i64>().map(Value::Int).map_err(|_| RuntimeError::InvalidNumberFormat {

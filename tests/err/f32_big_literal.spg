@@ -1,0 +1,2 @@
+let x: f32 = 1e39;
+print(x);

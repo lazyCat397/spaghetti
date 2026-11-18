@@ -1,0 +1,3 @@
+let a: u8 = 1;
+let b: int = a;
+print(b);

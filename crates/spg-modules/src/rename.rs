@@ -200,10 +200,6 @@ impl<'a> Renamer<'a> {
                 }
             }
 
-            Stmt::CompileVm { body, .. } | Stmt::CompileJit { body, .. } => {
-                self.rename_block(body);
-            }
-
             Stmt::DoWhile { body, cond, .. } => {
                 self.rename_block(body);
                 self.rename_expr(cond);
@@ -296,7 +292,7 @@ impl<'a> Renamer<'a> {
     fn rename_expr(&mut self, expr: &mut Expr) {
         match expr {
             // `int::max` names no user identifier: nothing to rename
-            Expr::IntLit(..) | Expr::FloatLit(..) | Expr::StringLit(..) | Expr::BoolLit(..) | Expr::NoneLit(..) | Expr::TypeProp { .. } => {}
+            Expr::IntLit(..) | Expr::UIntLit(..) | Expr::FloatLit(..) | Expr::StringLit(..) | Expr::BoolLit(..) | Expr::NoneLit(..) | Expr::TypeProp { .. } => {}
 
             Expr::ArrayLit(items, _) => {
                 for i in items {

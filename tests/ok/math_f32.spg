@@ -1,0 +1,10 @@
+let x: f32 = 4.0;
+let y: f32 = 2.0;
+print(@math.sqrt(x));
+print(@math.sqrt(y));
+print(@math.pow(y, 3.0));
+print(@math.max(y, 1.0));
+print(@math.sin(x));
+print(@math.floor(y) + 1);
+let z: f32 = @math.sqrt(y) * 2.0;
+print(z);

@@ -1,0 +1,11 @@
+const ONE: u8 = 1;
+fn bump(x: u8) -> u8 {
+    return x + ONE;
+}
+let acc: u8 = 0;
+let k: int = 0;
+while (k < 3000) {
+    acc = bump(acc);
+    k = k + 1;
+}
+print(acc);

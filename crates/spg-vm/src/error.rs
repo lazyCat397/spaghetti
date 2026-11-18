@@ -10,8 +10,6 @@ use std::fmt;
 
 #[derive(Debug, Clone)]
 pub enum RuntimeError {
-    /// a `compile JIT` block's native code couldn't carry on (overflow, division by zero, index out of range, ...)
-    JitBlockFailed { line: u32 },
     /// an OpCode expected a certain Value variant on the stack (e.g.
     /// AddInt expects two Ints) and found something else. should be
     /// impossible after typecheck. the type name found is kept for
@@ -73,6 +71,14 @@ pub enum RuntimeError {
     RangeTooLarge { len: u128, max: usize },
     /// `#> strict`: an int op whose result doesn't fit in 64 bits. you asked for it.
     IntegerOverflow { op: &'static str },
+    /// `@into.i8(300)`: the value does not fit the target. `suggest_wrap`: the `w` version exists
+    IntoOutOfRange { value: i64, ty: &'static str, lo: i64, hi: i64, suggest_wrap: bool },
+    /// a u64 above i64::MAX converted to int: it does not fit
+    U64NotInt { value: u64 },
+    /// a u64 result left the u64 range under `#> strict`
+    UnsignedOverflow { op: &'static str },
+    /// a sized int (`i8`, `u8`, `u64`) left its range: an error under `#> strict`, or always for `u64`
+    SizedOutOfRange { ty: &'static str, op: &'static str, lo: i64, hi: i64, wraps: bool },
     /// more nested calls than `vm::MAX_CALL_DEPTH` (usually infinite recursion. classic.)
     StackOverflow { limit: usize },
     /// `@json.*`: invalid JSON text, a path to nowhere, a value with no JSON form
@@ -104,7 +110,6 @@ impl RuntimeError {
 impl fmt::Display for RuntimeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RuntimeError::JitBlockFailed { line } => write!(f, "compile JIT block at line {} cannot continue natively", line),
             RuntimeError::TypeMismatch { expected, found: "none" } => write!(
                 f,
                 "unexpected none: a {} was needed but the value is none (an optional was used without checking it; a global can become none inside a function called in between)",
@@ -132,6 +137,32 @@ impl fmt::Display for RuntimeError {
             RuntimeError::EndOfInput { function } => write!(f, "{}: end of input (nothing left on stdin)", function),
             RuntimeError::IntegerOverflow { op } => {
                 write!(f, "integer overflow in {}: the result does not fit in an int (64 bits, #> strict)", op)
+            }
+            RuntimeError::IntoOutOfRange { value, ty, lo, hi, suggest_wrap } => {
+                write!(f, "{} does not fit {} (range {}..={})", value, ty, lo, hi)?;
+                if *suggest_wrap {
+                    write!(f, ": use @into.{}w to wrap it into the range", ty)?;
+                }
+                Ok(())
+            }
+            RuntimeError::U64NotInt { value } => write!(
+                f,
+                "the u64 value {} does not fit int (its largest value is 9223372036854775807)",
+                value
+            ),
+            RuntimeError::UnsignedOverflow { op } => {
+                write!(f, "{} overflow in u64: the result does not fit in u64 (#> strict)", op)
+            }
+            RuntimeError::SizedOutOfRange { ty, op, lo, hi, wraps } => {
+                if *wraps {
+                    write!(f, "{} overflow in {}: the result is outside {}'s range {}..={} (#> strict)", op, ty, ty, lo, hi)
+                } else {
+                    write!(
+                        f,
+                        "{} in {}: the result is outside {}'s range {}..={}; {} does not wrap yet, its range ends at i64::MAX",
+                        op, ty, ty, lo, hi, ty
+                    )
+                }
             }
             RuntimeError::Json { function, message } => write!(f, "{}: {}", function, message),
             RuntimeError::Process { function, reason } => write!(f, "{}: {}", function, reason),

@@ -24,7 +24,6 @@ print(best)
 
 // the same check in compiled code (JIT)
 let bad = 0
-compile JIT {
     let i = 0
     while (i < 4) {
         let v = 1.0
@@ -36,5 +35,4 @@ compile JIT {
         }
         i = i + 1
     }
-}
 print(bad)

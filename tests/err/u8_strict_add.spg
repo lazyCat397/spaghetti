@@ -1,0 +1,4 @@
+#> strict
+let u: u8 = 250;
+const TEN: u8 = 10;
+print(u + TEN);

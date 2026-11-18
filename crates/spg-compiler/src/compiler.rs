@@ -120,8 +120,10 @@ fn compile_body(
             let field_kinds: Vec<Option<spg_vm::chunk::NativeKind>> = fields
                 .iter()
                 .map(|p| match spg_typecheck::resolve_type_expr(&p.type_ann) {
+                    // a sized int (`i8`, `u8`, `u64`) is an int at run time
+                    t if t.sized_bounds().is_some() => Some(spg_vm::chunk::NativeKind::Int),
                     Ty::Int => Some(spg_vm::chunk::NativeKind::Int),
-                    Ty::Float => Some(spg_vm::chunk::NativeKind::Float),
+                    Ty::Float | Ty::F32 => Some(spg_vm::chunk::NativeKind::Float),
                     Ty::Bool => Some(spg_vm::chunk::NativeKind::Bool),
                     Ty::String => Some(spg_vm::chunk::NativeKind::String),
                     Ty::Named(n) => enum_index
@@ -138,7 +140,15 @@ fn compile_body(
                     _ => None,
                 })
                 .collect();
-            struct_defs.push(std::rc::Rc::new(spg_vm::value::StructDef { name: name.clone(), field_names, field_kinds }));
+            // the shape of each field's numbers: a u64 or an f32 field prints as its type says
+            let field_shapes: Vec<spg_vm::value::Shape> = fields
+                .iter()
+                .map(|p| {
+                    let shape = spg_typecheck::type_shape(&spg_typecheck::resolve_type_expr(&p.type_ann));
+                    spg_vm::value::Shape::parse(shape.as_deref().unwrap_or("p"))
+                })
+                .collect();
+            struct_defs.push(std::rc::Rc::new(spg_vm::value::StructDef { name: name.clone(), field_names, field_kinds, field_shapes }));
         }
     }
     // pass 1b': every enum under a stable index, so `Color.Green` compiles to
@@ -241,8 +251,9 @@ fn compile_body(
                         _ => None,
                     };
                     let kind_r = |t: &Ty| match t {
+                        t if t.sized_bounds().is_some() => Some(NativeKind::Int),
                         Ty::Int => Some(NativeKind::Int),
-                        Ty::Float => Some(NativeKind::Float),
+                        Ty::Float | Ty::F32 => Some(NativeKind::Float),
                         Ty::Bool => Some(NativeKind::Bool),
                         Ty::String => Some(NativeKind::String),
                         Ty::Void => Some(NativeKind::Void),
@@ -985,25 +996,6 @@ impl<'a> FunctionCompiler<'a> {
                 self.compile_block(body)?;
             }
 
-            TypedStmt::CompileJit { body } => {
-                // the entry snapshot: the static types of the locals the block can read on entry
-                let block = self.chunk.jit_blocks.len();
-                let entry = self.chunk.slot_types.clone();
-                let start = self.chunk.emit(OpCode::JitBlock { block, end: 0 });
-                self.chunk.jit_blocks.push(spg_vm::chunk::JitBlockInfo { start, end: start, entry });
-                self.compile_block(body)?;
-                let end = self.chunk.next_index();
-                self.chunk.code[start] = OpCode::JitBlock { block, end };
-                self.chunk.jit_blocks[block].end = end;
-            }
-
-            TypedStmt::CompileVm { body } => {
-                let start = self.chunk.next_index();
-                self.compile_block(body)?;
-                let end = self.chunk.next_index();
-                self.chunk.vm_only.push((start, end));
-            }
-
             TypedStmt::DoWhile { body, cond } => {
                 let loop_start = self.chunk.next_index();
                 self.loop_stack.push(LoopContext { break_jumps: Vec::new(), continue_jumps: Vec::new(), handlers_at_entry: self.open_handlers });
@@ -1398,6 +1390,16 @@ impl<'a> FunctionCompiler<'a> {
                 let idx = self.chunk.add_constant(Value::Int(*n));
                 self.chunk.emit(OpCode::Const(idx));
             }
+            // a sized literal (`i8`) is an int at run time: the range was checked by the checker
+            TypedExpr::SizedIntLit { value, .. } => {
+                let idx = self.chunk.add_constant(Value::Int(*value));
+                self.chunk.emit(OpCode::Const(idx));
+            }
+            // an f32 literal is already rounded by the checker: it is a plain float constant at run time
+            TypedExpr::F32Lit(n) => {
+                let idx = self.chunk.add_constant(Value::Float(*n));
+                self.chunk.emit(OpCode::Const(idx));
+            }
             TypedExpr::FloatLit(n) => {
                 let idx = self.chunk.add_constant(Value::Float(*n));
                 self.chunk.emit(OpCode::Const(idx));
@@ -1497,7 +1499,7 @@ impl<'a> FunctionCompiler<'a> {
                 self.compile_expr(expr)?;
                 let opcode = match (op, expr.ty()) {
                     (UnaryOp::Neg, Ty::Int) => OpCode::NegInt,
-                    (UnaryOp::Neg, Ty::Float) => OpCode::NegFloat,
+                    (UnaryOp::Neg, Ty::Float) | (UnaryOp::Neg, Ty::F32) => OpCode::NegFloat,
                     (UnaryOp::Not, Ty::Bool) => OpCode::Not,
                     (op, ty) => panic!("compiler bug: unary {:?} on {:?} passed typecheck but has no opcode", op, ty),
                 };
@@ -1640,6 +1642,32 @@ impl<'a> FunctionCompiler<'a> {
             return Ok(());
         }
         let left_ty = left.ty();
+        // arithmetic on a sized int: one opcode carries its range and whether it wraps
+        // u64 arithmetic: unsigned, wraps at 2^64 (an error under `#> strict`). see OpCode::U64Arith
+        if *left_ty == Ty::U64 {
+            if let Some(sop) = sized_op(op) {
+                self.chunk.emit(OpCode::U64Arith { op: sop });
+                return Ok(());
+            }
+        }
+        // f32 arithmetic: the f64 operation, then rounded to single precision. exact for + - * /
+        // (a double rounding through f64 cannot change the f32 result of those four)
+        if *left_ty == Ty::F32 && sized_op_is_arith(op) {
+            let opcode = binary_opcode(op, &Ty::Float);
+            self.chunk.emit(opcode);
+            self.chunk.emit(OpCode::RoundF32);
+            return Ok(());
+        }
+        if let (Some((lo, hi)), Some(sop)) = (left_ty.sized_bounds(), sized_op(op)) {
+            self.chunk.emit(OpCode::SizedArith {
+                op: sop,
+                lo,
+                hi,
+                wraps: !matches!(left_ty, Ty::U64),
+                ty: sized_name(left_ty),
+            });
+            return Ok(());
+        }
         let opcode = binary_opcode(op, left_ty);
         self.chunk.emit(opcode);
         Ok(())
@@ -1724,9 +1752,62 @@ impl<'a> FunctionCompiler<'a> {
     }
 }
 
+/// the arithmetic operators (`f32` rounds their results)
+fn sized_op_is_arith(op: &BinaryOp) -> bool {
+    matches!(op, BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod | BinaryOp::Pow)
+}
+
+/// the sized-int arithmetic opcode for a binary operator (comparisons are not arithmetic: None)
+fn sized_op(op: &BinaryOp) -> Option<spg_vm::chunk::SizedOp> {
+    use spg_vm::chunk::SizedOp;
+    match op {
+        BinaryOp::Add => Some(SizedOp::Add),
+        BinaryOp::Sub => Some(SizedOp::Sub),
+        BinaryOp::Mul => Some(SizedOp::Mul),
+        BinaryOp::Div => Some(SizedOp::Div),
+        BinaryOp::Mod => Some(SizedOp::Mod),
+        BinaryOp::Pow => Some(SizedOp::Pow),
+        _ => None,
+    }
+}
+
+/// the name of a sized int type, for runtime messages
+fn sized_name(ty: &Ty) -> &'static str {
+    match ty {
+        Ty::I8 => "i8",
+        Ty::I16 => "i16",
+        Ty::I32 => "i32",
+        Ty::U8 => "u8",
+        Ty::U16 => "u16",
+        Ty::U32 => "u32",
+        Ty::U64 => "u64",
+        _ => "int",
+    }
+}
+
 fn binary_opcode(op: &BinaryOp, left_ty: &Ty) -> OpCode {
     use BinaryOp::*;
     use Ty::*;
+    // u64 order is unsigned: its bits compare as unsigned. (== and != are the same bits either way)
+    if *left_ty == U64 {
+        match op {
+            Lt => return OpCode::LtU64,
+            LtEq => return OpCode::LtEqU64,
+            Gt => return OpCode::GtU64,
+            GtEq => return OpCode::GtEqU64,
+            _ => {}
+        }
+    }
+    // a sized int (`i8`, `u8`, `u64`) is an int at run time, and its values always fit in their range,
+    // so comparing them uses the int opcodes. arithmetic on them is not opcode-mapped yet (checker rejects it)
+    let left_ty = if matches!(op, Eq | NotEq | Lt | Gt | LtEq | GtEq) && left_ty.sized_bounds().is_some() {
+        &Int
+    } else if matches!(op, Eq | NotEq | Lt | Gt | LtEq | GtEq) && *left_ty == Ty::F32 {
+        // f32 values are f64 values that are exact f32s: comparing them as floats is right
+        &Float
+    } else {
+        left_ty
+    };
     match (op, left_ty) {
         (Add, Int) => OpCode::AddInt,
         (Sub, Int) => OpCode::SubInt,
@@ -1790,8 +1871,10 @@ fn to_loc(loc: &spg_typecheck::SrcLoc) -> spg_vm::chunk::Loc {
 fn slot_ty(ty: &Ty) -> Option<spg_vm::chunk::SlotTy> {
     use spg_vm::chunk::SlotTy;
     match ty {
+        // a sized int (`i8`, `u8`, `u64`) is an int at run time: same native slot
+        t if t.sized_bounds().is_some() => Some(SlotTy::Int),
         Ty::Int => Some(SlotTy::Int),
-        Ty::Float => Some(SlotTy::Float),
+        Ty::Float | Ty::F32 => Some(SlotTy::Float),
         Ty::Bool => Some(SlotTy::Bool),
         Ty::String => Some(SlotTy::String),
         Ty::Array(e) => match e.as_ref() {
@@ -1807,11 +1890,11 @@ fn slot_ty_expr(ty: &TypeExpr) -> Option<spg_vm::chunk::SlotTy> {
     use spg_vm::chunk::SlotTy;
     match ty {
         TypeExpr::Int => Some(SlotTy::Int),
-        TypeExpr::Float => Some(SlotTy::Float),
+        TypeExpr::Float | TypeExpr::F32 => Some(SlotTy::Float),
         TypeExpr::Bool => Some(SlotTy::Bool),
         TypeExpr::String => Some(SlotTy::String),
         TypeExpr::Array(e) => match e.as_ref() {
-            TypeExpr::Int | TypeExpr::Float | TypeExpr::Bool | TypeExpr::String => slot_ty_expr(e).map(|inner| SlotTy::Array(Box::new(inner))),
+            TypeExpr::Int | TypeExpr::Float | TypeExpr::F32 | TypeExpr::Bool | TypeExpr::String => slot_ty_expr(e).map(|inner| SlotTy::Array(Box::new(inner))),
             _ => None,
         },
         _ => None,

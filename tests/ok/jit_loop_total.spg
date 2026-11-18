@@ -1,0 +1,18 @@
+let total = 0
+    let i = 0
+    while (i < 100) {
+        total = total + i
+        i = i + 1
+    }
+print("total", total)
+
+fn sum_to(n: int) -> int {
+    let s = 0
+        let k = 0
+        while (k < n) {
+            s = s + k
+            k = k + 1
+        }
+    return s
+}
+print(sum_to(10))

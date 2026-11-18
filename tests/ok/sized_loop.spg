@@ -1,0 +1,12 @@
+const STEP: i8 = 7;
+const ONE: u8 = 1;
+let x: i8 = 0;
+let u: u8 = 0;
+let i: int = 0;
+while (i < 1000) {
+    x = x + STEP;
+    u = u + ONE;
+    i = i + 1;
+}
+print(x);
+print(u);

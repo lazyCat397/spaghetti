@@ -1,0 +1,13 @@
+const ONE: i8 = 1;
+const TEN: u8 = 10;
+const TWENTY: u8 = 20;
+let c: i8 = 0;
+let fits: u8 = 0;
+    fits = TEN + TWENTY
+    let i = 0
+    while (i < 100) {
+        c = c + ONE
+        i = i + 1
+    }
+print(fits)
+print(c)

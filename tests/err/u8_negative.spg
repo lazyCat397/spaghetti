@@ -1,0 +1,2 @@
+let y: u8 = -1;
+print(y);

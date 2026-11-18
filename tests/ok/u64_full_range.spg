@@ -1,0 +1,27 @@
+const MAX: u64 = 18446744073709551615;
+const BIG: u64 = 9223372036854775808;
+const ZERO: u64 = 0;
+const ONE: u64 = 1;
+const SEVEN: u64 = 7;
+const THREE: u64 = 3;
+print(MAX);
+print(BIG);
+print(MAX > BIG);
+print(BIG > ONE);
+print(MAX + ONE);
+print(ZERO - ONE);
+print(MAX / 2);
+print(MAX % 10);
+print(u64::max);
+print(@into.u64w(-1));
+print(@into.int(ONE));
+print(@into.string(MAX));
+print(BIG == 9223372036854775808);
+let acc: u64 = 0;
+let i: int = 0;
+while (i < 1000) {
+    acc = acc * THREE + SEVEN;
+    i = i + 1;
+}
+print(acc);
+print(acc > BIG);

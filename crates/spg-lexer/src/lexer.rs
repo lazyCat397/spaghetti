@@ -572,6 +572,9 @@ impl<'a> Lexer<'a> {
                 let digits: String = self.source[digits_start..self.pos].iter().filter(|c| **c != '_').collect();
                 return match i64::from_str_radix(&digits, radix) {
                     Ok(n) => Ok(TokenKind::Int(n)),
+                    Err(_) if u64::from_str_radix(&digits, radix).is_ok() => {
+                        Ok(TokenKind::UInt(u64::from_str_radix(&digits, radix).unwrap()))
+                    }
                     Err(e) => {
                         let reason = match e.kind() {
                             std::num::IntErrorKind::Empty => "there must be digits after the prefix",
@@ -622,7 +625,10 @@ impl<'a> Lexer<'a> {
         } else {
             match text.parse::<i64>() {
                 Ok(n) => Ok(TokenKind::Int(n)),
-                Err(_) => Err(LexError::BadNumber { text: raw, reason: "the value is too big for an int", line, col }),
+                Err(_) => match text.parse::<u64>() {
+                    Ok(n) => Ok(TokenKind::UInt(n)),
+                    Err(_) => Err(LexError::BadNumber { text: raw, reason: "the value is too big for a u64", line, col }),
+                },
             }
         }
     }
