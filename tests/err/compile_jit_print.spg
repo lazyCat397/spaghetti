@@ -1,4 +1,0 @@
-let xs = [1, 2]
-compile JIT {
-    print(xs)
-}

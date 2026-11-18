@@ -648,8 +648,7 @@ impl<'a> FunctionCompiler<'a> {
     /// or the old one (postfix). the opcodes are the ones the assignments use.
     fn compile_incdec(&mut self, target: &TypedExpr, delta: i64, prefix: bool, ty: &Ty) -> Result<(), CompileError> {
         let op = if delta > 0 { BinaryOp::Add } else { BinaryOp::Sub };
-        let one = if *ty == Ty::Float { Value::Float(1.0) } else { Value::Int(1) };
-        let add = binary_opcode(&op, ty);
+        let one = if matches!(ty, Ty::Float | Ty::F32) { Value::Float(1.0) } else { Value::Int(1) };
         match target {
             TypedExpr::Ident { name, .. } => {
                 let (get, set) = match self.resolve_var(name).expect(
@@ -664,7 +663,7 @@ impl<'a> FunctionCompiler<'a> {
                 self.chunk.emit(get);
                 let k = self.chunk.add_constant(one);
                 self.chunk.emit(OpCode::Const(k));
-                self.chunk.emit(add);
+                self.emit_arith(&op, ty);
                 self.chunk.emit(set); // SetLocal/SetGlobal leave the new value on the stack
                 if !prefix {
                     self.chunk.emit(OpCode::Pop);
@@ -696,7 +695,7 @@ impl<'a> FunctionCompiler<'a> {
                 self.chunk.emit(get_op.clone());
                 let k = self.chunk.add_constant(one);
                 self.chunk.emit(OpCode::Const(k));
-                self.chunk.emit(add);
+                self.emit_arith(&op, ty);
                 self.chunk.emit(set_op);
                 if prefix {
                     self.chunk.emit(OpCode::GetLocal(arr));
@@ -722,7 +721,7 @@ impl<'a> FunctionCompiler<'a> {
                 self.chunk.emit(OpCode::FieldGet { field_index });
                 let k = self.chunk.add_constant(one);
                 self.chunk.emit(OpCode::Const(k));
-                self.chunk.emit(add);
+                self.emit_arith(&op, ty);
                 self.chunk.emit(OpCode::FieldSet { field_index });
                 if prefix {
                     self.chunk.emit(OpCode::GetLocal(obj));
@@ -943,8 +942,7 @@ impl<'a> FunctionCompiler<'a> {
                         )))
                     }
                 };
-                let opcode = binary_opcode(op, &elem_ty);
-                self.chunk.emit(opcode);
+                self.emit_arith(op, &elem_ty);
                 self.chunk.emit(if is_map { OpCode::MapSet } else { OpCode::IndexSet });
             }
 
@@ -969,8 +967,7 @@ impl<'a> FunctionCompiler<'a> {
                 // the field's type (not the struct's type) is the left
                 // operand type the arithmetic opcode needs
                 let field_ty = self.field_type(object.ty(), field)?;
-                let opcode = binary_opcode(op, &field_ty);
-                self.chunk.emit(opcode);
+                self.emit_arith(op, &field_ty);
                 self.chunk.emit(OpCode::FieldSet { field_index });
             }
 
@@ -1496,14 +1493,22 @@ impl<'a> FunctionCompiler<'a> {
             }
 
             TypedExpr::Unary { op, expr, .. } => {
-                self.compile_expr(expr)?;
-                let opcode = match (op, expr.ty()) {
-                    (UnaryOp::Neg, Ty::Int) => OpCode::NegInt,
-                    (UnaryOp::Neg, Ty::Float) | (UnaryOp::Neg, Ty::F32) => OpCode::NegFloat,
-                    (UnaryOp::Not, Ty::Bool) => OpCode::Not,
-                    (op, ty) => panic!("compiler bug: unary {:?} on {:?} passed typecheck but has no opcode", op, ty),
-                };
-                self.chunk.emit(opcode);
+                // `-x` on a signed sized int is `0 - x`: its range wraps (or errors under strict) like a subtraction
+                if matches!(op, UnaryOp::Neg) && matches!(expr.ty(), Ty::I8 | Ty::I16 | Ty::I32) {
+                    let zero = self.chunk.add_constant(Value::Int(0));
+                    self.chunk.emit(OpCode::Const(zero));
+                    self.compile_expr(expr)?;
+                    self.emit_arith(&BinaryOp::Sub, expr.ty());
+                } else {
+                    self.compile_expr(expr)?;
+                    let opcode = match (op, expr.ty()) {
+                        (UnaryOp::Neg, Ty::Int) => OpCode::NegInt,
+                        (UnaryOp::Neg, Ty::Float) | (UnaryOp::Neg, Ty::F32) => OpCode::NegFloat,
+                        (UnaryOp::Not, Ty::Bool) => OpCode::Not,
+                        (op, ty) => panic!("compiler bug: unary {:?} on {:?} passed typecheck but has no opcode", op, ty),
+                    };
+                    self.chunk.emit(opcode);
+                }
             }
 
             TypedExpr::Call { callee, args, builtin, .. } => {
@@ -1581,6 +1586,37 @@ impl<'a> FunctionCompiler<'a> {
         Ok(())
     }
 
+    /// emits `op` for two operands of type `ty` already on the stack. the one place that picks
+    /// the arithmetic opcode, so `x OP y`, `x++`, `x OP= y` and `-x` agree for every numeric type
+    fn emit_arith(&mut self, op: &BinaryOp, ty: &Ty) {
+        // u64 arithmetic: unsigned, wraps at 2^64 (an error under `#> strict`). see OpCode::U64Arith
+        if *ty == Ty::U64 {
+            if let Some(sop) = sized_op(op) {
+                self.chunk.emit(OpCode::U64Arith { op: sop });
+                return;
+            }
+        }
+        // f32 arithmetic: the f64 operation, then rounded to single precision. exact for + - * /
+        // (a double rounding through f64 cannot change the f32 result of those four)
+        if *ty == Ty::F32 && sized_op_is_arith(op) {
+            self.chunk.emit(binary_opcode(op, &Ty::Float));
+            self.chunk.emit(OpCode::RoundF32);
+            return;
+        }
+        // a sized int (i8..i32, u8..u32): one opcode carries its range and whether it wraps
+        if let (Some((lo, hi)), Some(sop)) = (ty.sized_bounds(), sized_op(op)) {
+            self.chunk.emit(OpCode::SizedArith {
+                op: sop,
+                lo,
+                hi,
+                wraps: !matches!(ty, Ty::U64),
+                ty: sized_name(ty),
+            });
+            return;
+        }
+        self.chunk.emit(binary_opcode(op, ty));
+    }
+
     fn compile_binary(&mut self, left: &TypedExpr, op: &BinaryOp, right: &TypedExpr) -> Result<(), CompileError> {
         // And/Or short-circuit: the right side is only evaluated when
         // it can still change the result. so these compile to jumps
@@ -1642,34 +1678,7 @@ impl<'a> FunctionCompiler<'a> {
             return Ok(());
         }
         let left_ty = left.ty();
-        // arithmetic on a sized int: one opcode carries its range and whether it wraps
-        // u64 arithmetic: unsigned, wraps at 2^64 (an error under `#> strict`). see OpCode::U64Arith
-        if *left_ty == Ty::U64 {
-            if let Some(sop) = sized_op(op) {
-                self.chunk.emit(OpCode::U64Arith { op: sop });
-                return Ok(());
-            }
-        }
-        // f32 arithmetic: the f64 operation, then rounded to single precision. exact for + - * /
-        // (a double rounding through f64 cannot change the f32 result of those four)
-        if *left_ty == Ty::F32 && sized_op_is_arith(op) {
-            let opcode = binary_opcode(op, &Ty::Float);
-            self.chunk.emit(opcode);
-            self.chunk.emit(OpCode::RoundF32);
-            return Ok(());
-        }
-        if let (Some((lo, hi)), Some(sop)) = (left_ty.sized_bounds(), sized_op(op)) {
-            self.chunk.emit(OpCode::SizedArith {
-                op: sop,
-                lo,
-                hi,
-                wraps: !matches!(left_ty, Ty::U64),
-                ty: sized_name(left_ty),
-            });
-            return Ok(());
-        }
-        let opcode = binary_opcode(op, left_ty);
-        self.chunk.emit(opcode);
+        self.emit_arith(op, left_ty);
         Ok(())
     }
 

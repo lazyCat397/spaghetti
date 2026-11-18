@@ -833,6 +833,8 @@ err const_friendly.spg 'Oops! cannot modify a const value (it is read-only). Mak
 err friendly_undefined.spg 'Check the spelling of the name, and declare it before it'
 err friendly_parse_eof.spg 'but I found the end of the file'
 err friendly_parse_else.spg 'needs an '"'"'else'"'"' too'
+ok sized_operators.spg '8\n251\n11\n2.5\n3\n[4, 3]\n5\n5\ntrue\n'
+ok sized_literals.spg '7\n8\ntrue\n6\n5\n8\n1\n8\nfalse\na\neight\n0\n1\n2\nu16\n3.0\n12\n42\n'
 err friendly_parse_token.spg 'but I found '"'"'='"'"'.'
 err block_scope_if.spg 'undefined variable' 'x'
 

@@ -728,8 +728,26 @@ impl Checker {
     /// the function runs in f64, and a float result comes back rounded to f32. one rounding, at the end,
     /// so the result is the f32 nearest to the f64 result
     fn check_builtin_call(&mut self, name: String, typed_args: Vec<TypedExpr>, pos: &p::Pos) -> Option<TypedExpr> {
+        // `type(x)` on a variable of a sized int or an f32 gives its type name (`u8`), not the runtime kind (`int`)
+        if name == "type" && typed_args.len() == 1 {
+            if let TypedExpr::Ident { ty, .. } = &typed_args[0] {
+                if ty.sized_bounds().is_some() || *ty == Ty::F32 {
+                    return Some(TypedExpr::StringLit(ty.to_string()));
+                }
+            }
+        }
         // `@into.T(literal)` without `w`: a literal that does not fit T is an error here, at compile time.
         // the `w` names wrap, so they take any literal
+        // `@into.T(text)` for a sized T: the text is parsed as an int (@into.int), then converted as an int is
+        let typed_args: Vec<TypedExpr> = match (into_sized_name(&name), typed_args.as_slice()) {
+            (true, [arg]) if arg.ty() == &Ty::String => vec![TypedExpr::Call {
+                callee: Box::new(TypedExpr::Ident { name: "@into.int".to_string(), ty: Ty::Int }),
+                args: vec![arg.clone()],
+                ty: Ty::Int,
+                builtin: Some(BuiltinId::ParseInt),
+            }],
+            _ => typed_args,
+        };
         // `@into.T(x)` with x a u64, T not u64 and not the `w` name: the u64 must fit an int first, then T is checked
         let typed_args: Vec<TypedExpr> = match (into_checked_target(&name), typed_args.as_slice()) {
             (Some(target), [arg]) if target != Ty::U64 && arg.ty() == &Ty::U64 => {
@@ -1141,7 +1159,9 @@ impl Checker {
         }
         // `x.string()`, `x.int()`, `x.float()`: shorthand for `@into.string(x)` etc. on
         // any value. a struct's own method with the same name wins
-        if matches!(method, "string" | "int" | "float") && args.is_empty() {
+        // the sized names (`x.u8()`) too: they are `@into.u8(x)`
+        let sized_method = into_checked_target(&format!("@into.{}", method));
+        if (matches!(method, "string" | "int" | "float") || sized_method.is_some()) && args.is_empty() {
             let user_method = match typed_object.ty() {
                 Ty::Named(n) => self.functions.contains_key(&format!("{}.{}", n, method)),
                 _ => false,
@@ -1151,7 +1171,8 @@ impl Checker {
                 let same = match method {
                     "int" => Ty::Int,
                     "float" => Ty::Float,
-                    _ => Ty::String,
+                    "string" => Ty::String,
+                    _ => sized_method.clone().unwrap_or(Ty::String),
                 };
                 if *typed_object.ty() == same {
                     return Some(typed_object);
@@ -1319,7 +1340,7 @@ impl Checker {
         // left-out args take the method's default values (same rule as functions)
         for i in given..expected_params.len() {
             let Some(default) = method_defaults[i].as_ref() else { break };
-            let Some(typed_default) = self.check_expr(default) else { return None };
+            let Some(typed_default) = self.check_expr_expecting(default, Some(&expected_params[i])) else { return None };
             if !ty_matches(&expected_params[i], typed_default.ty()) {
                 self.errors.push(TypeError::ArgTypeMismatch {
                     function_name: full_name.clone(),
@@ -1540,7 +1561,7 @@ impl Checker {
                     Ty::Named(n) => self.enum_named(n).cloned(),
                     _ => None,
                 };
-                if variants.is_none() && !matches!(subject_ty, Ty::Int | Ty::String) {
+                if variants.is_none() && !matches!(subject_ty, Ty::Int | Ty::String) && subject_ty.sized_bounds().is_none() {
                     self.errors.push(TypeError::MatchSubjectType { found: subject_ty.clone(), pos: pos.clone() });
                     return None;
                 }
@@ -1553,10 +1574,14 @@ impl Checker {
                 for arm in arms {
                     let mut values = Vec::new();
                     for value in &arm.values {
-                        let typed_value = self.check_expr(value)?;
+                        let typed_value = if subject_ty.sized_bounds().is_some() {
+                            self.check_operand_expecting(value, &subject_ty)?
+                        } else {
+                            self.check_expr(value)?
+                        };
                         // the first matching case wins, so a repeat can never run. dead code, friend.
                         let key = match &typed_value {
-                            TypedExpr::IntLit(n) => Some(format!("{}", n)),
+                            TypedExpr::IntLit(n) | TypedExpr::SizedIntLit { value: n, .. } => Some(format!("{}", n)),
                             TypedExpr::StringLit(st) => Some(format!("{:?}", st)),
                             TypedExpr::EnumLit { index, .. } => variants.as_ref().map(|v| v[*index].clone()),
                             _ => None,
@@ -1831,11 +1856,26 @@ impl Checker {
                 let mut typed_start = self.check_expr(start);
                 let mut typed_end = self.check_expr(end);
                 let typed_step = step.as_ref().map(|s| self.check_expr(s));
+                // a sized endpoint makes the range that type: a literal endpoint takes it (`for (i in 0..n)` with n: u8)
+                let range_ty = [typed_start.as_ref().map(|t| t.ty().clone()), typed_end.as_ref().map(|t| t.ty().clone())]
+                    .into_iter()
+                    .flatten()
+                    .find(|t| t.sized_bounds().is_some())
+                    .unwrap_or(Ty::Int);
+                if range_ty.sized_bounds().is_some() {
+                    if literal_int(start).is_some() {
+                        typed_start = self.check_operand_expecting(start, &range_ty);
+                    }
+                    if literal_int(end).is_some() {
+                        typed_end = self.check_operand_expecting(end, &range_ty);
+                    }
+                }
+                let range_ok_ty = |t: &Ty| *t == range_ty && (range_ty == Ty::Int || range_ty != Ty::U64);
 
                 let mut ok = true;
                 for (which, e) in [("start", &mut typed_start), ("end", &mut typed_end)] {
                     if let Some(te) = e {
-                        if *te.ty() != Ty::Int {
+                        if !range_ok_ty(te.ty()) {
                             self.errors.push(TypeError::RangeNotInt {
                                 which,
                                 found: te.ty().clone(),
@@ -1855,7 +1895,8 @@ impl Checker {
                         None
                     }
                     (Some(Some(te)), Some(src)) => {
-                        if *te.ty() != Ty::Int {
+                        let step_literal = literal_int(src).is_some() && *te.ty() == Ty::Int;
+                        if !range_ok_ty(te.ty()) && !step_literal {
                             self.errors.push(TypeError::RangeNotInt {
                                 which: "step",
                                 found: te.ty().clone(),
@@ -1879,7 +1920,7 @@ impl Checker {
                 };
 
                 self.push_scope();
-                self.declare(var_name, Ty::Int, true, pos);
+                self.declare(var_name, range_ty.clone(), true, pos);
                 self.loop_depth += 1;
                 let typed_body = self.check_block(body);
                 self.loop_depth -= 1;
@@ -2089,10 +2130,9 @@ impl Checker {
 
             Stmt::IndexAssign { array, index, value, pos } => {
                 let typed_array = self.check_expr(array)?;
-                let typed_index = self.check_expr(index)?;
-                let typed_value = self.check_expr(value)?;
-
+                let typed_index = self.check_index_expr(typed_array.ty(), index)?;
                 let elem_ty = self.index_target(typed_array.ty(), typed_index.ty(), pos)?;
+                let typed_value = self.check_expr_expecting(value, Some(&elem_ty))?;
 
                 if !elem_ty.accepts(typed_value.ty()) {
                     if matches!(typed_array.ty(), Ty::Map(..)) {
@@ -2116,10 +2156,9 @@ impl Checker {
 
             Stmt::IndexCompoundAssign { array, index, op, value, pos } => {
                 let typed_array = self.check_expr(array)?;
-                let typed_index = self.check_expr(index)?;
-                let typed_value = self.check_expr(value)?;
-
+                let typed_index = self.check_index_expr(typed_array.ty(), index)?;
                 let elem_ty = self.index_target(typed_array.ty(), typed_index.ty(), pos)?;
+                let typed_value = self.check_operand_expecting(value, &elem_ty)?;
 
                 // `elem OP value` must both typecheck as a binary
                 // operation (e.g. no string *= int) and give back the
@@ -2218,7 +2257,18 @@ impl Checker {
                     return self.check_stmt(&wrapped);
                 }
                 let typed_object = self.check_expr(object)?;
-                let typed_value = self.check_expr(value)?;
+                let field_hint = match typed_object.ty() {
+                    Ty::Named(n) => self
+                        .struct_defs
+                        .get(n)
+                        .and_then(|fields| fields.iter().find(|p| &p.name == field))
+                        .map(|p| resolve_type_expr(&p.type_ann)),
+                    _ => None,
+                };
+                let typed_value = match &field_hint {
+                    Some(hint) => self.check_operand_expecting(value, hint)?,
+                    None => self.check_expr(value)?,
+                };
 
                 if let Some((module, native)) = self.native_object_of(typed_object.ty()) {
                     let struct_name = native.name.to_string();
@@ -2319,7 +2369,7 @@ impl Checker {
                             .struct_defs
                             .get(&sname)
                             .and_then(|fs| fs.iter().find(|f| &f.name == field))
-                            .map_or(false, |f| resolve_type_expr(&f.type_ann) == Ty::Float);
+                            .map_or(false, |f| matches!(resolve_type_expr(&f.type_ann), Ty::Float | Ty::F32));
                         let one = if is_float {
                             Expr::FloatLit(delta.abs() as f64, pos.clone())
                         } else {
@@ -2340,7 +2390,12 @@ impl Checker {
                 let ty = typed_target.ty().clone();
                 self.check_incdec_numeric(&ty, *delta, pos)?;
                 let op = if *delta > 0 { p::BinaryOp::Add } else { p::BinaryOp::Sub };
-                let one = if ty == Ty::Float { TypedExpr::FloatLit(1.0) } else { TypedExpr::IntLit(1) };
+                let one = match &ty {
+                    Ty::Float => TypedExpr::FloatLit(1.0),
+                    Ty::F32 => TypedExpr::F32Lit(1.0),
+                    t if t.sized_bounds().is_some() => TypedExpr::SizedIntLit { value: 1, ty: t.clone() },
+                    _ => TypedExpr::IntLit(1),
+                };
                 match typed_target {
                     TypedExpr::Ident { name, ty } => {
                         let value = TypedExpr::Binary {
@@ -2439,8 +2494,16 @@ impl Checker {
     // maps (the hash people)
 
     /// map keys must hash: int, string, bool or an enum. never float, array, struct.
+    /// the index of `container[index]`: a literal takes the map's key type (`m[1]` with `map<u8, ...>`)
+    fn check_index_expr(&mut self, container: &Ty, index: &Expr) -> Option<TypedExpr> {
+        match container {
+            Ty::Map(key, _) => self.check_operand_expecting(index, key),
+            _ => self.check_expr(index),
+        }
+    }
+
     fn valid_map_key(&mut self, key: &Ty, pos: &p::Pos) -> bool {
-        let ok = matches!(key, Ty::Int | Ty::String | Ty::Bool) || self.is_enum_ty(key);
+        let ok = matches!(key, Ty::Int | Ty::String | Ty::Bool) || key.sized_bounds().is_some() || self.is_enum_ty(key);
         if !ok {
             self.errors.push(TypeError::MapKeyType { found: key.clone(), pos: pos.clone() });
         }
@@ -2618,8 +2681,8 @@ impl Checker {
             }
         };
         let mut typed_args = Vec::new();
-        for arg in args {
-            typed_args.push(self.check_expr(arg)?);
+        for (i, arg) in args.iter().enumerate() {
+            typed_args.push(self.check_expr_expecting(arg, params.get(i))?);
         }
         if params.len() != typed_args.len() {
             self.errors.push(TypeError::ArityMismatch {
@@ -2644,6 +2707,15 @@ impl Checker {
         Some(TypedExpr::CallValue { callee: Box::new(callee), args: typed_args, ty: ret })
     }
 
+    /// checks the right-hand side of `x OP= v`, `arr[i] = v`, `obj.f = v`: an int or float literal takes the
+    /// target's type (a sized int or an f32), as it does in a binary operation. anything else is checked as usual
+    fn check_operand_expecting(&mut self, expr: &Expr, target: &Ty) -> Option<TypedExpr> {
+        if literal_int(expr).is_some() || literal_float(expr).is_some() || matches!(expr, Expr::UIntLit(..)) {
+            return self.check_expr_expecting(expr, Some(target));
+        }
+        self.check_expr(expr)
+    }
+
     /// checks `expr` where a type is expected. an array or map literal takes its element and key/value
     /// types from there, so `[1, "two"]` fits `array<int or string>` and `["a": [1, "x"]]` fits
     /// `map<string, array<int or string>>`. a `T?` expectation uses its `T`. anything else is checked
@@ -2666,6 +2738,37 @@ impl Checker {
                     }
                 }
             });
+        }
+        // an if-expression expected to be a sized int: its int-literal branch values take that type
+        if let Expr::IfExpr { .. } = expr {
+            if target.sized_bounds().is_some() {
+                if let Some(TypedExpr::IfExpr { cond, then_branch, else_branch, ty }) = self.check_expr(expr) {
+                    let (mut then_branch, mut else_branch) = (*then_branch, *else_branch);
+                    let ty = if ty == Ty::Int {
+                        adapt_block_tail(&mut then_branch, target);
+                        adapt_block_tail(&mut else_branch, target);
+                        if then_branch.ty == *target && else_branch.ty == *target { target.clone() } else { ty }
+                    } else {
+                        ty
+                    };
+                    return Some(TypedExpr::IfExpr { cond, then_branch: Box::new(then_branch), else_branch: Box::new(else_branch), ty });
+                }
+                return None;
+            }
+        }
+        // arithmetic made only of int literals, for a sized type: each literal takes that type, as in a binary operation
+        if let Expr::Binary { left, op, right, pos } = expr {
+            if target.sized_bounds().is_some() && is_int_literal_tree(expr) {
+                let typed_left = self.check_expr_expecting(left, Some(target))?;
+                let typed_right = self.check_expr_expecting(right, Some(target))?;
+                let result_ty = self.binary_result_type(op, typed_left.ty(), typed_right.ty(), pos)?;
+                return Some(TypedExpr::Binary {
+                    left: Box::new(typed_left),
+                    op: op.clone(),
+                    right: Box::new(typed_right),
+                    ty: result_ty,
+                });
+            }
         }
         // a float literal for f32: rounded once, here. beyond f32's range is an error at the literal
         if let Ty::F32 = target {
@@ -2697,6 +2800,15 @@ impl Checker {
                     self.errors.push(TypeError::IntOutOfRange { value: v, ty: target.clone(), pos: pos.clone() });
                 }
                 return Some(TypedExpr::SizedIntLit { value: v, ty: target.clone() });
+            }
+        }
+        if let Ty::Union(members) = target {
+            if literal_int(expr).is_some() && !members.contains(&Ty::Int) {
+                let sized: Vec<&Ty> = members.iter().filter(|m| m.sized_bounds().is_some()).collect();
+                if sized.len() == 1 {
+                    let only = sized[0].clone();
+                    return self.check_expr_expecting(expr, Some(&only));
+                }
             }
         }
         match (expr, target) {
@@ -2750,8 +2862,16 @@ impl Checker {
 
     /// `x in arr` / `k in map`: lowered to the builtin that answers membership
     fn check_membership(&mut self, left: &Expr, right: &Expr, pos: &p::Pos) -> Option<TypedExpr> {
-        let typed_left = self.check_expr(left)?;
         let typed_right = self.check_expr(right)?;
+        let key_hint = match typed_right.ty() {
+            Ty::Array(elem) => Some((**elem).clone()),
+            Ty::Map(key, _) => Some((**key).clone()),
+            _ => None,
+        };
+        let typed_left = match &key_hint {
+            Some(hint) => self.check_operand_expecting(left, hint)?,
+            None => self.check_expr(left)?,
+        };
         let (builtin, key_ty, name) = match typed_right.ty() {
             Ty::Array(elem) => (BuiltinId::ArrayContains, (**elem).clone(), "@array.contains"),
             Ty::Map(key, _) => (BuiltinId::MapHas, (**key).clone(), "@map.has"),
@@ -2977,7 +3097,7 @@ impl Checker {
             }
             Expr::Index { array, index, pos: ipos } => {
                 let typed_array = self.check_expr(array)?;
-                let typed_index = self.check_expr(index)?;
+                let typed_index = self.check_index_expr(typed_array.ty(), index)?;
                 let elem_ty = self.index_target(typed_array.ty(), typed_index.ty(), ipos)?;
                 Some(TypedExpr::Index { array: Box::new(typed_array), index: Box::new(typed_index), ty: elem_ty })
             }
@@ -2999,7 +3119,7 @@ impl Checker {
 
     /// `++`/`--` only count int and float
     fn check_incdec_numeric(&mut self, ty: &Ty, delta: i64, pos: &p::Pos) -> Option<()> {
-        if matches!(ty, Ty::Int | Ty::Float) {
+        if matches!(ty, Ty::Int | Ty::Float | Ty::F32) || ty.sized_bounds().is_some() {
             return Some(());
         }
         let op_text = if delta > 0 { "++" } else { "--" };
@@ -3250,6 +3370,13 @@ impl Checker {
                 // an int literal next to a sized int takes that type, as in Rust: `x + 120` with x: i8.
                 // the literal is checked against the range there (out of range is an error at the literal).
                 // a plain int variable is never adapted: mixing it with a sized int stays an error
+                if matches!(op, BinaryOp::In) && literal_int(left).is_some() && typed_left.ty() == &Ty::Int {
+                    if let Ty::Array(elem) = typed_right.ty().clone() {
+                        if elem.sized_bounds().is_some() {
+                            typed_left = self.check_expr_expecting(left, Some(&elem))?;
+                        }
+                    }
+                }
                 if (literal_int(left).is_some() || matches!(&**left, Expr::UIntLit(..))) && typed_left.ty() == &Ty::Int && typed_right.ty().sized_bounds().is_some() {
                     let target = typed_right.ty().clone();
                     typed_left = self.check_expr_expecting(left, Some(&target))?;
@@ -3312,6 +3439,7 @@ impl Checker {
                     (UnaryOp::Neg, Ty::Int) => Ty::Int,
                     (UnaryOp::Neg, Ty::Float) => Ty::Float,
                     (UnaryOp::Neg, Ty::F32) => Ty::F32,
+                    (UnaryOp::Neg, t @ (Ty::I8 | Ty::I16 | Ty::I32)) => t.clone(),
                     (UnaryOp::Not, Ty::Bool) => Ty::Bool,
                     (_, other) => {
                         self.errors.push(TypeError::InvalidOperandTypes {
@@ -3407,7 +3535,8 @@ impl Checker {
                 };
                 let mut typed_args = Vec::new();
                 for (i, arg) in args.iter().enumerate() {
-                    typed_args.push(self.check_expr_expecting(arg, user_params.get(i))?);
+                    let hint: Option<Ty> = user_params.get(i).cloned().or_else(|| builtin_arg_hint(&name, i, &typed_args));
+                    typed_args.push(self.check_expr_expecting(arg, hint.as_ref())?);
                 }
 
                 // the array loops: their result type depends on the function argument,
@@ -3465,7 +3594,7 @@ impl Checker {
                 let mut typed_args = typed_args;
                 for i in typed_args.len()..sig.params.len() {
                     let Some(default) = sig.params[i].default.as_ref() else { break };
-                    let Some(typed_default) = self.check_expr(default) else { return None };
+                    let Some(typed_default) = self.check_expr_expecting(default, Some(&expected_params[i])) else { return None };
                     if !ty_matches(&expected_params[i], typed_default.ty()) {
                         self.errors.push(TypeError::ArgTypeMismatch {
                             function_name: name.clone(),
@@ -3495,7 +3624,7 @@ impl Checker {
 
             Expr::Index { array, index, pos } => {
                 let typed_array = self.check_expr(array)?;
-                let typed_index = self.check_expr(index)?;
+                let typed_index = self.check_index_expr(typed_array.ty(), index)?;
 
                 let elem_ty = self.index_target(typed_array.ty(), typed_index.ty(), pos)?;
 
@@ -3687,6 +3816,10 @@ impl Checker {
                 let typed_else = self.check_block(else_branch);
                 self.pop_scope();
 
+                let (mut typed_then, mut typed_else) = (typed_then, typed_else);
+                let (then_ty, else_ty) = (typed_then.ty.clone(), typed_else.ty.clone());
+                adapt_block_tail(&mut typed_else, &then_ty);
+                adapt_block_tail(&mut typed_then, &else_ty);
                 if typed_then.ty != typed_else.ty {
                     self.errors.push(TypeError::IfExprBranchMismatch {
                         then_ty: typed_then.ty.clone(),
@@ -3980,6 +4113,15 @@ fn float_to_f32(a: TypedExpr) -> TypedExpr {
 }
 
 /// the sized type of a non-wrapping `@into.T` name (`@into.i8` -> i8). the `w` names return None
+/// `@into.i8`, `@into.u16w`, ... (any sized name, wrapping or not)
+fn into_sized_name(name: &str) -> bool {
+    matches!(
+        name,
+        "@into.i8" | "@into.i16" | "@into.i32" | "@into.u8" | "@into.u16" | "@into.u32" | "@into.u64"
+            | "@into.i8w" | "@into.i16w" | "@into.i32w" | "@into.u8w" | "@into.u16w" | "@into.u32w" | "@into.u64w"
+    )
+}
+
 fn into_checked_target(name: &str) -> Option<Ty> {
     match name {
         "@into.i8" => Some(Ty::I8),
@@ -4177,6 +4319,14 @@ fn type_test_arm(subject: &Expr, values: &[Expr]) -> Option<(String, Ty)> {
         "float" => Ty::Float,
         "bool" => Ty::Bool,
         "string" => Ty::String,
+        "i8" => Ty::I8,
+        "i16" => Ty::I16,
+        "i32" => Ty::I32,
+        "u8" => Ty::U8,
+        "u16" => Ty::U16,
+        "u32" => Ty::U32,
+        "u64" => Ty::U64,
+        "f32" => Ty::F32,
         _ => return None,
     };
     Some((var, ty))
@@ -4297,6 +4447,57 @@ fn value_type_of(name: &str) -> Option<Ty> {
         "float" => Some(Ty::Float),
         "bool" => Some(Ty::Bool),
         "string" => Some(Ty::String),
+        _ => None,
+    }
+}
+
+/// an int literal that is the value of a block takes the sized type of the other branch of an if-expression
+fn adapt_block_tail(block: &mut TypedBlock, target: &Ty) {
+    let Some((lo, hi)) = target.sized_bounds() else { return };
+    let Some(TypedStmt::ExprStmt(e)) = block.stmts.last_mut() else { return };
+    // `-n` on a literal is a literal too (`else { -1 }`)
+    let value = match e {
+        TypedExpr::IntLit(n) => *n,
+        TypedExpr::Unary { op: UnaryOp::Neg, expr, .. } => match &**expr {
+            TypedExpr::IntLit(n) => match n.checked_neg() {
+                Some(v) => v,
+                None => return,
+            },
+            _ => return,
+        },
+        _ => return,
+    };
+    if value < lo || value > hi {
+        return;
+    }
+    *e = TypedExpr::SizedIntLit { value, ty: target.clone() };
+    block.ty = target.clone();
+}
+
+/// arithmetic whose leaves are all int literals (`5 + 3`, `-2 * 4`): it takes a sized type as a whole
+fn is_int_literal_tree(e: &Expr) -> bool {
+    match e {
+        Expr::Binary { left, op, right, .. } => {
+            matches!(op, BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod | BinaryOp::Pow)
+                && is_int_literal_tree(left)
+                && is_int_literal_tree(right)
+        }
+        _ => literal_int(e).is_some(),
+    }
+}
+
+/// the type a builtin argument is checked against, when it depends on an earlier argument:
+/// the element of the array for push / contains / indexOf, the accumulator for reduce's init
+fn builtin_arg_hint(name: &str, index: usize, earlier: &[TypedExpr]) -> Option<Ty> {
+    match (name, index) {
+        ("@array.push" | "@array.contains" | "@array.indexOf", 1) => match earlier.first()?.ty() {
+            Ty::Array(elem) => Some((**elem).clone()),
+            _ => None,
+        },
+        ("@array.reduce", 2) => match earlier.get(1)?.ty() {
+            Ty::Function { params, .. } => params.first().cloned(),
+            _ => None,
+        },
         _ => None,
     }
 }

@@ -760,6 +760,10 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
     add("@into.int", BuiltinSig { id: BuiltinId::FloatToInt, params: vec![Ty::F32], return_type: Ty::Int });
     add("@into.string", BuiltinSig { id: BuiltinId::F32ToString, params: vec![Ty::F32], return_type: Ty::String });
     add("@into.float", BuiltinSig { id: BuiltinId::F32ToFloat, params: vec![Ty::F32], return_type: Ty::Float });
+    // every other sized int converts to float from its value (its range fits i64, so the int conversion is exact)
+    for p in [Ty::I8, Ty::I16, Ty::I32, Ty::U8, Ty::U16, Ty::U32] {
+        add("@into.float", BuiltinSig { id: BuiltinId::IntToFloat, params: vec![p], return_type: Ty::Float });
+    }
     add("@into.f32", BuiltinSig { id: BuiltinId::FloatToF32, params: vec![Ty::Float], return_type: Ty::F32 });
 
     // ---- time ----

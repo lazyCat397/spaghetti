@@ -1750,7 +1750,9 @@ impl Parser {
                 // `x.string()`, `x.int()`, `x.float()`: the type keywords are also
                 // method names after a dot (other names aren't affected)
                 let field = match self.peek().kind {
-                    TokenKind::TypeInt | TokenKind::TypeFloat | TokenKind::TypeF32 | TokenKind::TypeString | TokenKind::TypeBool => {
+                    TokenKind::TypeInt | TokenKind::TypeFloat | TokenKind::TypeF32 | TokenKind::TypeString | TokenKind::TypeBool
+                    | TokenKind::TypeI8 | TokenKind::TypeI16 | TokenKind::TypeI32 | TokenKind::TypeU8 | TokenKind::TypeU16
+                    | TokenKind::TypeU32 | TokenKind::TypeU64 => {
                         let name = self.parse_member_name()?;
                         name
                     }

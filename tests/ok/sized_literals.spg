@@ -1,0 +1,26 @@
+fn f(a: u8 = 7) -> u8 { return a; }
+print(f());
+let h = fn(x: i16) -> i16 { return x * 2; };
+print(h(4));
+let arr: array<u8> = [1];
+@array.push(arr, 5);
+print(@array.contains(arr, 5));
+print(@array.reduce(arr, fn(acc: u8, x: u8) -> u8 { return acc + x; }, 0));
+let u: u8 or string = 5;
+print(u);
+let s: i8 = 5 + 3;
+print(s);
+let y: i8 = if (s > 2) { 1 } else { -1 };
+print(y);
+let z = if (s > 2) { s } else { 0 };
+print(z);
+print(2 in arr);
+let k: map<u8, string> = [1: "a"];
+print(k[1]);
+when (s) { 8 { print("eight"); } else { print("other"); } }
+for (i in 0..3) { print(i); }
+let t: u16 = 3;
+print(type(t));
+print(@into.float(t));
+print(@into.u8("12"));
+print("42".u32());
