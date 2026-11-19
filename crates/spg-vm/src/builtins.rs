@@ -299,6 +299,7 @@ pub(crate) fn call_builtin_on_stack(stack: &mut Vec<Value>, id: BuiltinId, argc:
         Sqrt => Value::Float(as_float(pop!()).sqrt()),
         IsNaN => Value::Bool(as_float(pop!()).is_nan()),
         IntToFloat => Value::Float(as_int(pop!()) as f64),
+        IntToF32 => Value::Float(as_int(pop!()) as f32 as f64),
         FloatToInt => Value::Int(as_float(pop!()) as i64),
         F32ToString => Value::String(Rc::new(crate::value::format_f32(as_float(pop!())))),
         F32ToFloat => Value::Float(as_float(pop!())),
@@ -876,6 +877,7 @@ pub fn call_builtin(id: BuiltinId, mut args: Vec<Value>) -> Result<Value, Runtim
 
         // ---- @into (conversions, which are always a lie) ----
         IntToFloat => Value::Float(as_int(args.remove(0)) as f64),
+        IntToF32 => Value::Float(as_int(args.remove(0)) as f32 as f64),
         FloatToInt => Value::Int(as_float(args.remove(0)) as i64),
         F32ToString => Value::String(Rc::new(crate::value::format_f32(as_float(args.remove(0))))),
         F32ToFloat => Value::Float(as_float(args.remove(0))),

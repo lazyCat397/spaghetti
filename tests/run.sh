@@ -766,6 +766,8 @@ err i16_mix_i32.spg "operator '+' not supported for i16 and i32"
 err i32_strict_add.spg 'addition overflow in i32'
 ok sized_u16_u32.spg           '4464\n4294967295\n205032704\ntrue\ntrue'
 ok sized_u16_loop.spg          '34464'
+ok sized_value_methods.spg     '5\n200\n15\n1.5\n-7\n5\ni8'
+ok into_f32_f64.spg              '5.0\n5.0\n5.0\n5\n-3.0\n200.0 200.0\n2.5 2.5\n7.0'
 err u16_overflow.spg 'the value 65536 does not fit u16'
 err u32_overflow.spg 'the value 4294967296 does not fit u32'
 err u16_negative.spg 'the value -1 does not fit u16'

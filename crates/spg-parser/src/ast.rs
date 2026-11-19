@@ -19,9 +19,21 @@ pub const MANGLE_SEP: &str = "::";
 /// such methods are program-wide and never get a module tag, so they are not mangled.
 pub fn value_method_type(name: &str) -> Option<&str> {
     match display_name(name).split_once('.') {
-        Some((ty @ ("int" | "float" | "bool" | "string"), _)) => Some(ty),
+        Some((ty, _)) if is_value_type_name(ty) => Some(ty),
         _ => None,
     }
+}
+
+/// every type that takes methods with `type::methods.add(...)`: the value types and the sized
+/// integers and f32. the aliases `i64` and `f64` are the same types as `int` and `float`, so
+/// they are not listed here (the lexer already turns them into `int` and `float`).
+pub const VALUE_TYPE_NAMES: &[&str] = &[
+    "int", "float", "f32", "bool", "string", "i8", "i16", "i32", "u8", "u16", "u32", "u64",
+];
+
+/// true for a name in `VALUE_TYPE_NAMES`: a type whose methods are declared with `methods.add`
+pub fn is_value_type_name(name: &str) -> bool {
+    VALUE_TYPE_NAMES.contains(&name)
 }
 
 /// what the user actually wrote: strips the module tag from a mangled

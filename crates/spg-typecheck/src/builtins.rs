@@ -180,6 +180,8 @@ pub enum BuiltinId {
 
     // ---- type conversion (@into, the great liar) ----
     IntToFloat,
+    /// `int` and the sized ints (not u64) to f32: the value rounded to single precision
+    IntToF32,
     FloatToInt,
     ParseInt,
     ParseFloat,
@@ -765,6 +767,10 @@ pub fn builtin_signatures() -> std::collections::HashMap<String, Vec<BuiltinSig>
         add("@into.float", BuiltinSig { id: BuiltinId::IntToFloat, params: vec![p], return_type: Ty::Float });
     }
     add("@into.f32", BuiltinSig { id: BuiltinId::FloatToF32, params: vec![Ty::Float], return_type: Ty::F32 });
+    // `x.f32()` on an int or a sized int (u64 has its own, U64ToF32): exact value, rounded once
+    for p in [Ty::Int, Ty::I8, Ty::I16, Ty::I32, Ty::U8, Ty::U16, Ty::U32] {
+        add("@into.f32", BuiltinSig { id: BuiltinId::IntToF32, params: vec![p], return_type: Ty::F32 });
+    }
 
     // ---- time ----
 

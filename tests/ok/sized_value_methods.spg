@@ -1,0 +1,29 @@
+// methods on the sized integers and f32: `me` is the value the method is called on
+i8::methods.add(fn lol() -> i8 {
+    return me
+})
+u8::methods.add(fn dobro() -> u8 {
+    return me * 2
+})
+u64::methods.add(fn mais(k: u64) -> u64 {
+    return me + k
+})
+f32::methods.add(fn meio() -> f32 {
+    return me / 2.0
+})
+i16::methods.add(fn neg() -> i16 {
+    if (me > 0) { return 0 - me }
+    return me
+})
+let a: i8 = 5
+print(a.lol())
+let b: u8 = 100
+print(b.dobro())
+let u: u64 = 10
+print(u.mais(5))
+let f: f32 = 3.0
+print(f.meio())
+let s: i16 = 7
+print(s.neg())
+print(a.lol().lol())
+print(type(a))

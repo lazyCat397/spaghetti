@@ -163,11 +163,51 @@ pub const TYPE_PROPERTIES: &[(&str, &str, &str, &str)] = &[
     ("string", "digits", "\"0123456789\"", "the ten digits, for `c in string::digits`"),
     ("string", "lower", "\"abcdefghijklmnopqrstuvwxyz\"", "the lowercase letters a to z (plain ASCII)"),
     ("string", "upper", "\"ABCDEFGHIJKLMNOPQRSTUVWXYZ\"", "the uppercase letters A to Z (plain ASCII)"),
+    ("f32", "methods", "string[]", "the names of the methods of f32: the built-in ones, then the ones you added with f32::methods.add, that this file can call"),
+    ("i8", "methods", "string[]", "the names of the methods of i8: the built-in ones, then the ones you added with i8::methods.add, that this file can call"),
+    ("i16", "methods", "string[]", "the names of the methods of i16: the built-in ones, then the ones you added with i16::methods.add, that this file can call"),
+    ("i32", "methods", "string[]", "the names of the methods of i32: the built-in ones, then the ones you added with i32::methods.add, that this file can call"),
+    ("u8", "methods", "string[]", "the names of the methods of u8: the built-in ones, then the ones you added with u8::methods.add, that this file can call"),
+    ("u16", "methods", "string[]", "the names of the methods of u16: the built-in ones, then the ones you added with u16::methods.add, that this file can call"),
+    ("u32", "methods", "string[]", "the names of the methods of u32: the built-in ones, then the ones you added with u32::methods.add, that this file can call"),
+    ("u64", "methods", "string[]", "the names of the methods of u64: the built-in ones, then the ones you added with u64::methods.add, that this file can call"),
+    ("i8", "max", "127", "the biggest i8"),
+    ("i8", "min", "-128", "the smallest i8"),
+    ("i8", "bits", "8", "how many bits an i8 has (the width of the type)"),
+    ("i16", "max", "32767", "the biggest i16"),
+    ("i16", "min", "-32768", "the smallest i16"),
+    ("i16", "bits", "16", "how many bits a i16 has (the width of the type)"),
+    ("i32", "max", "2147483647", "the biggest i32"),
+    ("i32", "min", "-2147483648", "the smallest i32"),
+    ("i32", "bits", "32", "how many bits a i32 has (the width of the type)"),
+    ("u8", "max", "255", "the biggest u8"),
+    ("u8", "min", "0", "the smallest u8"),
+    ("u8", "bits", "8", "how many bits a u8 has (the width of the type)"),
+    ("u16", "max", "65535", "the biggest u16"),
+    ("u16", "min", "0", "the smallest u16"),
+    ("u16", "bits", "16", "how many bits a u16 has (the width of the type)"),
+    ("u32", "max", "4294967295", "the biggest u32"),
+    ("u32", "min", "0", "the smallest u32"),
+    ("u32", "bits", "32", "how many bits a u32 has (the width of the type)"),
+    ("u64", "max", "18446744073709551615", "the biggest u64"),
+    ("u64", "min", "0", "the smallest u64"),
+    ("u64", "bits", "64", "how many bits a u64 has (the width of the type)"),
+    ("f32", "max", "3.4028235e38", "the biggest f32"),
+    ("f32", "min", "-3.4028235e38", "the most negative f32 (not the smallest positive one)"),
+    ("f32", "epsilon", "1.1920929e-7", "the gap between 1.0 and the next f32"),
+    ("f32", "inf", "inf", "bigger than every f32: the start value when looking for a minimum"),
+    ("f32", "nan", "NaN", "not a number (what 0.0 / 0.0 gives): not equal to anything, check it with isNaN()"),
     ("array", "methods", "string[]", "the names of the array functions you call as a.name(...): push, sort, slice and the rest"),
 ];
 
 /// the properties of one type, as (property, value, doc), for completion after `int::`
 pub fn type_properties(ty: &str) -> Vec<(&'static str, &'static str, &'static str)> {
+    // `i64` and `f64` are the same types as `int` and `float`: they have the same properties
+    let ty = match ty {
+        "i64" => "int",
+        "f64" => "float",
+        other => other,
+    };
     TYPE_PROPERTIES
         .iter()
         .filter(|(t, _, _, _)| *t == ty)

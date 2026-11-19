@@ -106,7 +106,12 @@ fn without_unfinished_methods(
 /// a complete one-line method (with its `{`) is not unfinished.
 pub fn unfinished_value_method(line: &str) -> bool {
     let t = line.trim();
-    let rest = ["int", "float", "bool", "string"].iter().find_map(|ty| t.strip_prefix(ty)?.strip_prefix("::"));
+    // every value type, and the aliases `i64` / `f64` that lex as int and float
+    let rest = spg_parser::ast::VALUE_TYPE_NAMES
+        .iter()
+        .copied()
+        .chain(["i64", "f64"])
+        .find_map(|ty| t.strip_prefix(ty)?.strip_prefix("::"));
     let Some(rest) = rest.and_then(|r| r.strip_prefix("methods")) else {
         return false;
     };
@@ -448,6 +453,17 @@ mod unfinished_method_tests {
         let mut overlay = HashMap::new();
         overlay.insert(spg_modules::canon(&path).unwrap(), text.to_string());
         analyze(&path, &overlay)
+    }
+
+    #[test]
+    fn unfinished_sized_and_f32_method_headers_are_recognised() {
+        // every value type's header is blanked while it is typed, the aliases included
+        for line in ["i8::methods", "u64::methods.", "f32::methods.ad", "i16::methods.add(", "i64::methods.add(fn lol() -> i8", "f64::methods.add("] {
+            assert!(unfinished_value_method(line), "{} should be unfinished", line);
+        }
+        // a whole one-line method, and an ordinary use of a sized constant, are not
+        assert!(!unfinished_value_method("i8::methods.add(fn lol() -> i8 { return me })"));
+        assert!(!unfinished_value_method("let m = i8::max"));
     }
 
     #[test]

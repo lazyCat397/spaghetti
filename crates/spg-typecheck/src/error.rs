@@ -1279,7 +1279,15 @@ impl TypeError {
             TypeError::NoSuchField { field, .. } => vec![format!("check the spelling of '{}'", field)],
             TypeError::NoSuchMethod { method, is_field: true, .. } => vec![format!("drop the parentheses: use '{}' without ()", method)],
             TypeError::NoSuchMethod { .. } => vec!["check the spelling of the method".to_string()],
-            TypeError::NoMethodsOnType { .. } => vec!["call it on a struct value".to_string()],
+            TypeError::NoMethodsOnType { found, method, .. } => {
+                // a value type (`i8`, `f32`...) gets its methods from `type::methods.add`, not from a struct
+                let name = found.to_string();
+                if spg_parser::ast::is_value_type_name(&name) {
+                    vec![format!("declare it first: {}::methods.add(fn {}() -> {} {{ ... }})", name, method, name)]
+                } else {
+                    vec!["call it on a struct value".to_string()]
+                }
+            }
             TypeError::AssociatedOnUnknownType { type_name, .. } => vec![format!("declare the type first: struct {} {{ ... }}", display_name(type_name))],
             TypeError::AssociatedCalledOnValue { type_name, name, .. } => {
                 vec![format!("call it on the type: {}.{}(...)", display_name(type_name), display_name(name))]

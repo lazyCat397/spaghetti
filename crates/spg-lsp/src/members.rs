@@ -71,13 +71,7 @@ impl Decls {
         // `string::methods.add(fn name(...) ...)`: a method on a value type. the type is a keyword
         // token, not an identifier. the signature is the one written: `me` is implicit, so it is not in it
         for i in 0..tokens.len() {
-            let ty = match kind(tokens, i) {
-                Some(T::TypeInt) => "int",
-                Some(T::TypeFloat) => "float",
-                Some(T::TypeBool) => "bool",
-                Some(T::TypeString) => "string",
-                _ => continue,
-            };
+            let Some(ty) = kind(tokens, i).and_then(value_type_of_token) else { continue };
             // tokens: type :: methods . add ( fn name ( ...
             if let (
                 Some(T::DoubleColon),
@@ -244,6 +238,62 @@ impl Decls {
     }
 }
 
+/// the value type a keyword token names, for the types that take `methods.add` (`int`, `i8`,
+/// `f32`...). `i64` and `f64` lex as `int` and `float`, so they come out as those.
+pub fn value_type_of_token(kind: &T) -> Option<&'static str> {
+    Some(match kind {
+        T::TypeInt => "int",
+        T::TypeFloat => "float",
+        T::TypeF32 => "f32",
+        T::TypeBool => "bool",
+        T::TypeString => "string",
+        T::TypeI8 => "i8",
+        T::TypeI16 => "i16",
+        T::TypeI32 => "i32",
+        T::TypeU8 => "u8",
+        T::TypeU16 => "u16",
+        T::TypeU32 => "u32",
+        T::TypeU64 => "u64",
+        _ => return None,
+    })
+}
+
+/// the value type of the method header whose body opens at token `brace`:
+/// `i8::methods.add(fn lol() -> i8 {`. the `fn` must be the nearest one with no brace between
+/// it and the `{`, so a struct method or a plain function gives `None`.
+pub fn value_method_header(tokens: &[Token], brace: usize) -> Option<&'static str> {
+    let f = (0..brace)
+        .rev()
+        .take_while(|&k| !matches!(tokens[k].kind, T::LBrace | T::RBrace))
+        .find(|&k| tokens[k].kind == T::Function)?;
+    if f < 6 {
+        return None;
+    }
+    let ty = value_type_of_token(&tokens[f - 6].kind)?;
+    let is_add = matches!(kind(tokens, f - 5), Some(T::DoubleColon))
+        && matches!(kind(tokens, f - 4), Some(T::Ident(m)) if m == "methods")
+        && matches!(kind(tokens, f - 3), Some(T::Dot))
+        && matches!(kind(tokens, f - 2), Some(T::Ident(a)) if a == "add")
+        && matches!(kind(tokens, f - 1), Some(T::LParen));
+    is_add.then_some(ty)
+}
+
+/// the value type whose method body holds token `at`, if the token is inside one (`me` has
+/// that type there). the nearest value method body counts, through any blocks inside it.
+pub fn value_method_body_type(tokens: &[Token], at: usize) -> Option<&'static str> {
+    let mut stack: Vec<Option<&'static str>> = Vec::new();
+    for (i, t) in tokens.iter().enumerate().take(at) {
+        match t.kind {
+            T::LBrace => stack.push(value_method_header(tokens, i)),
+            T::RBrace => {
+                stack.pop();
+            }
+            _ => {}
+        }
+    }
+    stack.iter().rev().find_map(|s| *s)
+}
+
 fn kind(tokens: &[Token], i: usize) -> Option<&T> {
     tokens.get(i).map(|t| &t.kind)
 }
@@ -265,11 +315,11 @@ fn depths(tokens: &[Token]) -> Vec<i32> {
 
 /// a type token's text, or "" for tokens that aren't part of a type
 fn tok_text(k: &T) -> &'static str {
+    // every value type (`int`, `f32`, `i8`...): a variable of any of them keeps its type for `x.`
+    if let Some(name) = value_type_of_token(k) {
+        return name;
+    }
     match k {
-        T::TypeInt => "int",
-        T::TypeFloat => "float",
-        T::TypeBool => "bool",
-        T::TypeString => "string",
         T::TypeVoid => "void",
         T::TypeArray => "array",
         T::Lt => "<",
@@ -612,6 +662,10 @@ fn initializer_end(tokens: &[Token], start: usize) -> usize {
 /// the declared type name of the variable `head` as seen at token index `at`
 fn resolve_head(tokens: &[Token], depth: &[i32], at: usize, head: &str, decls: &Decls) -> Option<String> {
     if head == "me" {
+        // inside `i8::methods.add(fn ...) { }`: `me` is the value type of that method
+        if let Some(ty) = value_method_body_type(tokens, at) {
+            return Some(ty.to_string());
+        }
         let s = enclosing(tokens, depth, at, &T::Struct)?;
         return match kind(tokens, s + 1) {
             Some(T::Ident(n)) => Some(n.clone()),
@@ -705,9 +759,13 @@ fn members_of(ty: &str, decls: &Decls) -> Vec<Member> {
     if ty.starts_with("array<") || ty.starts_with("map<") || decls.structs.contains_key(ty) {
         shortcut("copy", "deep, mutable copy of this value (.copy())");
     }
-    if matches!(ty, "int" | "float") {
+    if matches!(ty, "int" | "float" | "f32" | "i8" | "i16" | "i32" | "u8" | "u16" | "u32" | "u64") {
         shortcut("int", "convert to int (@into.int)");
         shortcut("float", "convert to float (@into.float)");
+        // `f64` is the same type as `float`: offered wherever `float` is, except on a float itself
+        if ty != "float" {
+            shortcut("f64", "convert to f64, the same type as float (@into.float)");
+        }
     }
     out
 }
@@ -718,10 +776,19 @@ fn members_of_own(ty: &str, decls: &Decls) -> Vec<Member> {
         return native_methods(ns);
     }
     // numbers and bools: every function of the method namespaces that takes that type first
+    use spg_typecheck::typed_ast::Ty;
     let prim = match ty {
-        "int" => Some(spg_typecheck::typed_ast::Ty::Int),
-        "float" => Some(spg_typecheck::typed_ast::Ty::Float),
-        "bool" => Some(spg_typecheck::typed_ast::Ty::Bool),
+        "int" => Some(Ty::Int),
+        "float" => Some(Ty::Float),
+        "f32" => Some(Ty::F32),
+        "bool" => Some(Ty::Bool),
+        "i8" => Some(Ty::I8),
+        "i16" => Some(Ty::I16),
+        "i32" => Some(Ty::I32),
+        "u8" => Some(Ty::U8),
+        "u16" => Some(Ty::U16),
+        "u32" => Some(Ty::U32),
+        "u64" => Some(Ty::U64),
         _ => None,
     };
     if let Some(t) = prim {

@@ -1204,7 +1204,8 @@ impl Checker {
         // any value. a struct's own method with the same name wins
         // the sized names (`x.u8()`) too: they are `@into.u8(x)`
         let sized_method = into_checked_target(&format!("@into.{}", method));
-        if (matches!(method, "string" | "int" | "float") || sized_method.is_some()) && args.is_empty() {
+        // `f64` is `float` (the lexer reads both as the float keyword), so only `f32` needs its own name here
+        if (matches!(method, "string" | "int" | "float" | "f32") || sized_method.is_some()) && args.is_empty() {
             let user_method = match typed_object.ty() {
                 Ty::Named(n) => self.functions.contains_key(&format!("{}.{}", n, method)),
                 _ => false,
@@ -1215,6 +1216,7 @@ impl Checker {
                     "int" => Ty::Int,
                     "float" => Ty::Float,
                     "string" => Ty::String,
+                    "f32" => Ty::F32,
                     _ => sized_method.clone().unwrap_or(Ty::String),
                 };
                 if *typed_object.ty() == same {
@@ -3234,14 +3236,15 @@ impl Checker {
         let value = match (ty, name) {
             // `int::methods`: the native methods of the type, then the user ones in `add` order.
             // a snapshot: an array of names, the same every time it is read
-            ("int" | "float" | "bool" | "string", "methods") => {
-                let vty = match ty {
-                    "int" => Ty::Int,
-                    "float" => Ty::Float,
-                    "bool" => Ty::Bool,
-                    _ => Ty::String,
-                };
+            (_, "methods") if spg_parser::ast::is_value_type_name(ty) => {
+                // the type's own table entry: its ty, and its built-in method names (none for the sized ones)
+                let vty = value_type_of(ty).expect("a value type name has a type");
                 let mut names = native_method_names(&vty);
+                // `f64` is the float conversion under its other name: listed wherever `float` is
+                if names.iter().any(|n| n == "float") {
+                    names.push("f64".to_string());
+                    names.sort();
+                }
                 let prefix = format!("{}.", ty);
                 let mut user: Vec<(usize, String)> = Vec::new();
                 // only the ones this file can call: its own, and the exported ones of the others
@@ -4542,6 +4545,13 @@ fn value_type_of_ty(ty: &Ty) -> Option<&'static str> {
         Ty::F32 => Some("f32"),
         Ty::Bool => Some("bool"),
         Ty::String => Some("string"),
+        Ty::I8 => Some("i8"),
+        Ty::I16 => Some("i16"),
+        Ty::I32 => Some("i32"),
+        Ty::U8 => Some("u8"),
+        Ty::U16 => Some("u16"),
+        Ty::U32 => Some("u32"),
+        Ty::U64 => Some("u64"),
         _ => None,
     }
 }
@@ -4551,8 +4561,16 @@ fn value_type_of(name: &str) -> Option<Ty> {
     match name {
         "int" => Some(Ty::Int),
         "float" => Some(Ty::Float),
+        "f32" => Some(Ty::F32),
         "bool" => Some(Ty::Bool),
         "string" => Some(Ty::String),
+        "i8" => Some(Ty::I8),
+        "i16" => Some(Ty::I16),
+        "i32" => Some(Ty::I32),
+        "u8" => Some(Ty::U8),
+        "u16" => Some(Ty::U16),
+        "u32" => Some(Ty::U32),
+        "u64" => Some(Ty::U64),
         _ => None,
     }
 }

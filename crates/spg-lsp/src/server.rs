@@ -773,8 +773,13 @@ impl<W: Write> Server<W> {
 
         // `me` is the struct a method is called on: offered inside a struct body, with the names of this file
         if let Some((tokens, at, _)) = self.member_context(uri, pos) {
-            if inside_struct_body(&tokens, at) {
-                items.push(with_sort(item("me", 6, Some("the struct this method is called on".to_string()), None), SORT_OWN));
+            if inside_struct_body(&tokens, at) || crate::members::value_method_body_type(&tokens, at).is_some() {
+                let detail = if inside_struct_body(&tokens, at) {
+                    "the struct this method is called on"
+                } else {
+                    "the value this method is called on"
+                };
+                items.push(with_sort(item("me", 6, Some(detail.to_string()), None), SORT_OWN));
             }
         }
 
@@ -1608,6 +1613,66 @@ mod tests {
         assert!(labels_of(&inside).iter().any(|l| l == "me"));
         let outside = complete_at("compl_me_out", "let a = 1\n\n", 1, 0);
         assert!(!labels_of(&outside).iter().any(|l| l == "me"));
+    }
+
+    #[test]
+    fn sized_and_f32_types_offer_their_properties_after_colons() {
+        // every type that takes methods offers its constants and `methods` after `::`; the aliases
+        // `i64` and `f64` are the same types as `int` and `float`, so they offer the same list
+        let cases: [(&str, &[&str]); 7] = [
+            ("i8", &["max", "min", "bits", "methods"]),
+            ("u64", &["max", "min", "bits", "methods"]),
+            ("u16", &["max", "min", "bits", "methods"]),
+            ("f32", &["max", "min", "epsilon", "inf", "nan", "methods"]),
+            ("i64", &["max", "min", "bits", "methods"]),
+            ("f64", &["max", "epsilon", "methods"]),
+            ("bool", &["methods"]),
+        ];
+        for (ty, wants) in cases {
+            let text = format!("let x = {}::\n", ty);
+            let col = (text.find("::").unwrap() + 2) as i64;
+            let labels = labels_of(&complete_at(&format!("compl_prop_{}", ty), &text, 0, col));
+            for want in wants {
+                assert!(labels.iter().any(|l| l == want), "{}:: lacks {}: {:?}", ty, want, labels);
+            }
+        }
+    }
+
+    #[test]
+    fn a_sized_method_body_offers_me_and_the_method_after_a_value() {
+        // inside `i8::methods.add(fn ...) { }` the value itself is `me`
+        let inside = complete_at("compl_me_sized", "i8::methods.add(fn lol() -> i8 {\n    \n})\n", 1, 4);
+        assert!(labels_of(&inside).iter().any(|l| l == "me"), "me missing in an i8 method: {:?}", labels_of(&inside));
+        // and the method is offered after a value of that type, as the user's own method
+        let after = complete_at(
+            "compl_sized_dot",
+            "i8::methods.add(fn lol() -> i8 { return me })\nlet x: i8 = 5\nx.\n",
+            2,
+            2,
+        );
+        assert!(labels_of(&after).iter().any(|l| l == "lol"), "i8 value lacks lol: {:?}", labels_of(&after));
+    }
+
+    #[test]
+    fn an_int_value_offers_its_f32_and_f64_conversions() {
+        // `x.f32()` and `x.f64()` sit with the other conversions of an int, like `u8()`
+        let items = complete_at("compl_int_into", "let a: int = 5\na.\n", 1, 2);
+        let labels = labels_of(&items);
+        for want in ["f32", "f64", "float", "u8"] {
+            assert!(labels.iter().any(|l| l == want), "int. lacks {}: {:?}", want, labels);
+        }
+    }
+
+    #[test]
+    fn me_dot_in_a_string_method_offers_the_string_methods() {
+        // `me` in `string::methods.add(...)` has the type of the method's value
+        let items = complete_at(
+            "compl_me_dot_string",
+            "string::methods.add(fn shout() -> string {\n    return me.\n})\n",
+            1,
+            14,
+        );
+        assert!(labels_of(&items).iter().any(|l| l == "trim"), "me. in a string method lacks trim: {:?}", labels_of(&items));
     }
 
     #[test]

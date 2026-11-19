@@ -1,0 +1,14 @@
+// `f32()` converts an int, a sized int or a float to f32; `f64()` is the same conversion as `float()`
+let a: int = 5
+print(a.f32())
+print(a.f64())
+print(a.float())
+print(a.u8())
+let b: i8 = -3
+print(b.f32())
+let c: u8 = 200
+print(c.f32(), c.f64())
+let d: f32 = 2.5
+print(d.f32(), d.f64())
+let u: u64 = 7
+print(u.f32())

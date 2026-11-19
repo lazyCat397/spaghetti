@@ -817,7 +817,7 @@ impl Parser {
     /// the same check, `off` tokens ahead of the current one (`public` sits in front)
     fn method_add_at(&self, off: usize) -> bool {
         let at = |k: usize| self.tokens.get(self.pos + off + k).map(|t| &t.kind);
-        matches!(at(0), Some(TokenKind::TypeInt | TokenKind::TypeFloat | TokenKind::TypeF32 | TokenKind::TypeBool | TokenKind::TypeString))
+        value_type_token(at(0)).is_some()
             && matches!(at(1), Some(TokenKind::DoubleColon))
             && matches!(at(2), Some(TokenKind::Ident(n)) if n == "methods")
             && matches!(at(3), Some(TokenKind::Dot))
@@ -829,12 +829,9 @@ impl Parser {
     /// nothing new. `me` is implicit: it is always the first parameter, typed as the value.
     fn parse_method_add(&mut self, exported: bool) -> Result<Stmt, ParseError> {
         let pos = self.peek_pos();
-        let (ty, type_ann) = match self.advance().kind {
-            TokenKind::TypeInt => ("int", TypeExpr::Int),
-            TokenKind::TypeFloat => ("float", TypeExpr::Float),
-            TokenKind::TypeF32 => ("f32", TypeExpr::F32),
-            TokenKind::TypeBool => ("bool", TypeExpr::Bool),
-            _ => ("string", TypeExpr::String),
+        let (ty, type_ann) = match value_type_token(Some(&self.advance().kind)) {
+            Some(found) => found,
+            None => unreachable!("parse_method_add runs only after method_add_at matched a value type"),
         };
         self.advance(); // ::
         self.advance(); // methods
@@ -891,7 +888,7 @@ impl Parser {
             TokenKind::TypeString => { self.advance(); "string".to_string() }
             _ => self.parse_binding_name()?,
         };
-        if matches!(name.as_str(), "int" | "float" | "bool" | "string") {
+        if crate::ast::is_value_type_name(&name) {
             return Err(ParseError::Unexpected {
                 expected: "a method on a value type is declared as int::methods.add(fn nome(...) { ... })".to_string(),
                 found: self.peek().kind.clone(),
@@ -2282,4 +2279,24 @@ impl ParseError {
             }
         }
     }
+}
+
+/// a type keyword that names a type with value methods (`int`, `i8`, `u64`, `f32`...), with its
+/// name and the type expression of `me`. `i64` and `f64` lex as `int` and `float`, so they are here too.
+fn value_type_token(kind: Option<&TokenKind>) -> Option<(&'static str, TypeExpr)> {
+    Some(match kind? {
+        TokenKind::TypeInt => ("int", TypeExpr::Int),
+        TokenKind::TypeFloat => ("float", TypeExpr::Float),
+        TokenKind::TypeF32 => ("f32", TypeExpr::F32),
+        TokenKind::TypeBool => ("bool", TypeExpr::Bool),
+        TokenKind::TypeString => ("string", TypeExpr::String),
+        TokenKind::TypeI8 => ("i8", TypeExpr::I8),
+        TokenKind::TypeI16 => ("i16", TypeExpr::I16),
+        TokenKind::TypeI32 => ("i32", TypeExpr::I32),
+        TokenKind::TypeU8 => ("u8", TypeExpr::U8),
+        TokenKind::TypeU16 => ("u16", TypeExpr::U16),
+        TokenKind::TypeU32 => ("u32", TypeExpr::U32),
+        TokenKind::TypeU64 => ("u64", TypeExpr::U64),
+        _ => return None,
+    })
 }
