@@ -1,0 +1,13 @@
+struct Clamp {
+    value: int
+    guard {
+        if (me.value > 10) {
+            me.value = 10
+        }
+    }
+}
+let c = Clamp {value: 3}
+c.value += 20
+print(c.value)
+c.value = 99
+print(c.value)

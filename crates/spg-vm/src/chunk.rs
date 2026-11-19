@@ -414,6 +414,8 @@ impl OpCode {
 pub struct Loc {
     pub file: Option<std::rc::Rc<str>>,
     pub line: u32,
+    /// column where the statement starts (0 when unknown)
+    pub col: u32,
 }
 
 /// the static type of a local, as native code can hold it. `None` for anything else

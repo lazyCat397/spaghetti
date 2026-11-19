@@ -37,6 +37,11 @@ pub fn display_name(name: &str) -> &str {
 pub struct Pos {
     pub line: usize,
     pub col: usize,
+    /// characters the spot covers on its line (at least 1); the diagnostics underline it
+    pub len: usize,
+    /// offset of the exact spot (the `^`) inside the span: a binary expression's span runs
+    /// from its left operand to its right one, and the caret sits on the operator
+    pub focus: usize,
     /// which file this position is in. the parser itself never sets
     /// this (it only sees tokens, not filenames), so every
     /// `Pos` starts out `None`. spg-modules (the only thing that runs
@@ -374,6 +379,8 @@ pub enum Stmt {
         /// into `Name.__guard` / `Name.__check`; the checker rewrites every write
         /// to such a struct so the guards run after it (and roll it back on throw).
         guarded: bool,
+        /// the fields a guard can change (its bodies name them, or pass `me` on). `None` = every field
+        snapshot: Option<Vec<String>>,
         pos: Pos,
     },
 
@@ -573,11 +580,12 @@ impl Stmt {
     }
 }
 
-/// one `guard` block of a struct body. `target` is `Some((field, alias))` for
-/// `guard (me.field as alias)` and `None` for the global `guard { }`.
+/// one `guard` block of a struct body. `target` lists the fields of
+/// `guard (me.a as x, me.b)`, each with its optional alias; it is empty for the global `guard { }`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GuardSpec {
-    pub target: Option<(String, Option<String>)>,
+    /// the fields named in `guard (me.a as x, me.b as y)`, with their aliases. empty for `guard { }`
+    pub target: Vec<(String, Option<String>)>,
     pub body: Block,
     pub pos: Pos,
 }

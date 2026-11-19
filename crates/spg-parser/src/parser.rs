@@ -183,11 +183,27 @@ impl Parser {
 
     fn peek_pos(&self) -> Pos {
         let t = self.peek();
-        Pos { line: t.line, col: t.col, file: None }
+        Pos { line: t.line, col: t.col, len: t.len, focus: 0, file: None }
     }
 
     fn check(&self, kind: &TokenKind) -> bool {
         std::mem::discriminant(&self.peek().kind) == std::mem::discriminant(kind)
+    }
+
+    /// the span of a compound expression (binary, call, field access): from the start of the
+    /// expression on its left (`left`) to the end of the last token consumed, with the caret on
+    /// `focus` (the operator, the `(` of a call, the `.` of a field).
+    fn expr_span(&self, left: &Expr, focus_pos: Pos) -> Pos {
+        let op = focus_pos;
+        let start = left.pos().cloned().unwrap_or_else(|| op.clone());
+        let last = &self.tokens[self.pos.saturating_sub(1)];
+        let len = if last.line == start.line && last.col + last.len > start.col {
+            last.col + last.len - start.col
+        } else {
+            op.len
+        };
+        let focus = if op.line == start.line { op.col.saturating_sub(start.col) } else { 0 };
+        Pos { line: start.line, col: start.col, len, focus, file: start.file.clone() }
     }
 
     fn advance(&mut self) -> Token {
@@ -991,7 +1007,7 @@ impl Parser {
         self.pending.extend(statics);
         self.pending.extend(functions);
         // no fields and no `me`: nothing is ever built from it
-        Ok(Stmt::StructDecl { name, fields: Vec::new(), exported, namespace: true, guarded: false, pos })
+        Ok(Stmt::StructDecl { name, fields: Vec::new(), exported, namespace: true, guarded: false, snapshot: None, pos })
     }
 
     fn parse_struct_decl(&mut self, exported: bool) -> Result<Stmt, ParseError> {
@@ -1041,13 +1057,15 @@ impl Parser {
             }
         }
         let guarded = !guards.is_empty();
+        let mut snapshot = None;
         if guarded {
             crate::guard::check_guards(&name, &fields, &guards)?;
+            snapshot = crate::guard::snapshot_fields(&guards);
             self.pending.extend(crate::guard::guard_functions(&name, exported, &guards, &pos));
         }
         self.pending.extend(methods);
 
-        Ok(Stmt::StructDecl { name, fields, exported, namespace: false, guarded, pos })
+        Ok(Stmt::StructDecl { name, fields, exported, namespace: false, guarded, snapshot, pos })
     }
 
     /// `guard (me.field as alias) { ... }` or `guard { ... }`, inside a struct body.
@@ -1056,28 +1074,34 @@ impl Parser {
         let pos = self.peek_pos();
         self.advance(); // guard
 
-        let mut target = None;
+        // `guard (me.a as x, me.b)`: each entry names a field, with an optional alias
+        let mut target = Vec::new();
         if self.match_kind(&TokenKind::LParen) {
-            let (line, col) = (self.peek().line, self.peek().col);
-            let me = self.parse_ident_name()?;
-            if me != "me" {
-                return Err(ParseError::Unexpected {
-                    expected: "'me' (a field guard starts with me.field)".to_string(),
-                    found: TokenKind::Ident(me),
-                    line,
-                    col,
-                });
+            loop {
+                let (line, col) = (self.peek().line, self.peek().col);
+                let me = self.parse_ident_name()?;
+                if me != "me" {
+                    return Err(ParseError::Unexpected {
+                        expected: "'me' (a field guard starts with me.field)".to_string(),
+                        found: TokenKind::Ident(me),
+                        line,
+                        col,
+                    });
+                }
+                self.expect(TokenKind::Dot, "'.'")?;
+                let field = self.parse_ident_name()?;
+                let alias = if matches!(&self.peek().kind, TokenKind::Ident(s) if s == "as") {
+                    self.advance();
+                    Some(self.parse_ident_name()?)
+                } else {
+                    None
+                };
+                target.push((field, alias));
+                if !self.match_kind(&TokenKind::Comma) {
+                    break;
+                }
             }
-            self.expect(TokenKind::Dot, "'.'")?;
-            let field = self.parse_ident_name()?;
-            let alias = if matches!(&self.peek().kind, TokenKind::Ident(s) if s == "as") {
-                self.advance();
-                Some(self.parse_ident_name()?)
-            } else {
-                None
-            };
             self.expect(TokenKind::RParen, "')'")?;
-            target = Some((field, alias));
         }
 
         let body = self.parse_block()?;
@@ -1493,7 +1517,8 @@ impl Parser {
             let pos = self.peek_pos();
             self.advance();
             let right = self.parse_coalesce()?;
-            return Ok(Expr::Binary { left: Box::new(left), op: BinaryOp::Coalesce, right: Box::new(right), pos });
+            let span = self.expr_span(&left, pos);
+            return Ok(Expr::Binary { left: Box::new(left), op: BinaryOp::Coalesce, right: Box::new(right), pos: span });
         }
         Ok(left)
     }
@@ -1576,7 +1601,8 @@ impl Parser {
             let pos = self.peek_pos();
             self.advance();
             let right = self.parse_and()?;
-            left = Expr::Binary { left: Box::new(left), op: BinaryOp::Or, right: Box::new(right), pos };
+            let span = self.expr_span(&left, pos);
+            left = Expr::Binary { left: Box::new(left), op: BinaryOp::Or, right: Box::new(right), pos: span };
         }
         Ok(left)
     }
@@ -1587,7 +1613,8 @@ impl Parser {
             let pos = self.peek_pos();
             self.advance();
             let right = self.parse_equality()?;
-            left = Expr::Binary { left: Box::new(left), op: BinaryOp::And, right: Box::new(right), pos };
+            let span = self.expr_span(&left, pos);
+            left = Expr::Binary { left: Box::new(left), op: BinaryOp::And, right: Box::new(right), pos: span };
         }
         Ok(left)
     }
@@ -1603,7 +1630,8 @@ impl Parser {
             let pos = self.peek_pos();
             self.advance();
             let right = self.parse_comparison()?;
-            left = Expr::Binary { left: Box::new(left), op, right: Box::new(right), pos };
+            let span = self.expr_span(&left, pos);
+            left = Expr::Binary { left: Box::new(left), op, right: Box::new(right), pos: span };
         }
         Ok(left)
     }
@@ -1622,7 +1650,8 @@ impl Parser {
             let pos = self.peek_pos();
             self.advance();
             let right = self.parse_term()?;
-            left = Expr::Binary { left: Box::new(left), op, right: Box::new(right), pos };
+            let span = self.expr_span(&left, pos);
+            left = Expr::Binary { left: Box::new(left), op, right: Box::new(right), pos: span };
         }
         Ok(left)
     }
@@ -1640,7 +1669,8 @@ impl Parser {
             let pos = self.peek_pos();
             self.advance();
             let right = self.parse_factor()?;
-            left = Expr::Binary { left: Box::new(left), op, right: Box::new(right), pos };
+            let span = self.expr_span(&left, pos);
+            left = Expr::Binary { left: Box::new(left), op, right: Box::new(right), pos: span };
         }
         Ok(left)
     }
@@ -1657,7 +1687,8 @@ impl Parser {
             let pos = self.peek_pos();
             self.advance();
             let right = self.parse_unary()?;
-            left = Expr::Binary { left: Box::new(left), op, right: Box::new(right), pos };
+            let span = self.expr_span(&left, pos);
+            left = Expr::Binary { left: Box::new(left), op, right: Box::new(right), pos: span };
         }
         Ok(left)
     }
@@ -1699,7 +1730,8 @@ impl Parser {
             let pos = self.peek_pos();
             self.advance();
             let exponent = self.parse_power()?; // right-associative recursion
-            return Ok(Expr::Binary { left: Box::new(base), op: BinaryOp::Pow, right: Box::new(exponent), pos });
+            let span = self.expr_span(&base, pos);
+            return Ok(Expr::Binary { left: Box::new(base), op: BinaryOp::Pow, right: Box::new(exponent), pos: span });
         }
         Ok(base)
     }
@@ -1736,14 +1768,16 @@ impl Parser {
                     }
                 }
 
-                expr = Expr::Call { callee: Box::new(expr), args, pos };
+                let span = self.expr_span(&expr, pos);
+                expr = Expr::Call { callee: Box::new(expr), args, pos: span };
             } else if self.check(&TokenKind::LBracket) && !breaks_line {
                 let pos = self.peek_pos();
                 self.advance(); // [
                 let index = self.parse_expr()?;
                 self.expect(TokenKind::RBracket, "']'")?;
 
-                expr = Expr::Index { array: Box::new(expr), index: Box::new(index), pos };
+                let span = self.expr_span(&expr, pos);
+                expr = Expr::Index { array: Box::new(expr), index: Box::new(index), pos: span };
             } else if self.check(&TokenKind::Dot) {
                 let pos = self.peek_pos();
                 self.advance(); // .
@@ -1759,7 +1793,8 @@ impl Parser {
                     _ => self.parse_ident_name()?,
                 };
 
-                expr = Expr::Field { object: Box::new(expr), field, pos };
+                let span = self.expr_span(&expr, pos);
+                expr = Expr::Field { object: Box::new(expr), field, pos: span };
             } else if (self.check(&TokenKind::PlusPlus) || self.check(&TokenKind::MinusMinus)) && !breaks_line {
                 // `i++` / `i--`: postfix, yields the OLD value. same line only,
                 // so a `++` starting the next line is a prefix of the next statement
@@ -2098,4 +2133,153 @@ fn qualify_member(ns: &str, mut stmt: Stmt) -> Stmt {
         _ => {}
     }
     stmt
+}
+
+impl ParseError {
+    /// the place of the error, when the error carries one: (line, column)
+    pub fn spot(&self) -> Option<(usize, usize)> {
+        match self {
+            ParseError::Unexpected { line, col, .. }
+            | ParseError::MissingElseInIfExpr { line, col }
+            | ParseError::ReservedName { line, col, .. }
+            | ParseError::NamespaceWithoutMember { line, col, .. }
+            | ParseError::RangeOutsideFor { line, col }
+            | ParseError::PositionalAfterNamed { line, col }
+            | ParseError::FieldMethodClash { line, col, .. }
+            | ParseError::GuardError { line, col, .. }
+            | ParseError::DuplicateVariant { line, col, .. }
+            | ParseError::EmptyEnum { line, col, .. }
+            | ParseError::EnumValueType { line, col, .. }
+            | ParseError::EnumValueNeeded { line, col, .. } => Some((*line, *col)),
+            ParseError::UnexpectedEof { .. } => None,
+        }
+    }
+
+    /// stable code for the frame header (`error[E0100]`)
+    pub fn code(&self) -> &'static str {
+        match self {
+            ParseError::Unexpected { .. } => "E0100",
+            ParseError::MissingElseInIfExpr { .. } => "E0101",
+            ParseError::UnexpectedEof { .. } => "E0102",
+            ParseError::ReservedName { .. } => "E0103",
+            ParseError::NamespaceWithoutMember { .. } => "E0104",
+            ParseError::RangeOutsideFor { .. } => "E0105",
+            ParseError::PositionalAfterNamed { .. } => "E0106",
+            ParseError::FieldMethodClash { .. } => "E0107",
+            ParseError::GuardError { .. } => "E0108",
+            ParseError::DuplicateVariant { .. } => "E0109",
+            ParseError::EmptyEnum { .. } => "E0110",
+            ParseError::EnumValueType { .. } => "E0111",
+            ParseError::EnumValueNeeded { .. } => "E0112",
+        }
+    }
+
+    /// the bare fact for the frame header
+    pub fn fact(&self) -> String {
+        match self {
+            ParseError::Unexpected { expected, found, .. } => {
+                format!("expected {}, found {}", expected, spg_lexer::token::describe(found))
+            }
+            ParseError::MissingElseInIfExpr { .. } => "'if' used as a value needs an 'else'".to_string(),
+            ParseError::UnexpectedEof { expected } => format!("unexpected end of file, expected {}", expected),
+            ParseError::ReservedName { name, .. } => format!("'@{}' is a library namespace, not a name", name.trim_start_matches('@')),
+            ParseError::NamespaceWithoutMember { name, .. } => format!("namespace '@{}' used without a member", name),
+            ParseError::RangeOutsideFor { .. } => "a range (a..b) is only allowed in a 'for' header".to_string(),
+            ParseError::PositionalAfterNamed { .. } => "a positional argument cannot follow a named one".to_string(),
+            ParseError::FieldMethodClash { struct_name, name, .. } => {
+                format!("'{}' is both a field and a method of '{}'", name, struct_name)
+            }
+            ParseError::GuardError { struct_name, reason, .. } => {
+                format!("invalid guard rule in '{}': {}", struct_name, reason)
+            }
+            ParseError::DuplicateVariant { enum_name, name, .. } => {
+                format!("variant '{}' is declared twice in enum '{}'", name, enum_name)
+            }
+            ParseError::EmptyEnum { name, .. } => format!("enum '{}' needs at least one variant", name),
+            ParseError::EnumValueType { enum_name, name, found, expected, .. } => format!(
+                "variant '{}' of enum '{}' is {}, but its other variants are {}",
+                name, enum_name, found, expected
+            ),
+            ParseError::EnumValueNeeded { enum_name, name, .. } => {
+                format!("variant '{}' of enum '{}' needs a value", name, enum_name)
+            }
+        }
+    }
+
+    /// why the parser can't go on, in one sentence (none when the fact says it all)
+    pub fn why(&self) -> Option<String> {
+        let text = match self {
+            ParseError::Unexpected { .. } => "the statement is not complete or the text is not what the grammar expects here".to_string(),
+            ParseError::MissingElseInIfExpr { .. } => "an 'if' that gives a value must give one on every path".to_string(),
+            ParseError::UnexpectedEof { .. } => "the file ends while a block, a bracket or a statement is still open".to_string(),
+            ParseError::ReservedName { .. } => "namespaces (@math, @time...) are reserved: they can't name variables, functions, types or fields".to_string(),
+            ParseError::NamespaceWithoutMember { .. } => "a namespace is a group of functions, so it must be followed by '.name'".to_string(),
+            ParseError::RangeOutsideFor { .. } => "ranges exist to walk through values in a for loop".to_string(),
+            ParseError::PositionalAfterNamed { .. } => "once one argument is named, every later one must be named too".to_string(),
+            ParseError::FieldMethodClash { name, .. } => format!("'p.{}' would not say which one it means", name),
+            ParseError::GuardError { .. } => return None,
+            ParseError::DuplicateVariant { .. } => "each variant of an enum needs its own name".to_string(),
+            ParseError::EmptyEnum { .. } => "an enum is a set of values, and an empty set has nothing to choose from".to_string(),
+            ParseError::EnumValueType { .. } => "the variants of one enum share one value type".to_string(),
+            ParseError::EnumValueNeeded { .. } => "only int enums are numbered automatically".to_string(),
+        };
+        Some(text)
+    }
+
+    /// concrete ways to fix it, built from the text of this error
+    pub fn help(&self) -> Vec<String> {
+        match self {
+            ParseError::Unexpected { expected, found, .. } => {
+                let mut out = Vec::new();
+                if expected.contains("')'") {
+                    out.push("close the '(' opened before this with ')'".to_string());
+                } else if expected.contains("']'") {
+                    out.push("close the '[' opened before this with ']'".to_string());
+                } else if expected.contains("'}'") {
+                    out.push("close the block opened with '{' with '}'".to_string());
+                } else if expected.contains("'{'") {
+                    out.push("a block must start with '{' after its header".to_string());
+                } else if matches!(found, TokenKind::Ident(_)) {
+                    out.push("two names side by side: check for a missing operator, comma or ')' just before it".to_string());
+                }
+                out
+            }
+            ParseError::MissingElseInIfExpr { .. } => {
+                vec!["add an else branch that gives a value of the same type, for example: else { 0 }".to_string()]
+            }
+            ParseError::UnexpectedEof { .. } => {
+                vec!["a '{', '(' or '[' was opened and never closed: look for the one that is still open".to_string()]
+            }
+            ParseError::ReservedName { name, .. } => {
+                vec![format!("choose another name, for example: {}Value", name.trim_start_matches('@'))]
+            }
+            ParseError::NamespaceWithoutMember { name, .. } => {
+                vec![format!("use one of its members, for example: @{}.<name>(...)", name)]
+            }
+            ParseError::RangeOutsideFor { .. } => vec![
+                "use it in a for loop: for (i in 0..10) { ... }".to_string(),
+                "or build the list with @array.range(1, 4)".to_string(),
+            ],
+            ParseError::PositionalAfterNamed { .. } => vec![
+                "name it too, for example: f(x: 1, y: 2)".to_string(),
+                "or put the positional arguments before the named ones".to_string(),
+            ],
+            ParseError::FieldMethodClash { name, .. } => {
+                vec![format!("rename the field or the method '{}'", name)]
+            }
+            ParseError::GuardError { .. } => vec![],
+            ParseError::DuplicateVariant { name, .. } => {
+                vec![format!("remove one of the two '{}', or give the second one another name", name)]
+            }
+            ParseError::EmptyEnum { name, .. } => {
+                vec![format!("add at least one variant, for example: enum {} {{ First }}", name)]
+            }
+            ParseError::EnumValueType { expected, .. } => {
+                vec![format!("give it a value of type {}, like the others", expected)]
+            }
+            ParseError::EnumValueNeeded { .. } => {
+                vec!["give it a value of the enum's type, for example: Name = \"text\"".to_string()]
+            }
+        }
+    }
 }

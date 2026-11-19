@@ -1873,6 +1873,7 @@ fn to_loc(loc: &spg_typecheck::SrcLoc) -> spg_vm::chunk::Loc {
     spg_vm::chunk::Loc {
         file: loc.file.as_deref().map(std::rc::Rc::from),
         line: loc.line as u32,
+        col: loc.col as u32,
     }
 }
 

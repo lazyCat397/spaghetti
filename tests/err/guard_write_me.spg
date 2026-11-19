@@ -1,5 +1,0 @@
-struct S {
-    grade: float,
-    name: string,
-    guard { me.grade = 1.0; }
-}

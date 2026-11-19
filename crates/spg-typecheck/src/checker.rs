@@ -62,7 +62,20 @@ struct ValueMethod {
     seq: usize,
 }
 
+/// where an argument's error points: the whole argument, with the caret on its first character
+fn arg_pos(arg: &Expr, fallback: &p::Pos) -> p::Pos {
+    let mut spot = arg.pos().cloned().unwrap_or_else(|| fallback.clone());
+    spot.focus = 0;
+    spot
+}
+
 pub struct Checker {
+    /// where each argument of the call being checked starts, so an ArgTypeMismatch can
+    /// underline the argument itself. set after the args are typed, taken by the next builtin check
+    arg_spots: Vec<p::Pos>,
+    /// the argument positions of the builtin being checked right now; the helpers that report
+    /// argument mismatches read it (they only see the types), and it is restored after nested calls
+    builtin_spots: Vec<p::Pos>,
     functions: HashMap<String, FunctionSig>,
     /// `"string.nice"` -> every declaration of that method in the program
     value_methods: HashMap<String, Vec<ValueMethod>>,
@@ -76,6 +89,10 @@ pub struct Checker {
     /// positions of struct literals already wrapped in `Name.__check(...)`, so the
     /// literal inside the call is checked as itself and not wrapped again
     guard_literals: std::collections::HashSet<(usize, usize)>,
+    /// inside a `S.__guard` body: the name of S. writes to `me` there are plain writes
+    guard_body_of: Option<String>,
+    /// guarded struct -> the fields its guards can change (`None` = all of them)
+    guard_snapshots: HashMap<String, Option<Vec<String>>>,
     /// enum name -> its variants in declaration order (a variant's position
     /// is its identity at runtime). an enum value's type is `Ty::Named(name)`;
     /// this table is how it's told apart from a struct.
@@ -148,11 +165,15 @@ pub fn type_check_with(program: p::Program, strict: bool) -> Result<TypedProgram
     let native_objects = native_objects_of(&program.natives);
     let mut checker = Checker {
         native_objects,
+        arg_spots: Vec::new(),
+        builtin_spots: Vec::new(),
         functions: HashMap::new(),
         value_methods: HashMap::new(),
         struct_defs: HashMap::new(),
         guarded_structs: std::collections::HashSet::new(),
         guard_literals: std::collections::HashSet::new(),
+        guard_body_of: None,
+        guard_snapshots: HashMap::new(),
         enum_defs: HashMap::new(),
         enum_value_tys: HashMap::new(),
         scopes: vec![HashMap::new()],
@@ -223,8 +244,11 @@ impl Checker {
             match stmt {
                 // (a struct and an enum with the same name never get here. the
                 // module resolver already yells about duplicate names)
-                Stmt::StructDecl { name, fields, guarded, namespace, .. } => {
+                Stmt::StructDecl { name, fields, guarded, namespace, snapshot, .. } => {
                     self.struct_defs.insert(name.clone(), fields.clone());
+                    if *guarded {
+                        self.guard_snapshots.insert(name.clone(), snapshot.clone());
+                    }
                     if *namespace {
                         self.namespace_names.insert(name.clone());
                     }
@@ -485,6 +509,17 @@ impl Checker {
             return;
         }
         current.insert(name.to_string(), VarInfo { ty, mutable, assigned: false, origin: None, narrowed_from: None });
+    }
+
+    /// the visible variable closest to a misspelled name (for "did you mean")
+    fn closest_variable(&self, name: &str) -> Option<String> {
+        let names = self.scopes.iter().flat_map(|scope| scope.keys());
+        crate::error::closest_name(name, names)
+    }
+
+    /// the declared function closest to a misspelled name
+    fn closest_function(&self, name: &str) -> Option<String> {
+        crate::error::closest_name(name, self.functions.keys())
     }
 
     fn lookup(&self, name: &str) -> Option<&Ty> {
@@ -786,6 +821,14 @@ impl Checker {
     }
 
     fn check_builtin_call_plain(&mut self, name: String, typed_args: Vec<TypedExpr>, pos: &p::Pos) -> Option<TypedExpr> {
+        let spots = std::mem::take(&mut self.arg_spots);
+        let outer = std::mem::replace(&mut self.builtin_spots, spots);
+        let result = self.check_builtin_call_body(name, typed_args, pos);
+        self.builtin_spots = outer;
+        result
+    }
+
+    fn check_builtin_call_body(&mut self, name: String, typed_args: Vec<TypedExpr>, pos: &p::Pos) -> Option<TypedExpr> {
         let builtins = builtin_signatures();
         let overloads = builtins.get(&name).expect("the caller checked that this is a builtin");
         // `print` / `printError` take ANY number of args (zero
@@ -800,7 +843,7 @@ impl Checker {
                             param_index: i,
                             expected: Ty::Any,
                             found: a.ty().clone(),
-                            pos: pos.clone(),
+                            pos: self.builtin_spots.get(i).cloned().unwrap_or_else(|| pos.clone()),
                         });
                     }
                 }
@@ -894,7 +937,7 @@ impl Checker {
                                 param_index: i,
                                 expected: p.clone(),
                                 found: (*a).clone(),
-                                pos: pos.clone(),
+                                pos: self.builtin_spots.get(i).cloned().unwrap_or_else(|| pos.clone()),
                             });
                         }
                     }
@@ -1375,6 +1418,14 @@ impl Checker {
                 return None;
             }
         }
+        // inside a guard body, `me` is the struct the guard checks: its corrections are plain writes
+        if self.guard_body_of.is_some() {
+            if let Expr::Ident(n, _) = object {
+                if n == "me" {
+                    return None;
+                }
+            }
+        }
         let before = self.errors.len();
         let typed = self.check_expr(object);
         self.errors.truncate(before);
@@ -1400,7 +1451,6 @@ impl Checker {
     /// enter and leave always pair up, on the success and the refusal path.
     fn wrap_guarded_write(&self, struct_name: &str, object: &Expr, field: &str, pos: &p::Pos, write: &dyn Fn(Expr) -> Stmt) -> Stmt {
         let tmp = format!("$guard_obj_{}_{}", pos.line, pos.col);
-        let old = format!("$guard_old_{}_{}", pos.line, pos.col);
         let depth = format!("$guard_depth_{}_{}", pos.line, pos.col);
         let err = format!("$guard_err_{}_{}", pos.line, pos.col);
         let var = |n: &str| Expr::Ident(n.to_string(), pos.clone());
@@ -1410,73 +1460,97 @@ impl Checker {
             pos: pos.clone(),
         };
         let name_arg = || Expr::StringLit(struct_name.to_string(), pos.clone());
-        let stmts = vec![
-            Stmt::Let { name: tmp.clone(), type_ann: None, value: object.clone(), exported: false, pos: pos.clone() },
-            Stmt::Let {
-                name: old.clone(),
-                type_ann: None,
-                value: Expr::Field { object: Box::new(var(&tmp)), field: field.to_string(), pos: pos.clone() },
-                exported: false,
-                pos: pos.clone(),
-            },
-            write(var(&tmp)),
-            Stmt::Let {
-                name: depth.clone(),
-                type_ann: None,
-                value: call("@guard.enter", vec![name_arg()]),
-                exported: false,
-                pos: pos.clone(),
-            },
-            Stmt::Try {
-                try_block: p::Block {
-                    stmts: vec![
-                        Stmt::IfStmt {
-                            cond: Expr::Binary {
-                                left: Box::new(var(&depth)),
-                                op: BinaryOp::Gt,
-                                right: Box::new(Expr::IntLit(0, pos.clone())),
-                                pos: pos.clone(),
-                            },
-                            then_branch: p::Block {
-                                stmts: vec![Stmt::Throw {
-                                    value: Expr::StringLit(
-                                        format!("a write to a {} ran inside a guard of {}: a guard cannot change its own struct", struct_name, struct_name),
-                                        pos.clone(),
-                                    ),
-                                    pos: pos.clone(),
-                                }],
-                                pos: pos.clone(),
-                            },
-                            else_branch: None,
+
+        // a copy of every field before the write. a refusal puts all of them back, so the
+        // corrections a guard made before it refused are undone too. arrays, maps and
+        // structs are copied deep: a plain read would keep sharing their contents.
+        // only the fields the guards can change need a copy, plus the one being written
+        let named = self.guard_snapshots.get(struct_name).cloned().unwrap_or(None);
+        let fields: Vec<Param> = self
+            .struct_defs
+            .get(struct_name)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|f| match &named {
+                None => true,
+                Some(names) => f.name == field || names.contains(&f.name),
+            })
+            .collect();
+        let mut stmts = vec![Stmt::Let { name: tmp.clone(), type_ann: None, value: object.clone(), exported: false, pos: pos.clone() }];
+        let mut saved: Vec<(String, String)> = Vec::new();
+        for f in &fields {
+            let old = format!("$guard_old_{}_{}_{}", pos.line, pos.col, f.name);
+            let current = Expr::Field { object: Box::new(var(&tmp)), field: f.name.clone(), pos: pos.clone() };
+            let value = if self.needs_deep_copy(&f.type_ann) {
+                Expr::Call {
+                    callee: Box::new(Expr::Field { object: Box::new(current), field: "copy".to_string(), pos: pos.clone() }),
+                    args: Vec::new(),
+                    pos: pos.clone(),
+                }
+            } else {
+                current
+            };
+            stmts.push(Stmt::Let { name: old.clone(), type_ann: None, value, exported: false, pos: pos.clone() });
+            saved.push((f.name.clone(), old));
+        }
+        stmts.push(write(var(&tmp)));
+        stmts.push(Stmt::Let {
+            name: depth.clone(),
+            type_ann: None,
+            value: call("@guard.enter", vec![name_arg()]),
+            exported: false,
+            pos: pos.clone(),
+        });
+        stmts.push(Stmt::Try {
+            try_block: p::Block {
+                stmts: vec![
+                    Stmt::IfStmt {
+                        cond: Expr::Binary {
+                            left: Box::new(var(&depth)),
+                            op: BinaryOp::Gt,
+                            right: Box::new(Expr::IntLit(0, pos.clone())),
                             pos: pos.clone(),
                         },
-                        Stmt::ExprStmt(Expr::Call {
-                            callee: Box::new(Expr::Field { object: Box::new(var(&tmp)), field: "__guard".to_string(), pos: pos.clone() }),
-                            args: Vec::new(),
-                            pos: pos.clone(),
-                        }),
-                    ],
-                    pos: pos.clone(),
-                },
-                catch_var: err.clone(),
-                catch_type: None,
-                catch_block: p::Block {
-                    stmts: vec![
-                        Stmt::ExprStmt(call("@guard.leave", vec![name_arg()])),
-                        Stmt::FieldAssign {
-                            object: var(&tmp),
-                            field: field.to_string(),
-                            value: var(&old),
+                        then_branch: p::Block {
+                            stmts: vec![Stmt::Throw {
+                                value: Expr::StringLit(
+                                    format!("a write to a {} ran inside a guard of {}: a guard cannot change its own struct", struct_name, struct_name),
+                                    pos.clone(),
+                                ),
+                                pos: pos.clone(),
+                            }],
                             pos: pos.clone(),
                         },
-                        Stmt::Throw { value: var(&err), pos: pos.clone() },
-                    ],
-                    pos: pos.clone(),
-                },
+                        else_branch: None,
+                        pos: pos.clone(),
+                    },
+                    Stmt::ExprStmt(Expr::Call {
+                        callee: Box::new(Expr::Field { object: Box::new(var(&tmp)), field: "__guard".to_string(), pos: pos.clone() }),
+                        args: Vec::new(),
+                        pos: pos.clone(),
+                    }),
+                ],
                 pos: pos.clone(),
             },
-            Stmt::ExprStmt(call("@guard.leave", vec![name_arg()])),
-        ];
+            catch_var: err.clone(),
+            catch_type: None,
+            catch_block: {
+                let mut restore = vec![Stmt::ExprStmt(call("@guard.leave", vec![name_arg()]))];
+                for (f, old) in &saved {
+                    restore.push(Stmt::FieldAssign {
+                        object: var(&tmp),
+                        field: f.clone(),
+                        value: var(old),
+                        pos: pos.clone(),
+                    });
+                }
+                restore.push(Stmt::Throw { value: var(&err), pos: pos.clone() });
+                p::Block { stmts: restore, pos: pos.clone() }
+            },
+            pos: pos.clone(),
+        });
+        stmts.push(Stmt::ExprStmt(call("@guard.leave", vec![name_arg()])));
         Stmt::IfStmt {
             cond: Expr::BoolLit(true, pos.clone()),
             then_branch: p::Block { stmts, pos: pos.clone() },
@@ -1485,11 +1559,26 @@ impl Checker {
         }
     }
 
+    /// arrays, maps and structs are shared by reference: a snapshot must copy them
+    fn needs_deep_copy(&self, ty: &p::TypeExpr) -> bool {
+        match ty {
+            p::TypeExpr::Array(_) | p::TypeExpr::Map(_, _) => true,
+            p::TypeExpr::Named(n) => self.struct_defs.contains_key(n),
+            _ => false,
+        }
+    }
+
     fn check_stmt(&mut self, stmt: &Stmt) -> Option<TypedStmt> {
         match stmt {
             Stmt::Let { name, type_ann, value, exported, pos } => {
                 let hint = type_ann.as_ref().map(resolve_type_expr);
-                let typed_value = self.check_expr_expecting(value, hint.as_ref())?;
+                let Some(typed_value) = self.check_expr_expecting(value, hint.as_ref()) else {
+                    // the value's own error is already reported: still declare the name, so the
+                    // uses of it later don't add errors of their own
+                    let ty = hint.clone().unwrap_or(Ty::Any);
+                    self.declare(name, ty, true, pos);
+                    return None;
+                };
                 let inferred = typed_value.ty().clone();
                 if inferred == Ty::Void {
                     self.errors.push(TypeError::VoidValue { pos: pos.clone() });
@@ -1656,7 +1745,7 @@ impl Checker {
                 let is_enum = variants.is_some();
                 let wrap = |e: TypedExpr| if is_enum { TypedExpr::AsInt(Box::new(e)) } else { e };
                 let subject_ref = TypedExpr::Ident { name: hidden.clone(), ty: subject_ty.clone() };
-                let loc = SrcLoc { file: pos.file.clone(), line: pos.line };
+                let loc = SrcLoc { file: pos.file.clone(), line: pos.line, col: pos.col };
 
                 let mut chain: Option<TypedBlock> = typed_else;
                 for (values, body) in typed_arms.into_iter().rev() {
@@ -1823,6 +1912,8 @@ impl Checker {
 
                 let elem_ty = match typed_iterable.ty() {
                     Ty::Array(inner) => (**inner).clone(),
+                    // an iterable whose own error was already reported: its loop variable stays an error value
+                    Ty::Any => Ty::Any,
                     other => {
                         self.errors.push(TypeError::NotIterable { found: other.clone(), pos: pos.clone() });
                         Ty::Void
@@ -2018,6 +2109,8 @@ impl Checker {
 
                 // a `fn som.x` body sees the namespace's statics; params and locals start at this depth
                 let saved_namespace = self.namespace_ctx.take();
+                let saved_guard_body = self.guard_body_of.take();
+                self.guard_body_of = name.strip_suffix(".__guard").map(|s| s.to_string());
                 if let Some((ns, _)) = name.split_once('.') {
                     self.namespace_ctx = Some((ns.to_string(), self.scopes.len()));
                 }
@@ -2044,6 +2137,7 @@ impl Checker {
 
                 self.pop_scope();
                 self.namespace_ctx = saved_namespace;
+                self.guard_body_of = saved_guard_body;
 
                 Some(TypedStmt::FunctionDecl {
                     name: name.clone(),
@@ -2094,7 +2188,7 @@ impl Checker {
                         // a bare `http` / `ps` (no `.member`): say what it is instead of "undefined"
                         self.errors.push(TypeError::NeedsAttach { lib: name.to_string(), pos: pos.clone() });
                     } else {
-                        self.errors.push(TypeError::UndefinedVariable { name: name.clone(), pos: pos.clone() });
+                        self.errors.push(TypeError::UndefinedVariable { name: name.clone(), pos: pos.clone(), suggestion: self.closest_variable(name) });
                     }
                         None
                     }
@@ -2284,7 +2378,7 @@ impl Checker {
                     // evaluated only once (it may have side effects, like `make().x += 1`).
                     // a plain name is read twice harmlessly; any other object goes through a
                     // hidden local, the same trick `when` uses for its subject.
-                    let loc = SrcLoc { file: pos.file.clone(), line: pos.line };
+                    let loc = SrcLoc { file: pos.file.clone(), line: pos.line, col: pos.col };
                     let object_ty = typed_object.ty().clone();
                     let (bind, target) = if is_name_path(object) {
                         (None, typed_object)
@@ -2567,20 +2661,21 @@ impl Checker {
                 param_index: 0,
                 expected: Ty::Array(Box::new(Ty::Task(Box::new(Ty::Any)))),
                 found: args[0].clone(),
-                pos: pos.clone(),
+                pos: self.builtin_spots.get(0).cloned().unwrap_or_else(|| pos.clone()),
             });
             None
         })
     }
 
     fn check_array_call(&mut self, id: BuiltinId, name: &str, args: &[&Ty], pos: &p::Pos) -> Option<Ty> {
+        let spots = self.builtin_spots.clone();
         let mismatch = |errors: &mut Vec<TypeError>, i: usize, expected: &Ty| {
             errors.push(TypeError::ArgTypeMismatch {
                 function_name: name.to_string(),
                 param_index: i,
                 expected: expected.clone(),
                 found: args[i].clone(),
-                pos: pos.clone(),
+                pos: spots.get(i).cloned().unwrap_or_else(|| pos.clone()),
             });
         };
         let elem = match args[0] {
@@ -2630,6 +2725,7 @@ impl Checker {
             return None;
         }
         let mut ok = true;
+        let spots = self.builtin_spots.clone();
         let mut want = |i: usize, expected: &Ty, errors: &mut Vec<TypeError>| {
             if args[i] != expected {
                 errors.push(TypeError::ArgTypeMismatch {
@@ -2637,7 +2733,7 @@ impl Checker {
                     param_index: i,
                     expected: expected.clone(),
                     found: args[i].clone(),
-                    pos: pos.clone(),
+                    pos: spots.get(i).cloned().unwrap_or_else(|| pos.clone()),
                 });
                 ok = false;
             }
@@ -3067,7 +3163,7 @@ impl Checker {
             param_index,
             expected,
             found,
-            pos: pos.clone(),
+            pos: self.builtin_spots.get(param_index).cloned().unwrap_or_else(|| pos.clone()),
         });
     }
 
@@ -3080,7 +3176,7 @@ impl Checker {
                 let (mutable, ty) = match found {
                     Some(found) => found,
                     None => {
-                        self.errors.push(TypeError::UndefinedVariable { name: name.clone(), pos: npos.clone() });
+                        self.errors.push(TypeError::UndefinedVariable { name: name.clone(), pos: npos.clone(), suggestion: self.closest_variable(name) });
                         return None;
                     }
                 };
@@ -3323,7 +3419,7 @@ impl Checker {
                         // a bare `http` / `ps` (no `.member`): say what it is instead of "undefined"
                         self.errors.push(TypeError::NeedsAttach { lib: name.to_string(), pos: pos.clone() });
                     } else {
-                        self.errors.push(TypeError::UndefinedVariable { name: name.clone(), pos: pos.clone() });
+                        self.errors.push(TypeError::UndefinedVariable { name: name.clone(), pos: pos.clone(), suggestion: self.closest_variable(name) });
                     }
                     None
                 }
@@ -3538,13 +3634,16 @@ impl Checker {
                     let hint: Option<Ty> = user_params.get(i).cloned().or_else(|| builtin_arg_hint(&name, i, &typed_args));
                     typed_args.push(self.check_expr_expecting(arg, hint.as_ref())?);
                 }
+                self.arg_spots = args.iter().map(|a| arg_pos(a, pos)).collect();
 
                 // the array loops: their result type depends on the function argument,
                 // so the signature table can't express them (see `check_array_fn`)
                 if matches!(name.as_str(), "@array.map" | "@array.filter" | "@array.reduce") {
+                    self.builtin_spots = std::mem::take(&mut self.arg_spots);
                     return self.check_array_fn(&name, typed_args, pos);
                 }
                 if matches!(name.as_str(), "@array.first" | "@array.last") {
+                    self.builtin_spots = std::mem::take(&mut self.arg_spots);
                     return self.check_first_last(&name, typed_args, pos);
                 }
                 if matches!(name.as_str(), "@map.map" | "@map.filter") {
@@ -3559,7 +3658,7 @@ impl Checker {
                 let sig = match self.functions.get(&name).cloned() {
                     Some(sig) => sig,
                     None => {
-                        self.errors.push(TypeError::UndefinedFunction { name: name.clone(), pos: pos.clone() });
+                        self.errors.push(TypeError::UndefinedFunction { name: name.clone(), pos: callee.pos().cloned().unwrap_or_else(|| pos.clone()), suggestion: self.closest_function(&name) });
                         return None;
                     }
                 };
@@ -3584,7 +3683,8 @@ impl Checker {
                             param_index: i,
                             expected: expected_ty.clone(),
                             found: typed_arg.ty().clone(),
-                            pos: pos.clone(),
+                            // underline the argument itself, not the call's parenthesis
+                            pos: args.get(i).map(|a| arg_pos(a, pos)).unwrap_or_else(|| pos.clone()),
                         });
                     }
                 }
@@ -3892,6 +3992,8 @@ impl Checker {
         }
         let struct_name = match ty {
             Ty::Named(n) => n.clone(),
+            // an error value has no fields to report on: its own error was already reported
+            Ty::Any => return None,
             other => {
                 self.errors.push(TypeError::NotAStruct { found: other.clone(), pos: pos.clone() });
                 return None;
@@ -3934,6 +4036,10 @@ impl Checker {
     }
 
     fn binary_result_type(&mut self, op: &BinaryOp, left: &Ty, right: &Ty, pos: &p::Pos) -> Option<Ty> {
+        // an operand whose own error was already reported: say nothing more about this operator
+        if matches!(left, Ty::Any) || matches!(right, Ty::Any) {
+            return None;
+        }
         use BinaryOp::*;
         let ty = match (op, left, right) {
             (Add | Sub | Mul | Div | Mod | Pow, Ty::Int, Ty::Int) => Ty::Int,
@@ -4231,7 +4337,7 @@ pub fn resolve_type_expr(t: &TypeExpr) -> Ty {
 /// (none today, but cheap insurance) keeps the previous one's location
 fn stmt_loc(stmt: &p::Stmt, previous: &SrcLoc) -> SrcLoc {
     match stmt.pos() {
-        Some(pos) => SrcLoc { file: pos.file.clone(), line: pos.line },
+        Some(pos) => SrcLoc { file: pos.file.clone(), line: pos.line, col: pos.col },
         None => previous.clone(),
     }
 }

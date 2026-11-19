@@ -72,7 +72,7 @@ pub(crate) fn check(stmts: &[TypedStmt], positions: &HashMap<String, Pos>) -> Ve
         let mut path: Vec<Step> = Vec::new();
         let mut visited = HashSet::new();
         if search_fn(guard, struct_name, &bodies, &mut visited, &mut path, 0) {
-            let base = positions.get(guard).cloned().unwrap_or_else(|| Pos { line: 0, col: 0, file: None });
+            let base = positions.get(guard).cloned().unwrap_or_else(|| Pos { line: 0, col: 0, len: 1, focus: 0, file: None });
             // the chain starts at the first step after the guard: point at that line
             let first_line = match path.get(1) {
                 Some(Step::Fn { line, .. }) | Some(Step::Write { line, .. }) => *line,
@@ -81,7 +81,7 @@ pub(crate) fn check(stmts: &[TypedStmt], positions: &HashMap<String, Pos>) -> Ve
             errors.push(TypeError::GuardReentry {
                 struct_name: struct_name.to_string(),
                 path: render(&path),
-                pos: Pos { line: first_line, col: 1, file: base.file.clone() },
+                pos: Pos { line: first_line, col: 1, len: 1, focus: 0, file: base.file.clone() },
             });
         }
     }

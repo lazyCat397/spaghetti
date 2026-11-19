@@ -290,10 +290,15 @@ fn execute_program(bytecode: &Program, spec: &spg_lexer::FileSpec, program_args:
         }
         if friendly {
             eprintln!("error: {}", e.friendly());
+            print_trace(vm.take_trace());
         } else {
-            eprintln!("runtime error: {}", e);
+            let trace = vm.take_trace();
+            match trace.0.first().and_then(|frame| runtime_diagnostic(&e, frame)) {
+                Some(diagnostic) => eprintln!("{}\n", diagnostic),
+                None => eprintln!("runtime error: {}", e),
+            }
+            print_trace(trace);
         }
-        print_trace(vm.take_trace());
         return 1;
     }
     if show_time {
@@ -490,6 +495,8 @@ fn build(path: &std::path::Path, optimize: bool, friendly: bool, strict: bool) -
     let program = spg_modules::resolve(path).map_err(|e| {
         if friendly {
             eprintln!("error: {}", e.friendly());
+        } else if let Some(diagnostic) = show_syntax_error(&e) {
+            eprintln!("{}", diagnostic);
         } else {
             eprintln!("error: {}", e);
         }
@@ -508,6 +515,49 @@ fn print_chunk(chunk: &spg_vm::Chunk) {
     }
 }
 
+/// a runtime error as a diagnostic: the statement where it died, underlined from its start to
+/// the end of its line, with why and how to fix it. none when the file can't be read: the caller
+/// then prints the one-line message.
+fn runtime_diagnostic(e: &spg_vm::RuntimeError, frame: &spg_vm::TraceFrame) -> Option<String> {
+    use spg_vm::RuntimeError;
+    let file = frame.file.as_deref()?;
+    let source = std::fs::read_to_string(file).ok()?;
+    let text = source.lines().nth((frame.line as usize).checked_sub(1)?)?;
+    let col = (frame.col as usize).max(1);
+    let len = text.trim_end().chars().count().saturating_sub(col - 1).max(1);
+    let (code, why, help): (&str, Option<String>, Vec<String>) = match e {
+        RuntimeError::DivisionByZero => (
+            "E0301",
+            Some("the divisor is 0 at this point".to_string()),
+            vec!["check the divisor first, for example: if (b != 0) { ... }".to_string()],
+        ),
+        RuntimeError::IndexOutOfBounds { index, len: 0 } => (
+            "E0302",
+            Some(format!("index {} is used on an empty array", index)),
+            vec!["check the array's length before indexing it".to_string()],
+        ),
+        RuntimeError::IndexOutOfBounds { index, len } => (
+            "E0302",
+            Some(format!("index {} is outside 0..{}", index, len)),
+            vec![format!("use an index between 0 and {}", len - 1)],
+        ),
+        _ => ("E0300", None, vec![]),
+    };
+    let fact = e.to_string();
+    Some(spg_lexer::render_diagnostic(&spg_lexer::Diagnostic {
+        code,
+        fact: &fact,
+        file,
+        source: &source,
+        line: frame.line as usize,
+        col,
+        len,
+        focus: 0,
+        why: why.as_deref(),
+        help: &help,
+    }))
+}
+
 /// the stack trace of a runtime error, innermost call first. one line per
 /// frame, `at <function> (<file>:<line>)`. a run of identical frames (a
 /// recursion stuck on one line) prints once, then a count. frames the VM
@@ -521,6 +571,7 @@ fn print_trace((frames, omitted): (Vec<spg_vm::TraceFrame>, usize)) {
             j += 1;
         }
         match &frame.file {
+            Some(file) if frame.col > 0 => eprintln!("  at {} ({}:{}:{})", frame.function, file, frame.line, frame.col),
             Some(file) => eprintln!("  at {} ({}:{})", frame.function, file, frame.line),
             None => eprintln!("  at {} (line {})", frame.function, frame.line),
         }
@@ -534,6 +585,75 @@ fn print_trace((frames, omitted): (Vec<spg_vm::TraceFrame>, usize)) {
     }
 }
 
+/// one type error as a full diagnostic: the source line with the underline, why, and how to fix it.
+/// falls back to the one-line message when the source file can't be read.
+fn show_type_error(e: &spg_typecheck::error::TypeError) -> String {
+    let pos = e.pos();
+    let Some(file) = pos.file.as_deref() else {
+        return format!("  {}", e);
+    };
+    let Ok(source) = std::fs::read_to_string(file) else {
+        return format!("  {}", e);
+    };
+    let fact = e.fact();
+    let why = e.why();
+    let help = e.help();
+    spg_lexer::render_diagnostic(&spg_lexer::Diagnostic {
+        code: e.code(),
+        fact: &fact,
+        file,
+        source: &source,
+        line: pos.line,
+        col: pos.col,
+        len: pos.len,
+        focus: pos.focus,
+        why: why.as_deref(),
+        help: &help,
+    })
+}
+
+/// a syntax error (lexing or parsing) of one file as a full diagnostic: the source line with
+/// the underline, why, and how to fix it. none when the error has no place to point at, or the
+/// file can't be read: the caller then prints the one-line message.
+fn show_syntax_error(e: &spg_modules::ModuleError) -> Option<String> {
+    use spg_modules::ModuleError;
+    let (path, code, fact, why, help, spot) = match e {
+        ModuleError::Parse { path, error, .. } => {
+            let spot = error.spot();
+            let is_eof = matches!(error, spg_parser::ParseError::UnexpectedEof { .. });
+            (path, error.code(), error.fact(), error.why(), error.help(), if is_eof { None } else { spot })
+        }
+        ModuleError::Lex { path, error, .. } => (path, error.code(), error.fact(), error.why(), error.help(), Some(error.spot())),
+        _ => return None,
+    };
+    let source = std::fs::read_to_string(path).ok()?;
+    let file = path.display().to_string();
+    // a file that ends too early points at its last line: the error is where reading stopped
+    // a spot past the last line (the file ended while something was still open) points at the end
+    let lines = source.lines().count().max(1);
+    let (line, col) = match spot {
+        Some((line, col)) if line <= lines => (line, col),
+        _ => {
+            let width = source.lines().last().map_or(0, |l| l.chars().count());
+            (lines, width + 1)
+        }
+    };
+    let text = source.lines().nth(line.saturating_sub(1)).unwrap_or("");
+    let len = spg_lexer::token::token_extent(text, col);
+    Some(spg_lexer::render_diagnostic(&spg_lexer::Diagnostic {
+        code,
+        fact: &fact,
+        file: &file,
+        source: &source,
+        line,
+        col,
+        len,
+        focus: 0,
+        why: why.as_deref(),
+        help: &help,
+    }))
+}
+
 /// typecheck and compile a program whose files are already resolved
 fn compile_resolved(program: spg_parser::ast::Program, optimize: bool, friendly: bool, strict: bool) -> Result<Program, i32> {
     let typed = spg_typecheck::type_check_with(program, strict).map_err(|errors| {
@@ -545,7 +665,7 @@ fn compile_resolved(program: spg_parser::ast::Program, optimize: bool, friendly:
         } else {
             eprintln!("{} type error(s) found:", errors.len());
             for e in &errors {
-                eprintln!("  {}", e);
+                eprintln!("{}\n", show_type_error(e));
             }
         }
         1

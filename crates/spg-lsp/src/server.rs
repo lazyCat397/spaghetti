@@ -574,10 +574,12 @@ impl<W: Write> Server<W> {
             return items;
         }
         const KEYWORDS: &[&str] = &[
-            "let", "const", "fn", "return", "if", "else", "while", "for", "in", "try", "catch", "throw", "break",
+            "let", "const", "fn", "return", "if", "else", "while", "do", "for", "in", "step", "try", "catch", "throw", "break",
             "continue", "when", "elif", "guard", "use", "public", "from", "attach", "struct", "enum", "namespace", "true", "false", "none", "then", "and", "or", "not",
         ];
-        const TYPES: &[&str] = &["int", "float", "bool", "string", "void", "array", "map", "task"];
+        const TYPES: &[&str] = &[
+            "int", "i64", "i8", "i16", "i32", "u8", "u16", "u32", "u64", "float", "f64", "f32", "bool", "string", "void", "array", "map", "task",
+        ];
         let edit_range = self.namespace_edit_range(uri, pos);
 
         let item = |label: &str, kind: i64, detail: Option<String>, doc: Option<&str>| {
@@ -1999,6 +2001,20 @@ fn keyword_doc(word: &str) -> Option<&'static str> {
         "if" => "runs a block when the condition holds (the condition goes in parentheses)",
         "elif" | "else" => "the other branches of an `if`",
         "while" => "repeats a block while the condition holds",
+        "do" => "runs its block once, then repeats it while the condition holds: `do { } while (cond)`",
+        "in" => "in a `for`: the item (or the index and item) of the array, map or string being walked",
+        "step" => "in a range loop: how much each round moves, as in `for (i in 0..10 step 2)`",
+        "me" => "inside a struct method or guard: the struct itself",
+        "i8" => "signed 8-bit integer, from -128 to 127",
+        "i16" => "signed 16-bit integer, from -32768 to 32767",
+        "i32" => "signed 32-bit integer, from -2147483648 to 2147483647",
+        "i64" => "signed 64-bit integer. the same type as `int`",
+        "u8" => "unsigned 8-bit integer, from 0 to 255",
+        "u16" => "unsigned 16-bit integer, from 0 to 65535",
+        "u32" => "unsigned 32-bit integer, from 0 to 4294967295",
+        "u64" => "unsigned 64-bit integer, from 0 to 18446744073709551615",
+        "f32" => "32-bit float. rounds at each operation",
+        "f64" => "64-bit float. the same type as `float`",
         "guard" => "inside a struct: a rule checked after every write to it. `guard (me.field as name) { }` for one field, `guard { }` for the whole struct. a `throw` refuses the write",
         "for" => "walks the items of an array, map or range",
         "try" => "runs a block and catches the error it may throw",

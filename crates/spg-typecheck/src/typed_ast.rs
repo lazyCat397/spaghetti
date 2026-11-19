@@ -66,7 +66,8 @@ impl Ty {
     /// the same type, or (for `T?`) a `T`, a `T?`, or `none`. never the other
     /// way round: a `T?` does NOT fit a `T`. obviously.
     pub fn accepts(&self, found: &Ty) -> bool {
-        if self == found {
+        // `Any` is the type of a value whose own error was already reported: it fits everywhere
+        if self == found || matches!(found, Ty::Any) {
             return true;
         }
         match self {
@@ -206,6 +207,8 @@ impl std::fmt::Display for Ty {
 pub struct SrcLoc {
     pub file: Option<String>,
     pub line: usize,
+    /// column where the statement starts (1-based; 0 when unknown)
+    pub col: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -75,3 +75,58 @@ pub const HINT_ATTACH: &str = "Add its attach line at the top of the file, for e
 pub const HINT_ARITY: &str = "Check how many arguments that function takes, and pass exactly that many.";
 pub const HINT_CONST: &str = "This name was declared const, so it can't change. Declare it with let if it has to change.";
 pub const HINT_TIMEOUT: &str = "Check for an endless loop, or a wait (sleep, readLine) that takes too long. If the program really needs more time, raise the number in `#> timeout`.";
+
+/// one diagnostic, ready to show. the layout blends two styles on purpose:
+/// Python's `~~~^~~~` underline (the range, and `^` on the exact spot) and
+/// Rust's frame (`error[CODE]`, `-->` with file:line:col, `= why:`, `= help:`).
+/// plain text only, no colors, so it reads the same in any terminal or log.
+pub struct Diagnostic<'a> {
+    pub code: &'a str,
+    pub fact: &'a str,
+    pub file: &'a str,
+    pub source: &'a str,
+    pub line: usize,
+    pub col: usize,
+    pub len: usize,
+    /// where the `^` sits inside the span (0 = on its first character)
+    pub focus: usize,
+    pub why: Option<&'a str>,
+    pub help: &'a [String],
+}
+
+pub fn render_diagnostic(d: &Diagnostic) -> String {
+    let mut out = format!("error[{}]: {}\n", d.code, d.fact);
+    let source_line = d.source.lines().nth(d.line.saturating_sub(1));
+    let width = d.line.to_string().len();
+    let gutter = " ".repeat(width + 2);
+    out.push_str(&format!("{}--> {}:{}:{}\n", " ".repeat(width + 1), d.file, d.line, d.col));
+
+    if let Some(text) = source_line {
+        let text = text.replace('\t', "    ");
+        out.push_str(&format!("{}|\n", gutter));
+        out.push_str(&format!(" {:>w$} | {}\n", d.line, text, w = width));
+        // the underline: from the column to the end of the spot, clamped to the line
+        let line_chars = text.chars().count();
+        let start = d.col.max(1) - 1;
+        let avail = line_chars.saturating_sub(start).max(1);
+        let span = d.len.max(1).min(avail);
+        let focus = d.focus.min(span - 1);
+        let marker = if span == 1 {
+            "^".to_string()
+        } else {
+            format!("{}^{}", "~".repeat(focus), "~".repeat(span - focus - 1))
+        };
+        out.push_str(&format!("{}| {}{}\n", gutter, " ".repeat(start), marker));
+    } else {
+        out.push_str(&format!("{}|\n", gutter));
+    }
+
+    if let Some(why) = d.why {
+        out.push_str(&format!("{}= why: {}\n", gutter, why));
+    }
+    for h in d.help {
+        out.push_str(&format!("{}= help: {}\n", gutter, h));
+    }
+    out.pop(); // the trailing newline: the caller prints one per diagnostic
+    out
+}

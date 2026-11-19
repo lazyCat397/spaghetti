@@ -225,24 +225,20 @@
     "keywords": {
       "patterns": [
         {
-          "match": "(?<![\\p{L}\\p{N}_])(?:then|and|or|not)(?![\\p{L}\\p{N}_])",
-          "name": "keyword.control.logical.spg"
+          "match": "(?<![\\p{L}\\p{N}_])(?:and|or|not)(?![\\p{L}\\p{N}_])",
+          "name": "keyword.operator.logical.spg"
         },
         {
-          "match": "(?<![\\p{L}\\p{N}_])(?:if|elif|else|when)(?![\\p{L}\\p{N}_])",
-          "name": "keyword.control.conditional.spg"
+          "match": "(?<![\\p{L}\\p{N}_])(?:then)(?![\\p{L}\\p{N}_])",
+          "name": "keyword.operator.pipe.spg"
         },
         {
-          "match": "(?<![\\p{L}\\p{N}_])(?:while|do|for|in|break|continue)(?![\\p{L}\\p{N}_])",
-          "name": "keyword.control.loop.spg"
+          "match": "(?<![\\p{L}\\p{N}_])(?:if|elif|else|when|while|do|for|in|break|continue|return|step)(?![\\p{L}\\p{N}_])",
+          "name": "keyword.control.spg"
         },
         {
           "match": "(?<![\\p{L}\\p{N}_])(?:try|catch|throw)(?![\\p{L}\\p{N}_])",
           "name": "keyword.control.trycatch.spg"
-        },
-        {
-          "match": "(?<![\\p{L}\\p{N}_])(?:return)(?![\\p{L}\\p{N}_])",
-          "name": "keyword.control.flow.spg"
         },
         {
           "match": "(?<![\\p{L}\\p{N}_])(?:guard)(?![\\p{L}\\p{N}_])",
@@ -253,11 +249,7 @@
           "name": "keyword.control.use.spg"
         },
         {
-          "match": "(?<![\\p{L}\\p{N}_])(?:step)(?![\\p{L}\\p{N}_])(?=\\s+[-(\\p{L}_\\p{N}])",
-          "name": "keyword.control.loop.step.spg"
-        },
-        {
-          "match": "(?<![\\p{L}\\p{N}_])(?:let|const)(?![\\p{L}\\p{N}_])",
+          "match": "(?<![\\p{L}\\p{N}_])(?:let|const|fn|struct|enum|namespace)(?![\\p{L}\\p{N}_])",
           "name": "storage.type.spg"
         },
         {
@@ -267,7 +259,7 @@
       ]
     },
     "types": {
-      "match": "(?<![\\p{L}\\p{N}_])(?:int|float|bool|string|void|array)(?![\\p{L}\\p{N}_])|(?<![\\p{L}\\p{N}_])map(?![\\p{L}\\p{N}_])(?=\\s*<)|(?<![\\p{L}\\p{N}_])task(?![\\p{L}\\p{N}_])(?=\\s*<)",
+      "match": "(?<![\\p{L}\\p{N}_])(?:int|i64|i8|i16|i32|u8|u16|u32|u64|float|f64|f32|bool|string|void|array)(?![\\p{L}\\p{N}_])|(?<![\\p{L}\\p{N}_])(?:map|task)(?![\\p{L}\\p{N}_])(?=\\s*<)",
       "name": "support.type.primitive.spg"
     },
     "constants": {
@@ -415,7 +407,11 @@
           "name": "keyword.operator.arrow.spg"
         },
         {
-          "match": "==|!=|<=|>=|&&|\\|\\|",
+          "match": "==|!=|<=|>=|<|>",
+          "name": "keyword.operator.comparison.spg"
+        },
+        {
+          "match": "&&|\\|\\||!",
           "name": "keyword.operator.logical.spg"
         },
         {
@@ -427,7 +423,7 @@
           "name": "keyword.operator.assignment.spg"
         },
         {
-          "match": "[-+*/%<>!]",
+          "match": "[-+*/%]",
           "name": "keyword.operator.arithmetic.spg"
         },
         {

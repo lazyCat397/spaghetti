@@ -1,0 +1,5 @@
+struct S {
+    x: int,
+    y: int,
+    guard (me.x as v, me.y as v) { v = 1 }
+}

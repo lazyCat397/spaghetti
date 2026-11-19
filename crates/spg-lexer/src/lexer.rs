@@ -308,6 +308,8 @@ impl<'a> Lexer<'a> {
             }
 
             // `#name`: a standard library, as in `attach #http`
+            let start_idx = self.pos;
+
             if ch == '#' && self.peek_next().is_some_and(|c| c.is_alphabetic() || c == '_') {
                 self.advance(); // #
                 let mut name = String::new();
@@ -319,12 +321,18 @@ impl<'a> Lexer<'a> {
                         break;
                     }
                 }
-                tokens.push(Token::new(TokenKind::StdLib(name), line, col));
+                tokens.push(Token::spanned(TokenKind::StdLib(name), line, col, self.pos - start_idx));
                 continue;
             }
 
             if ch == '"' {
-                let parts = self.read_string_tokens()?;
+                let mut parts = self.read_string_tokens()?;
+                // the first part is the literal itself; its span runs to the closing quote
+                if let Some(first) = parts.first_mut() {
+                    if first.line == line && self.pos > start_idx {
+                        first.len = self.pos - start_idx;
+                    }
+                }
                 tokens.extend(parts);
                 continue;
             }
@@ -341,7 +349,8 @@ impl<'a> Lexer<'a> {
                 self.read_operator_or_delim(ch)?
             };
 
-            tokens.push(Token::new(kind, line, col));
+            let len = if self.line == line { self.pos - start_idx } else { 1 };
+            tokens.push(Token::spanned(kind, line, col, len));
         }
 
         Ok(tokens)
@@ -1350,5 +1359,103 @@ mod double_colon_tests {
         assert_eq!(toks[1].kind, TokenKind::DoubleColon);
         let toks = Lexer::new("a: 1").tokenize().unwrap();
         assert_eq!(toks[1].kind, TokenKind::Colon);
+    }
+}
+
+impl LexError {
+    /// the place of the error: (line, column)
+    pub fn spot(&self) -> (usize, usize) {
+        match self {
+            LexError::UnexpectedChar { line, col, .. }
+            | LexError::BadNumber { line, col, .. }
+            | LexError::UnterminatedString { line, col }
+            | LexError::UnterminatedBlockComment { line, col }
+            | LexError::EmptyInterpolation { line, col }
+            | LexError::UnknownNamespace { line, col, .. }
+            | LexError::UnknownDirective { line, col, .. }
+            | LexError::DuplicateDirective { line, col, .. }
+            | LexError::MisplacedDirective { line, col }
+            | LexError::BadDirectiveArgument { line, col, .. } => (*line, *col),
+        }
+    }
+
+    /// stable code for the frame header (`error[E0200]`)
+    pub fn code(&self) -> &'static str {
+        match self {
+            LexError::UnexpectedChar { .. } => "E0200",
+            LexError::BadNumber { .. } => "E0201",
+            LexError::UnterminatedString { .. } => "E0202",
+            LexError::UnterminatedBlockComment { .. } => "E0203",
+            LexError::EmptyInterpolation { .. } => "E0204",
+            LexError::UnknownNamespace { .. } => "E0205",
+            LexError::UnknownDirective { .. } => "E0206",
+            LexError::DuplicateDirective { .. } => "E0207",
+            LexError::MisplacedDirective { .. } => "E0208",
+            LexError::BadDirectiveArgument { .. } => "E0209",
+        }
+    }
+
+    pub fn fact(&self) -> String {
+        match self {
+            LexError::UnexpectedChar { ch, .. } => format!("unexpected character '{}'", ch),
+            LexError::BadNumber { text, reason, .. } => format!("invalid number '{}': {}", text, reason),
+            LexError::UnterminatedString { .. } => "string is never closed".to_string(),
+            LexError::UnterminatedBlockComment { .. } => "block comment is never closed".to_string(),
+            LexError::EmptyInterpolation { .. } => "interpolation has nothing inside its braces".to_string(),
+            LexError::UnknownNamespace { name, .. } if name.is_empty() => "'@' must be followed by a namespace name".to_string(),
+            LexError::UnknownNamespace { name, .. } => format!("unknown namespace '@{}'", name),
+            LexError::UnknownDirective { name, .. } if name.is_empty() => "'#>' must be followed by a directive name".to_string(),
+            LexError::UnknownDirective { name, .. } => format!("unknown directive '#> {}'", name),
+            LexError::DuplicateDirective { name, .. } => format!("directive '#> {}' is written twice", name),
+            LexError::MisplacedDirective { .. } => "directives must come before any code".to_string(),
+            LexError::BadDirectiveArgument { name, expected, .. } => {
+                format!("directive '#> {}' expects {}", name, expected)
+            }
+        }
+    }
+
+    pub fn why(&self) -> Option<String> {
+        match self {
+            LexError::UnexpectedChar { .. } => Some("this character is not part of the language's text".to_string()),
+            LexError::BadNumber { .. } => Some("a number has to be written in one of the forms the language accepts".to_string()),
+            LexError::UnterminatedString { .. } => Some("a string starts with a quote and ends with the same quote".to_string()),
+            LexError::UnterminatedBlockComment { .. } => Some("a block comment has to end before the file does".to_string()),
+            LexError::EmptyInterpolation { .. } => None,
+            LexError::UnknownNamespace { .. } => Some("only the namespaces of the language and of the installed libraries exist".to_string()),
+            LexError::UnknownDirective { .. } => None,
+            LexError::DuplicateDirective { .. } => Some("a directive can be given only once per file".to_string()),
+            LexError::MisplacedDirective { .. } => Some("directives go at the top of the file".to_string()),
+            LexError::BadDirectiveArgument { .. } => None,
+        }
+    }
+
+    pub fn help(&self) -> Vec<String> {
+        match self {
+            LexError::UnexpectedChar { ch, .. } => match ch {
+                '\u{201C}' | '\u{201D}' => vec!["use straight quotes (\") instead of curly ones".to_string()],
+                '\u{2018}' | '\u{2019}' => vec!["use a straight apostrophe (') instead of a curly one".to_string()],
+                _ => vec![],
+            },
+            LexError::BadNumber { .. } => vec![],
+            LexError::UnterminatedString { .. } => vec!["add the closing quote at the end of the text".to_string()],
+            LexError::UnterminatedBlockComment { .. } => vec!["add the closing '*/' where the comment should end".to_string()],
+            LexError::EmptyInterpolation { .. } => vec!["put a name inside the braces, or remove them".to_string()],
+            LexError::UnknownNamespace { .. } => {
+                vec![format!("available: {}", crate::namespaces().iter().map(|n| format!("@{}", n)).collect::<Vec<_>>().join(", "))]
+            }
+            LexError::UnknownDirective { name, suggestion, .. } => {
+                let mut out = Vec::new();
+                if let Some(s) = suggestion {
+                    out.push(format!("did you mean '#> {}'?", s));
+                }
+                if name.is_empty() {
+                    out.push(format!("available: {}", DIRECTIVES.join(", ")));
+                }
+                out
+            }
+            LexError::DuplicateDirective { .. } => vec!["keep only one of them".to_string()],
+            LexError::MisplacedDirective { .. } => vec!["move it to the top of the file".to_string()],
+            LexError::BadDirectiveArgument { .. } => vec![],
+        }
     }
 }

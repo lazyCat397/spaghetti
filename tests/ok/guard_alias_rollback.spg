@@ -1,0 +1,28 @@
+struct Box {
+    a: int,
+    tags: array<string>,
+    guard (me.a as v, me.tags as t) {
+        t.push("touched")
+        if (v > 50) {
+            v = 50
+        }
+        if (len(t) > 3) {
+            throw "too many tags"
+        }
+    }
+}
+
+let b = Box {a: 1, tags: ["x"]}
+print(b.a)
+print(len(b.tags))
+b.a = 60
+print(b.a)
+print(len(b.tags))
+try {
+    b.a = 70
+} catch (e) {
+    print("refused: " + e)
+}
+print(b.a)
+print(len(b.tags))
+print(b.tags)

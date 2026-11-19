@@ -1,0 +1,18 @@
+struct Improvised {
+    value: i32
+    guard (me.value as v) {
+        if (v < -128 or v > 127) {
+            v = 0
+        }
+    }
+}
+
+let example = Improvised {value: 126}
+example.value += 1
+print(example.value)
+example.value += 1
+print(example.value)
+example.value += 1
+print(example.value)
+let lit = Improvised {value: 500}
+print(lit.value)

@@ -1,5 +1,0 @@
-struct S {
-    grade: float,
-    name: string,
-    guard (me.grade) { if (me.name == "") { throw "no" } }
-}

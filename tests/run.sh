@@ -142,7 +142,7 @@ ok ns_campos.spg         '7\nx'
 ok ns_str_pop.spg  '[007] [   ab] [abxyx] [ab   ]\nlong x ··é\n3 -1 3 1\n[hi  ] [  hi] [hi]\n3 2 [1] 1\n[[], [1]] [[1], []]'
 ok print_order.spg       'a\nE1\nb\nE2\nc'
 lines print_big.spg 30000 29999
-exact1 print_before_error.spg 'a\nE1\nb\nruntime error: division by zero\n  at <main> (err/print_before_error.spg:5)'
+exact1 print_before_error.spg 'a\nE1\nb\nerror[E0301]: division by zero\n  --> err/print_before_error.spg:5:1\n   |\n 5 | print(10 / z)\n   | ^~~~~~~~~~~~~\n   = why: the divisor is 0 at this point\n   = help: check the divisor first, for example: if (b != 0) { ... }\n\n  at <main> (err/print_before_error.spg:5:1)'
 
 # fused array-index ops (hand-verified values; the OOB errors must keep the exact message)
 # struct guard blocks: checked after every write (and rolled back on throw)
@@ -179,23 +179,27 @@ err value_method_nested.spg 'only at the top level'
 err value_method_old_syntax.spg 'declared as int::methods.add'
 err value_method_private_call.spg 'declared in another file, and it is not exported'
 err when_type_incomplete.spg 'must return int on every path'
-err if_type_wrong_member.spg 'operator Mod not supported for float or string and int'
+err if_type_wrong_member.spg "operator '%' not supported for float or string and int"
 ok type_properties.spg '9223372036854775807\n-9223372036854775808\n9223372036854775806\n2.220446049250313e-16\n-1.7976931348623157e308\n1.7976931348623157e308\n9223372036854775807\n1.7976931348623157e308\n[-9223372036854775808, 0]\ntrue\ntrue\n-9223372036854775808'
 err type_property_unknown.spg 'has no property'
 err type_property_assign.spg 'expected an assignable target'
 ok print_float_text.spg '1e20\n100000000000000000000.0\n100000000000000000000.0\n[1e20]\n[100000000000000000000.0]\n1.7976931348623157e308\n311'
 ok float_inf_nan.spg 'inf\n-inf\nNaN\ntrue\nfalse\ntrue\ntrue\ntrue\nfalse\nfalse\ntrue\n1.5\n1'
 err math_isnan_int.spg 'expects float, got int'
-exact1 type_property_neg_strict.spg 'runtime error: integer overflow in negation: the result does not fit in an int (64 bits, #> strict)\n  at <main> (err/type_property_neg_strict.spg:2)'
+exact1 type_property_neg_strict.spg 'error[E0300]: integer overflow in negation: the result does not fit in an int (64 bits, #> strict)\n  --> err/type_property_neg_strict.spg:2:1\n   |\n 2 | print(-int::min)\n   | ^~~~~~~~~~~~~~~~\n\n  at <main> (err/type_property_neg_strict.spg:2:1)'
 ok guard_reentry_ambiguous.spg 'refused: a write to a Box ran inside a guard of Box: a guard cannot change its own struct\nvalue: 1'
 ok guard_reentry_runtime.spg 'refused: a write to a Box ran inside a guard of Box: a guard cannot change its own struct\nvalue: 1\nvalue: 3'
 ok guard_other_struct.spg '60'
 ok guard_concurrent.spg 'main wrote: 7\ntask a sees: 7\nfinal: 7'
 ok index_fused.spg       '[3, 2, 15, 7]\n[1.75, 3.25]\n[false, true, true]\n[[1, 12], [3, 3]]\n5\n9'
-err guard_write_me.spg 'a guard cannot write to '"'"'me'"'"''
+ok guard_alias_fix.spg '127\n0\n1\n0'
+ok guard_me_fix.spg '10\n10'
+ok guard_alias_rollback.spg '1\n2\n50\n3\nrefused: too many tags\n50\n3\n[x, touched, touched]'
+err guard_alias_twice.spg 'is used twice'
+err guard_alias_redeclared.spg 'is the guard'\''s alias'
+err guard_alias_me.spg 'cannot be a guard alias'
 err guard_return.spg 'a guard cannot use '"'"'return'"'"''
 err guard_method_on_me.spg 'a guard cannot call methods on'
-err guard_other_field.spg 'this guard reads only'
 err guard_unknown_field.spg 'has no field '"'"'age'"'"''
 err guard_incdec_value.spg 'must be a statement'
 err guard_outside_struct.spg 'expected an expression'
@@ -210,14 +214,14 @@ ok compile_print_loop.spg 'at 0\nat 40\nat 80 1.5 true\ntotal 7140'
 err loop_print_div.spg 'division by zero'
 ok int_wrap_plain.spg '-9223372036854775808'
 err incdec_literal.spg "'++' and '--' work on a variable"
-err incdec_string.spg 'operator ++ not supported for string and string'
+err incdec_string.spg "operator '++' not supported for string and string"
 err let_no_zero_struct.spg 'only int, float, bool, string, arrays, maps and optionals'
 err const_index_inc.spg 'cannot modify a const value'
 err for_index_range.spg 'the `i, v` form is for arrays'
 err array_fn_mismatch.spg 'argument #2 expects fn(string) -> int'
 err do_while_nonbool.spg 'condition must be bool, found int'
-err in_not_collection.spg 'operator in not supported for int and int'
-err in_wrong_type.spg 'operator in not supported for int and array<string>'
+err in_not_collection.spg "operator 'in' not supported for int and int"
+err in_wrong_type.spg "operator 'in' not supported for int and array<string>"
 err for_map_single_name.spg 'is not iterable'
 err map_fn_mismatch.spg 'argument #2 expects fn(string, int) -> int'
 err index_fused_oob_addconst.spg 'index out of bounds: 9 (array has 3 element(s))'
@@ -270,19 +274,19 @@ ok opt_ops.spg           '27\n13\n60\n5\n0\n60\n17\n37\n35\n15\n40\n-2\n-16\n-27
 # (expected values verified by hand, line by line)
 ok raw_strings.spg       'print("hi")\nhi\n15\na\\nb\n4\na\nb\n3\nnaïve\n\ntrue\n1\nabc\nmulti\nline'
 ok range_for.spg         '1\n2\n3\n-\n0\n3\n6\n9\n- down\n5\n3\n1\n3\n2\n1\n- empty\n- non-literal step\n0\n3\n6\n7\n4\n1\n0\n3\n6\n9\n- continue / break\n1\n3\n5\n7\n9\n3\n- reassigning i does not move the counter\n10\n11\n12\n100\n101\n102\n- expressions as bounds, evaluated once\n0\n1\n2\n1\n5050\n10\n- loop variable shadows an outer one, bounds still see the outer\n0\n1\n2\n3\n- array.range\n[1, 2, 3, 4]\n[0, 3, 6, 9]\n[5, 3, 1]\n[]\n[]\n[]\n[-5, 0]\n[0]\n[9223372036854775800, 9223372036854775803, 9223372036854775806]\n0\n3\n6\n1000\n- extremes\n9223372036854775805\n9223372036854775806'
-err range_step_zero.spg          'a range step cannot be zero' 'range_step_zero.spg at line 1'
+err range_step_zero.spg          'a range step cannot be zero' 'range_step_zero.spg:1:'
 err range_start_float.spg        'the start of a range must be int, found float'
 err range_end_string.spg         'the end of a range must be int, found string'
 err range_step_float.spg         'the step of a range must be int, found float'
-exact1 range_step_zero_dynamic.spg 'before\nruntime error: range step cannot be zero\n  at f (err/range_step_zero_dynamic.spg:2)\n  at <main> (err/range_step_zero_dynamic.spg:7)'
-err range_array_step_zero.spg    'runtime error: range step cannot be zero'
+exact1 range_step_zero_dynamic.spg 'before\nerror[E0300]: range step cannot be zero\n  --> err/range_step_zero_dynamic.spg:2:5\n   |\n 2 |     for (i in 1..5 step s) {\n   |     ^~~~~~~~~~~~~~~~~~~~~~~~\n\n  at f (err/range_step_zero_dynamic.spg:2:5)\n  at <main> (err/range_step_zero_dynamic.spg:7:1)'
+err range_array_step_zero.spg    'range step cannot be zero'
 err range_array_too_large.spg    '@array.range would create 100000000 elements (the maximum is 20000000)' "use 'for i in a..b'"
-err range_outside_for.spg        "'..' only works in a for loop header" "'@array.range(1, 4)'" '(line 1, column 10)'
+err range_outside_for.spg        "a range (a..b) is only allowed in a 'for' header" "@array.range(1, 4)" ':1:10'
 err range_array_arity.spg        "'@array.range' expects 2 argument(s), got 1"
 err type_arity.spg               "'type' expects 1 argument(s), got 0"
 err union_arg_mismatch.spg       "'f' argument #1 expects string or float, got bool"
-err union_eq_mismatch.spg        "operator Eq not supported for string or int and bool"
-err union_arith.spg              "operator Add not supported for string or int and int"
+err union_eq_mismatch.spg        "operator '==' not supported for string or int and bool"
+err union_arith.spg              "operator '+' not supported for string or int and int"
 err array_expected_let.spg      "this array's items are int, found string"
 err array_expected_assign.spg   "this array's items are int, found bool"
 err array_expected_arg.spg      "this array's items are int, found string"
@@ -290,25 +294,25 @@ err field_expected_assign.spg   "this array's items are int, found bool"
 err map_expected_value.spg      "this map's values are int, found string"
 err map_expected_key_union.spg  "map keys must be int, string, bool or an enum, found string or int"
 err range_array_float.spg        "'@array.range' argument #1 expects int, got float"
-err raw_unterminated.spg         'unterminated string, started at line 1, column 9'
-err raw_glued.spg                'expected '"')'"', found Ident("hi")' 'line 1, column 15'
-err raw_no_quote_escape.spg      'unterminated string, started at line 1, column 35'
+err raw_unterminated.spg         'string is never closed'
+err raw_glued.spg                'expected '"')'"', found name' ':1:15'
+err raw_no_quote_escape.spg      'string is never closed'
 
 # struct methods: `function` inside a struct, called `p.f()`; `me` is the receiver (values verified by hand)
 ok struct_methods.spg       '7\n(6, 8)\n100\n2\n3\n5\n120\ntrue\nn=5\n6\n36\n11\n30\n9\n10\n101\n1\n6\nhi\n-1\n14'
 ok struct_methods_multi.spg '25\n41\n41\nother:t\n42\n9'
-err method_unknown.spg        "struct 'P' has no method 'nope'" 'line 12'
+err method_unknown.spg        "struct 'P' has no method 'nope'" ':12:'
 err method_field_called.spg   "'x' is a field of struct 'P', not a method"
 err method_arity_few.spg      "'P.add' expects 1 argument(s), got 0"
 err method_arity_many.spg     "'P.add' expects 1 argument(s), got 2"
 err method_argtype.spg        "'P.add' argument #1 expects int, got string"
 err method_on_int.spg         "type int has no method 'get'" "@math and @into functions that take it first"
 err method_not_called.spg     "'get' is a method of struct 'P', not a field; call it with '.get()'"
-err method_field_clash.spg    "struct 'Q' has both a field and a method named 'x'" '(line 3, column 5)'
+err method_field_clash.spg    "'x' is both a field and a method of 'Q'" ':3:5'
 err method_me_param.spg       "'me' is already declared in this scope"
 err method_duplicate.spg      "'Q.f' is declared more than once" 'method_duplicate.spg:6' "'Q.f' is first declared here"
 err method_bad_field.spg      "struct 'Q' has no field 'zzz'"
-err method_fields_need_comma.spg "expected '}', found Ident" 'line 2, column 12'
+err method_fields_need_comma.spg "expected '}', found name 'b'" ':2:12'
 err method_return_mismatch.spg 'function returns int but this return gives string'
 
 # print / printError take any number of arguments (values joined by one space; no arguments = an empty line)
@@ -336,21 +340,21 @@ err reexport_double_list.spg    "'inc' is re-exported more than once" "'inc' is 
 err reexport_not_becoming_local.spg "undefined function 'inc'"
 err ns_old_name.spg      "undefined function 'sqrt'"
 err ns_clock_antigo.spg     "undefined function 'clock'"
-err ns_reservado_let.spg    "'@math' is a reserved namespace and cannot be used as a name" '(line 1, column 5)'
-err ns_reservado_fn.spg     "'@time' is a reserved namespace" '(line 1, column 4)'
-err ns_reservado_param.spg  "'@array' is a reserved namespace"
-err ns_reservado_struct.spg "'@str' is a reserved namespace" '(line 1, column 8)'
-err ns_no_member.spg       "'@math' is a namespace; use '@math.<name>(...)'"
+err ns_reservado_let.spg    "'@math' is a library namespace, not a name" ':1:5'
+err ns_reservado_fn.spg     "'@time' is a library namespace, not a name" ':1:4'
+err ns_reservado_param.spg  "'@array' is a library namespace, not a name"
+err ns_reservado_struct.spg "'@str' is a library namespace, not a name" ':1:8'
+err ns_no_member.spg       "namespace '@math' used without a member"
 err ns_membro_inexistente.spg "namespace '@math' has no member 'foo'"
-err ns_desconhecido.spg     "unknown namespace '@mth'" '(available: @str, @array, @map, @into, @math, @sys, @task, @file, @json, @time, @char)' 'line 1, column 7'
-err ns_arroba_solto.spg     "'@' must be followed by a namespace name" 'line 1, column 14'
+err ns_desconhecido.spg     "unknown namespace '@mth'" 'available: @str, @array, @map, @into, @math, @sys, @task, @file, @json, @time, @char' ':1:7'
+err ns_arroba_solto.spg     "'@' must be followed by a namespace name" ':1:14'
 err ns_sintaxe_antiga.spg   "undefined variable 'math'"
 err ns_string_antigo.spg    "expected an expression"
 err ns_transform_antigo.spg "undefined variable 'transform'"
 err ns_time_run_antigo.spg  "undefined variable 'time'"
 err ns_time_run_removido.spg "namespace '@time' has no member 'run'"
-err chamada_campo.spg       "'x' is a field of struct 'P', not a method" 'line 3'
-err not_callable_expr.spg   "only functions can be called, and this value is not a function" 'line 2'
+err chamada_campo.spg       "'x' is a field of struct 'P', not a method" ':3:'
+err not_callable_expr.spg   "only functions can be called, and this value is not a function" ':2:'
 err ns_sleep_negativo.spg   '@time.sleep expects a non-negative number of milliseconds, got -5'
 err into_int_invalido.spg   'cannot parse "abc" as int'
 err into_float_invalido.spg 'cannot parse "abc" as float'
@@ -371,8 +375,9 @@ diag() {  # diag <file> <error count> <fragment> [<fragment>...] — ALL must ap
     f="$1"; n_esperado="$2"; shift 2
     raw=$(spgrun "diag/$f" 2>&1); code=$?
     got=$(echo "$raw" | tr '\\' '/')   # Windows prints lib\x.spg: compare with /
-    n=$(echo "$got" | grep -c "^  type error")
-    bad=$(echo "$got" | grep -E 'Named\(|Array\(|[a-z]#[0-9a-f]+::|::' | head -1)
+    n=$(echo "$got" | grep -c "^error\[")
+    # the source echo ('  7 | ...') is the user's own text, so `::` there is legal syntax, not a leak
+    bad=$(echo "$got" | grep -vE '^ *[0-9]+ \|' | grep -E 'Named\(|Array\(|[a-z]#[0-9a-f]+::|::' | head -1)
     miss=""
     for want in "$@"; do echo "$got" | grep -qF -- "$want" || miss="$want"; done
     if [ "$code" = 1 ] && [ "$n" = "$n_esperado" ] && [ -z "$miss" ] && [ -z "$bad" ]; then pass=$((pass+1)); tick; else
@@ -381,9 +386,10 @@ diag() {  # diag <file> <error count> <fragment> [<fragment>...] — ALL must ap
 
 diag dup_field.spg      1 "struct 'P' has no field 'y'"
 diag dup_undef.spg      1 "undefined variable 'doesNotExist'"
-diag dup_op.spg         1 "operator Add not supported for int and string"
+diag dup_op.spg         1 "operator '+' not supported for int and string"
 diag ret_types.spg      2 "function returns int but this return gives string"
 diag clean_type.spg     1 "declared type is array<Point> but value is int"
+diag cascade_let.spg 1 "array index must be int, found string"
 diag mangled_struct.spg 1 "declared type is int but value is Point"
 diag mangled_campo.spg  1 "struct 'Point' has no field 'y'"
 diag mangled_func.spg   1 "'two' expects 0 argument(s), got 2"
@@ -392,10 +398,10 @@ diag ns_type.spg        1 "'@math.sqrt' argument #1 expects float, got int"
 # the bug that motivated the patch: two DIFFERENT files with an error at the
 # SAME line/column were indistinguishable (just "line 1, column 25" twice
 # times) — now each message names its own file
-diag ambiguous.spg 2 "type error in lib/liba.spg at line 1, column 25" "type error in lib/libb.spg at line 1, column 25"
+diag ambiguous.spg 2 "lib/liba.spg:1:25" "lib/libb.spg:1:25"
 # the ENTRY file of a multi-file program must also
 # appear by name, not only the imported modules
-diag entry_with_error.spg 2 "type error in lib/liba.spg" "type error in diag/entry_with_error.spg at line 2"
+diag entry_with_error.spg 2 "lib/liba.spg": "diag/entry_with_error.spg:2:"
 # methods: the struct/method name shown to the user is the one they wrote (no module tag)
 diag method_mangled_arity.spg    1 "'Vec.add' expects 1 argument(s), got 0"
 diag method_mangled_unknown.spg  1 "struct 'Vec' has no method 'nope'"
@@ -403,7 +409,7 @@ diag method_mangled_notcalled.spg 1 "'len2' is a method of struct 'Vec', not a f
 # an element of an array literal must also be visited by the
 # file annotation (a real finding during development: the
 # first version only stamped the Pos of the ArrayLit, not each item's)
-diag arraylit_error.spg 1 "type error in lib/array_literal_error.spg" "undefined variable 'doesNotExist'"
+diag arraylit_error.spg 1 "lib/array_literal_error.spg": "undefined variable 'doesNotExist'"
 diag value_method_dup.spg 1 "'string.nice' is declared more than once"
 diag value_method_private_outside.spg 1 "declared in another file, and it is not exported"
 
@@ -412,23 +418,31 @@ ok enum_basic.spg  'Green\ncolor: Green Green\ntrue false false\nRed hot\nGreen 
 ok enum_forms.spg  '101 10\n1 10 100\ntrue false\nGreen Red true\ntrue false\ntrue false\ntrue\nfalse Red\nSignal { now: Green, ticks: 1 } true\n[Yellow, Red, Yellow] 1 -1\n2'
 ok match_basic.spg  'moving down\n210\nhorizontal vertical\none few many\nelif ok\nnot up'
 ok enum_multi.spg  '0 Red\n1 Green\n2 Blue\n3 Red\ntrue\nRed\nGreen\nBlue\nMagenta'
-err enum_bad_variant.spg    "enum 'Color' has no variant 'Purple' (variants: Red, Green)" "line 2"
+err enum_bad_variant.spg    "enum 'Color' has no variant 'Purple' (variants: Red, Green)" ':2:'
+err arg_caret.spg '^~~' 'error[E0004]' 'pass an int here, for example: 0'
+err undef_hint.spg 'error[E0001]' 'declare it before this line, for example: let totl' '^~~~'
+err undef_suggest.spg 'error[E0001]' "did you mean 'total'?"
+err op_span.spg '~~~~^~~' "operator '-' not supported for string and int"
+err call_span.spg 'add(1)' '~~~^~' "'add' expects 2 argument(s), got 1"
+err field_span.spg '~^~' "struct 'P' has no field 'y'"
+err index_span.spg '~~^~~~~' 'array index must be int, found string'
+err field_called.spg 'error[E0062]' 'drop the parentheses: use'
 err enum_bare_name.spg      "'Color' is an enum, not a value" "for x in Color"
-err enum_lt.spg             "operator Lt not supported for Color and Color"
-err enum_plus.spg           "operator Add not supported for Color and Color"
-err enum_vs_int.spg         "operator Eq not supported for Color and int"
-err enum_two_enums.spg      "operator Eq not supported for Color and Size"
+err enum_lt.spg             "operator '<' not supported for Color and Color"
+err enum_plus.spg           "operator '+' not supported for Color and Color"
+err enum_vs_int.spg         "operator '==' not supported for Color and int"
+err enum_two_enums.spg      "operator '==' not supported for Color and Size"
 err enum_field.spg          "type Color has no fields"
 err enum_method.spg         "type Color has no methods"
 err enum_empty.spg          "enum 'E' needs at least one variant"
-err enum_dup.spg            "enum 'E' already has a variant named 'A'" "line 1, column 16"
+err enum_dup.spg            "variant 'A' is declared twice in enum 'E'" ":1:16"
 err enum_missing_comma.spg  "expected '}'"
 err enum_intof.spg          "'@into.int' argument #1 expects float, got Color"
 err enum_assign_int.spg     "cannot assign int to 'c'"
 err enum_annot.spg          "declared type is int but value is Color"
 diag enum_mangled_variant.spg 1 "enum 'Color' has no variant 'Purple'"
 diag enum_mangled_bare.spg    1 "'Color' is an enum, not a value"
-diag enum_mangled_cmp.spg     1 "operator Eq not supported for Color and Color"
+diag enum_mangled_cmp.spg     1 "operator '==' not supported for Color and Color"
 
 # attach "file.spg": every public name, lowest priority; a clash between two loads only fails when the name is USED
 ok install_basic.spg          '15 1 Slow\nFast\nSlow'
@@ -450,37 +464,37 @@ ok union_params.spg           'checked string\nchecked float\nhit\nmiss\nhit\nno
 ok array_expected.spg         '3\n3\n0\n2\n2\n2\n2\n2\ntrue'
 ok field_map_expected.spg     '2\n2\n2\n2'
 ok into_methods.spg   '[a, b] 42 2.5 true Green\n18 7.0 10.5\nP { x: 1, y: 2 } 1'
-err map_float_key.spg       "map keys must be int, string, bool or an enum, found float" "line 2, column 8"
-err map_key_mismatch.spg    "this map's keys are string, found int" "line 2, column 8"
-err map_value_mismatch.spg  "this map's values are int, found string" "line 2, column 8"
-err map_lit_keys.spg        "this map's keys are string, found int" "line 1, column 9"
-err map_lit_values.spg      "this map's values are int, found string" "line 1, column 9"
+err map_float_key.spg       "map keys must be int, string, bool or an enum, found float" ":2:8"
+err map_key_mismatch.spg    "this map's keys are string, found int" ":2:7"
+err map_value_mismatch.spg  "this map's values are int, found string" ":2:8"
+err map_lit_keys.spg        "this map's keys are string, found int" ":1:9"
+err map_lit_values.spg      "this map's values are int, found string" ":1:9"
 err map_untyped_empty.spg   "cannot tell what '[:]' holds" "let m: map<string, int> = [:]"
 err map_get_fallback.spg    "'@map.get' argument #3 expects int, got string"
 err map_not_a_map.spg       "'@map.len' argument #1 expects map<any, any>, got array<int>"
 err map_missing_key.spg     'key not found in map: "zz"' "@map.has"
-err map_keysof_type.spg      "'@map.keysOf' argument #2 expects int, got string" "line 2, column 18"
-err let_void.spg             "this expression has no value (void)" "line 1, column 1"
-err const_void.spg           "this expression has no value (void)" "line 1, column 1"
-err when_nonexhaustive.spg "does not cover every variant" "missing: Left, Right" "line 3, column 1"
-err when_case_type.spg     "this case is string, but the matched value is Dir" "line 4, column 5"
+err map_keysof_type.spg      "'@map.keysOf' argument #2 expects int, got string" ":2:26"
+err let_void.spg             "this expression has no value (void)" ":1:1"
+err const_void.spg           "this expression has no value (void)" ":1:1"
+err when_nonexhaustive.spg "does not cover every variant" "missing: Left, Right" ":3:1"
+err when_case_type.spg     "this case is string, but the matched value is Dir" ":4:5"
 err when_subject_float.spg "can only match an int, a string or an enum, but this value is float"
 err into_method_int.spg     "'@into.int' argument #1 expects" "got bool"
 err map_missing_compound.spg 'key not found in map: "zz"'
-err map_parse_colon.spg     "expected ']'" "line 1, column 14"
+err map_parse_colon.spg     "expected ']'" ":1:14"
 diag map_mangled.spg 2 "this map's keys are string, found int" "this map's values are int, found Item"
 
 # ---- enum with values, array == array, empty [] ----
 ok enum_values.spg    '2 1 false true\n0 10 11 12\nbeta false 1.5 -1.5\n-5 -4 2\n12 High High\nA alfa\nB beta\n200'
 ok array_eq_empty.spg 'true false false true true\ntrue false\n[5] true []\n[] 0\ntrue false true\ntrue true'
-err enum_val_dup_name.spg "enum 'Ns' already has a variant named 'one'" "line 1, column 20"
-err enum_val_mixed.spg    "variant 'B' has a string value but the earlier variants are int" "line 1, column 17"
-err enum_val_needed.spg   "variant 'B' needs a value" "only int enums are numbered automatically" "line 1, column 19"
-err enum_val_notlit.spg   "expected a literal value for the variant" "line 2, column 14"
+err enum_val_dup_name.spg "variant 'one' is declared twice in enum 'Ns'" ":1:20"
+err enum_val_mixed.spg    "variant 'B' of enum 'E' is string, but its other variants are int" ":1:17"
+err enum_val_needed.spg   "variant 'B' of enum 'E' needs a value" "only int enums are numbered automatically" ":1:19"
+err enum_val_notlit.spg   "expected a literal value for the variant" ":2:14"
 
 # ---- @array / @math completos (insert, remove, clear, fill, concat, sum; trigonometria, exp, log, sign, clamp, tau) ----
 ok ns_array_math.spg  '[10, 15, 20, 30, 99]\n10 99\n[15, 20, 30] 65 4.0 10\n[15, 20, 30, 7, 8] [1, 15, 20, 30] [15, 20, 30]\n[0, 0, 0, 5] [ab, ab] [] 5\n[] 0 0\n[y, x] [y, x, y, x] true 1\n0.0 1.0 0.0 1.0 0.0\n3 3 3142\n3142 0.0 0.0\n180 3142\n6.28 6.2832 -1 0 1 -1\n10 0 5 1.0\n-inf NaN'
-err array_push_type.spg        "'@array.push' argument #2 expects int, got string" "line 2, column 12"
+err array_push_type.spg        "'@array.push' argument #2 expects int, got string" ":2:16"
 err array_insert_type.spg      "'@array.insert' argument #3 expects int, got bool"
 err array_fill_struct.spg      "@array.fill repeats ONE value" "found P"
 err array_concat_mismatch.spg  "'@array.concat' argument #2 expects array<int>, got array<string>"
@@ -490,7 +504,7 @@ err math_clamp_bounds.spg      "the lower bound (5) is greater than the upper bo
 
 # ---- full @str (pad, lastIndexOf, trimStart/End), empty pop, homogeneous array literal ----
 err array_pop_empty.spg       "@array.pop on an empty array"
-err array_lit_mixed_num.spg   "all items of an array must have the same type: expected int, found float" "line 1, column 9"
+err array_lit_mixed_num.spg   "all items of an array must have the same type: expected int, found float" ":1:9"
 err array_lit_mixed_type.spg  "expected string, found int"
 err str_pad_type.spg          "'@str.padStart' argument #2 expects int, got string"
 
@@ -530,7 +544,7 @@ got=$(printf 'ana\nbia\r\nresto\nmais\n' | spgrun sys/stdin.spg 2>&1); code=$?
 check sys/stdin 0 "$(printf 'name?\nhi ana 3\n11\nend: @sys.readLine: end of input (nothing left on stdin)')" "$code" "$got"
 got=$(printf 'Ana\n30\n' | spgrun sys/readline_prompt.spg 2>&1); code=$?
 check sys/readline_prompt 0 "$(printf 'Name: Age: Hi Ana 30\nend: readLine: end of input (nothing left on stdin)')" "$code" "$got"
-err file_read_missing.spg "runtime error: @file.read(\"this/does/not/exist.txt\"): no such file or directory"
+err file_read_missing.spg "@file.read(\"this/does/not/exist.txt\"): no such file or directory"
 err sys_exit_type.spg     "'@sys.exit' argument #1 expects int, got string"
 err file_arg_type.spg     "'@file.exists' argument #1 expects string, got int"
 err file_bytes_type.spg   "'@file.writeBytes' argument #2 expects array<int>, got array<string>"
@@ -612,29 +626,29 @@ err json_missing.spg  "@json.get: path not found: 'b'" "has no key 'b'"
 err json_invalid.spg  'invalid JSON: expected a string key' 'line 1, column'
 err json_friendly.spg 'Oops! @json.get: path not found'
 
-err interp_vazia.spg     'empty interpolation' 'line 1, column 7'
-err interp_type.spg     'Add not supported for int and string'
+err interp_vazia.spg     'interpolation has nothing inside its braces' ':1:7'
+err interp_type.spg     "'+' not supported for int and string"
 
-exact1 trace_cadeia.spg '6\nruntime error: division by zero\n  at divide (err/trace_cadeia.spg:2)\n  at compute (err/trace_cadeia.spg:6)\n  at <main> (err/trace_cadeia.spg:11)'
-exact1 trace_recursao.spg 'runtime error: stack overflow: more than 100000 nested calls (is a function calling itself forever?)\n  at down (err/trace_recursao.spg:2)\n  ... same line repeated 49 more times\n  ... 99950 more frames'
-exact1 trace_modulo.spg 'error: Oops! index out of bounds: 9 (array has 3 element(s)). The program stopped while running. Check the values involved at that point; a try/catch can handle this kind of error.\n  at risky (err/trace_modulo_lib.spg:3)\n  at outer (err/trace_modulo.spg:5)\n  at <main> (err/trace_modulo.spg:8)'
+exact1 trace_cadeia.spg '6\nerror[E0301]: division by zero\n  --> err/trace_cadeia.spg:2:5\n   |\n 2 |     return a / b\n   |     ^~~~~~~~~~~~\n   = why: the divisor is 0 at this point\n   = help: check the divisor first, for example: if (b != 0) { ... }\n\n  at divide (err/trace_cadeia.spg:2:5)\n  at compute (err/trace_cadeia.spg:6:5)\n  at <main> (err/trace_cadeia.spg:11:1)'
+exact1 trace_recursao.spg 'error[E0300]: stack overflow: more than 100000 nested calls (is a function calling itself forever?)\n  --> err/trace_recursao.spg:2:5\n   |\n 2 |     return down(n + 1)\n   |     ^~~~~~~~~~~~~~~~~~\n\n  at down (err/trace_recursao.spg:2:5)\n  ... same line repeated 49 more times\n  ... 99950 more frames'
+exact1 trace_modulo.spg 'error: Oops! index out of bounds: 9 (array has 3 element(s)). The program stopped while running. Check the values involved at that point; a try/catch can handle this kind of error.\n  at risky (err/trace_modulo_lib.spg:3:5)\n  at outer (err/trace_modulo.spg:5:5)\n  at <main> (err/trace_modulo.spg:8:1)'
 ok trace_catch.spg 'caught\nend'
 ok lambdas.spg           '13\n42\n49\n10\n101\n20\niife\n<fn>'
 ok lambda_captura.spg    '203\n10'
 err lambda_captura_atribui.spg "a lambda cannot assign 'x'"
 err lambda_type_argument.spg "'ap' argument #1 expects fn(int) -> int, got fn(string) -> int"
 err lambda_no_return.spg "function '<lambda>' must return int on every path"
-exact1 trace_lambda.spg 'runtime error: division by zero\n  at t (err/trace_lambda.spg:1)\n  at <lambda> (err/trace_lambda.spg:2)\n  at <main> (err/trace_lambda.spg:3)'
+exact1 trace_lambda.spg 'error[E0301]: division by zero\n  --> err/trace_lambda.spg:1:23\n   |\n 1 | fn t(n: int) -> int { return n / 0 }\n   |                       ^~~~~~~~~~~~~~\n   = why: the divisor is 0 at this point\n   = help: check the divisor first, for example: if (b != 0) { ... }\n\n  at t (err/trace_lambda.spg:1:23)\n  at <lambda> (err/trace_lambda.spg:2:29)\n  at <main> (err/trace_lambda.spg:3:1)'
 
 ok optional_forms.spg          '1 none\n8 -1\n99 10\ntrue true true false\n6 0\nhi Ana\nnone and 10\n[1, none, 3]\n1\n5 0 5 0\n10 0\n7 1'
 ok opt_global_catch.spg  'caught'
 ok defaults.spg '10 hi -1.5 true\n3 hi -1.5 true\n3 x -1.5 true\n3 x 2.0 true\n3 x 2.0 false\n8\n3'
-err opt_aritmetica.spg   'operator Add not supported for int? and int' 'may be none'
+err opt_aritmetica.spg   "operator '+' not supported for int? and int" 'may be none'
 err opt_none_no_type.spg "cannot tell which type 'none' belongs to"
 err opt_to_int.spg     "argument #1 expects int, got int?"
 err opt_coalesce.spg     "'??' needs an optional value on its left"
-err opt_no_output.spg    'operator Add not supported for int? and int'
-err opt_atribui_none.spg 'operator Add not supported for int? and int'
+err opt_no_output.spg    "operator '+' not supported for int? and int"
+err opt_atribui_none.spg "operator '+' not supported for int? and int"
 err opt_campo.spg        'type N? has no fields'
 err opt_void.spg         'void? makes no sense'
 err match_dup_case.spg     'already has a case for'
@@ -713,7 +727,7 @@ ok json_typed.spg "spg 3 1.5\ntrue 3.0\n7 fallback 5\n@json.getInt: the value at
 ok map_set.spg "[ana: 31, bia: 25] 2\ncannot modify a const value (it is read-only); use .copy() to change a copy"
 err map_set_type.spg "@map.set' argument #3 expects int, got string"
 err ps_sem_install.spg "'ps' is an installable library, not a variable: it needs \`attach #ps\`"
-err ps_arroba.spg "'@ps' is not built in"
+err ps_arroba.spg "unknown namespace '@ps'"
 
 # async: `-> task<T>` runs eagerly, `.wait()` reads the result or re-throws the error
 ok async_basic.spg "double started with 21\ncreated, not waited yet\n<task>\n43\ncaught: too big\n1"
@@ -722,7 +736,7 @@ ok async_overlap.spg "a starts\nb starts\nboth started\nb done\na done\nab"
 ok async_many.spg "89700"
 ok async_all.spg "b done\nc done\na done\n[a, b, c]\n3\n[]"
 ok async_lambda.spg "say: hi\nafter\n[11, 12]"
-ok async_unwaited.spg "nobody waits on t\nwarning: a task failed and nobody called .wait() on it: unhandled exception: boom\n  at bad (ok/async_unwaited.spg:3)"
+ok async_unwaited.spg "nobody waits on t\nwarning: a task failed and nobody called .wait() on it: unhandled exception: boom\n  at bad (ok/async_unwaited.spg:3:5)"
 err async_all_error.spg "unhandled exception: boom" "at bad ("
 ok pipe_basic.spg "6\n6\n13\n6\n7\n106"
 err pipe_no_call.spg "expected a function call after the pipe"
@@ -748,14 +762,14 @@ ok sized_i16_i32.spg           '-5536\n-32768\ntrue\ntrue\n-294967296\n214748364
 ok sized_i16_loop.spg          '-31072'
 err i16_overflow.spg 'the value 40000 does not fit i16'
 err i32_overflow.spg 'the value 2147483648 does not fit i32'
-err i16_mix_i32.spg 'operator Add not supported for i16 and i32'
+err i16_mix_i32.spg "operator '+' not supported for i16 and i32"
 err i32_strict_add.spg 'addition overflow in i32'
 ok sized_u16_u32.spg           '4464\n4294967295\n205032704\ntrue\ntrue'
 ok sized_u16_loop.spg          '34464'
 err u16_overflow.spg 'the value 65536 does not fit u16'
 err u32_overflow.spg 'the value 4294967296 does not fit u32'
 err u16_negative.spg 'the value -1 does not fit u16'
-err u16_mix_u8.spg 'operator Add not supported for u16 and u8'
+err u16_mix_u8.spg "operator '+' not supported for u16 and u8"
 err u32_strict_sub.spg 'subtraction overflow in u32'
 ok into_sized.spg              '100\n44\n127\n255\n0\n-25536\n4464\n-1294967296\n4294967295\n42\n7\n244'
 ok into_wrap_loop.spg          '200'
@@ -765,7 +779,7 @@ err into_u64_negative.spg 'does not fit u64'
 ok f32_basic.spg               '0.1\n0.3\n0.33333334\ntrue\n-0.1\n0.10000000149011612\n0.1\n2\n1.0000001'
 ok f32_fn.spg                  '1.5'
 err f32_big_literal.spg 'does not fit f32'
-err f32_mix_float.spg 'operator Add not supported for f32 and float'
+err f32_mix_float.spg "operator '+' not supported for f32 and float"
 ok type_props.spg              '127\n-128\n32767\n-32768\n2147483647\n-2147483648\n255\n65535\n4294967295\n18446744073709551615\n0\n8\n64\n340282350000000000000000000000000000000.0\n-340282350000000000000000000000000000000.0\n0.00000011920929\ninf\nfalse\n0\ntrue'
 ok into_from_sized.spg          '251\n-5536\n-56\n200\n60000\n-5\n-4464\n200'
 err into_sized_negative.spg 'use @into.u8w to wrap'
@@ -781,7 +795,7 @@ err u8_negative.spg 'the value -1 does not fit u8'
 err u8_not_int.spg 'declared type is int but value is u8'
 err u8_not_i8.spg 'declared type is i8 but value is u8'
 ok sized_compare.spg           'true\ntrue\ntrue\ntrue\ntrue\nfalse'
-err i8_compare_int.spg 'operator Lt not supported for i8 and int'
+err i8_compare_int.spg "operator '<' not supported for i8 and int"
 ok sized_arith.spg             '-56\n28\n16\n-1\n-28\n-128\n44\n156\n10000000000\n8000000000'
 ok sized_loop.spg              '88\n232'
 ok sized_jit.spg               '30\n100'
@@ -790,7 +804,7 @@ ok sized_strict_ok.spg         '-120'
 ok literal_adapts.spg          '123\n123\n255\n0\ntrue\ntrue\ntrue\ntrue'
 err literal_adapt_overflow.spg 'the value 200 does not fit i8'
 err literal_adapt_negative_u64.spg 'the value -1 does not fit u64'
-err sized_mix_variable.spg 'operator Add not supported for i8 and int'
+err sized_mix_variable.spg "operator '+' not supported for i8 and int"
 err u8_strict_add.spg 'addition overflow in u8'
 ok u64_sub_wraps.spg          '18446744073709551615'
 ok u64_add_wraps.spg          '9223372036854775808'
@@ -820,7 +834,7 @@ ok jit_native_struct_fail.spg    '999\nchanged\n999\nchanged\n999\nchanged\n999\
 ok jit_native_logic.spg 'a\nb\ntrue\na\nb\nfalse\na\nfalse\na\nfalse\na\ntrue\na\ntrue\na\nb\ntrue\na\nb\nfalse\na\nb\nc\ntrue\na\nb\nc\ntrue\na\nb\nc\nfalse\na\nb\nc\nd\ntrue\nx\ny\nz\ntrue\nx\ny\nz\nfalse\nl\nr\nm\nn\ntrue\nc1\nc2\nif-or yes\nc3\nc4\nif-and no\n4\n4\ntrue\nfalse\ntrue\np\nr\ns\ntrue'
 ok jit_refuses_logic_stack.spg '400\ntrue\ntrue\ntrue\ntrue'
 ok jit_native_void_throw.spg     '19\n69\n16\n4\nouter start\n1\nouter end\nouter start\n2\nouter end\nouter start\ncaught: too big: x\ncaught2: prefix temps\nouter start\n3\nouter end\ndone'
-exact1 jit_native_throw_trace.spg 'mid\nruntime error: unhandled exception: bottom reached\n  at leaf (err/jit_native_throw_trace.spg:3)\n  at leaf (err/jit_native_throw_trace.spg:5)\n  ... same line repeated 2 more times\n  at mid (err/jit_native_throw_trace.spg:9)\n  at top (err/jit_native_throw_trace.spg:12)\n  at <main> (err/jit_native_throw_trace.spg:14)'
+exact1 jit_native_throw_trace.spg 'mid\nerror[E0300]: unhandled exception: bottom reached\n  --> err/jit_native_throw_trace.spg:3:9\n   |\n 3 |         throw "bottom reached"\n   |         ^~~~~~~~~~~~~~~~~~~~~~\n\n  at leaf (err/jit_native_throw_trace.spg:3:9)\n  at leaf (err/jit_native_throw_trace.spg:5:5)\n  ... same line repeated 2 more times\n  at mid (err/jit_native_throw_trace.spg:9:5)\n  at top (err/jit_native_throw_trace.spg:12:5)\n  at <main> (err/jit_native_throw_trace.spg:14:1)'
 err const_push.spg 'cannot modify a const value'
 err const_nested_write.spg 'cannot modify a const value'
 err const_struct_field.spg 'cannot modify a const value'

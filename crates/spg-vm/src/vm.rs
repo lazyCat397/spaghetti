@@ -157,6 +157,7 @@ pub struct TraceFrame {
     pub function: String,
     pub file: Option<String>,
     pub line: u32,
+    pub col: u32,
 }
 
 /// what one step produced. right now it's only "the
@@ -484,6 +485,7 @@ impl<'p> Vm<'p> {
             },
             file: loc.file.as_deref().map(str::to_string),
             line: loc.line,
+            col: loc.col,
         });
     }
 

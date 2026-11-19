@@ -1,0 +1,14 @@
+let xs = [1, 2, 3]
+let n = xs["a"]
+print(n)
+print(n + "s")
+print(n.foo)
+let m = n + 1
+print(m)
+for (v in n) {
+    print(v)
+}
+fn take(a: int) -> int {
+    return a
+}
+print(take(n))

@@ -123,11 +123,18 @@ pub struct Token {
     pub kind: TokenKind,
     pub line: usize,
     pub col: usize,
+    /// how many characters the token covers on its line (at least 1). the
+    /// diagnostics use it to underline the exact spot, Python-style.
+    pub len: usize,
 }
 
 impl Token {
     pub fn new(kind: TokenKind, line: usize, col: usize) -> Self {
-        Token { kind, line, col }
+        Token { kind, line, col, len: 1 }
+    }
+
+    pub fn spanned(kind: TokenKind, line: usize, col: usize, len: usize) -> Self {
+        Token { kind, line, col, len: len.max(1) }
     }
 }
 
@@ -184,4 +191,84 @@ pub fn lookup_keyword(word: &str) -> Option<TokenKind> {
         "array" => Some(TokenKind::TypeArray),
         _ => None,
     }
+}
+
+/// how a token reads to a person: `'('`, `end of file`, `name 'total'`, `number 5`...
+/// for messages that say what the parser found instead of what it wanted.
+pub fn describe(kind: &TokenKind) -> String {
+    use TokenKind::*;
+    match kind {
+        Ident(name) => format!("name '{}'", name),
+        Int(n) => format!("number {}", n),
+        UInt(n) => format!("number {}", n),
+        Float(f) => format!("number {}", f),
+        Str(_) => "a string".to_string(),
+        Bool(b) => format!("'{}'", b),
+        Namespace(name) => format!("namespace '@{}'", name),
+        StdLib(name) => format!("library '#{}'", name),
+        Newline => "end of line".to_string(),
+        Eof => "end of file".to_string(),
+        LParen => "'('".to_string(),
+        RParen => "')'".to_string(),
+        LBrace => "'{'".to_string(),
+        RBrace => "'}'".to_string(),
+        LBracket => "'['".to_string(),
+        RBracket => "']'".to_string(),
+        Comma => "','".to_string(),
+        Colon => "':'".to_string(),
+        Dot => "'.'".to_string(),
+        DotDot => "'..'".to_string(),
+        Eq => "'='".to_string(),
+        EqEq => "'=='".to_string(),
+        NotEq => "'!='".to_string(),
+        Arrow => "'->'".to_string(),
+        Plus => "'+'".to_string(),
+        Minus => "'-'".to_string(),
+        Star => "'*'".to_string(),
+        Slash => "'/'".to_string(),
+        Percent => "'%'".to_string(),
+        Lt => "'<'".to_string(),
+        Gt => "'>'".to_string(),
+        Not => "'!'".to_string(),
+        Semicolon => "';'".to_string(),
+        other => format!("{:?}", other).to_lowercase(),
+    }
+}
+
+/// how many characters the token starting at column `col` of `line` covers: a name or a
+/// number as a whole, a string up to its closing quote, a two-character operator as one.
+/// the parser's errors don't carry a length, so the renderer measures it from the text.
+pub fn token_extent(line: &str, col: usize) -> usize {
+    let chars: Vec<char> = line.chars().collect();
+    let start = col.saturating_sub(1);
+    let Some(&first) = chars.get(start) else { return 1 };
+    if first == '"' {
+        let mut i = start + 1;
+        while i < chars.len() {
+            if chars[i] == '\\' {
+                i += 2;
+                continue;
+            }
+            if chars[i] == '"' {
+                return i - start + 1;
+            }
+            i += 1;
+        }
+        return chars.len() - start;
+    }
+    if first.is_alphanumeric() || first == '_' {
+        let mut i = start;
+        while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_' || chars[i] == '.' && first.is_ascii_digit()) {
+            i += 1;
+        }
+        return (i - start).max(1);
+    }
+    const TWO: [&str; 15] = ["==", "!=", "<=", ">=", "->", "=>", "+=", "-=", "*=", "/=", "%=", "++", "--", "..", "&&"];
+    if let Some(&second) = chars.get(start + 1) {
+        let pair: String = [first, second].iter().collect();
+        if TWO.contains(&pair.as_str()) || pair == "||" || pair == "??" || pair == "**" || pair == "|>" || pair == "::" {
+            return 2;
+        }
+    }
+    1
 }
