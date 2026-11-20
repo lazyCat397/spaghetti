@@ -1,0 +1,8 @@
+fn primeiro<T>(xs: array<T>) -> T? {
+    if (@array.len(xs) == 0) { return none }
+    return xs[0]
+}
+
+let a = primeiro([1, 2, 3])
+let b = primeiro(["x", "y"])
+print(a, b)

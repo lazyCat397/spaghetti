@@ -290,6 +290,8 @@ pub fn format_source(src: &str) -> String {
     let mut generic: usize = 0;
     let mut prev: Option<Atom> = None;
     let mut prev_unary = false;
+    // the atom before `prev` is `fn`: `prev` is a function's name, so a `<` after it opens type parameters
+    let mut fn_name_prev = false;
 
     for piece in scan(src) {
         match piece {
@@ -324,7 +326,9 @@ pub fn format_source(src: &str) -> String {
                     pending_blank = false;
                     at_line_start = false;
                 } else if let Some(p) = &prev {
-                    if needs_space(p, &atom, prev_unary, generic) {
+                    // `fn add<T: Numeric>`: the type parameters hug the name
+                    let hug_type_params = fn_name_prev && atom.text == "<";
+                    if !hug_type_params && needs_space(p, &atom, prev_unary, generic) {
                         out.push(' ');
                     }
                 }
@@ -343,7 +347,7 @@ pub fn format_source(src: &str) -> String {
                     ")" | "]" => paren -= 1,
                     _ => {}
                 }
-                if atom.text == "<" && prev.as_ref().is_some_and(|p| matches!(p.text.as_str(), "array" | "map" | "task")) {
+                if atom.text == "<" && (fn_name_prev || prev.as_ref().is_some_and(|p| matches!(p.text.as_str(), "array" | "map" | "task"))) {
                     generic += 1;
                 } else if atom.text == ">" && generic > 0 {
                     generic -= 1;
@@ -351,6 +355,7 @@ pub fn format_source(src: &str) -> String {
                 prev_unary = atom.class == Class::Punct
                     && matches!(atom.text.as_str(), "-" | "!")
                     && is_unary_position(prev.as_ref());
+                fn_name_prev = atom.class == Class::Ident && prev.as_ref().is_some_and(|p| p.text == "fn");
                 prev = Some(atom);
             }
         }
@@ -498,6 +503,18 @@ mod tests {
         assert_eq!(fmt("let a = x - 3\n"), "let a = x - 3\n");
         assert_eq!(fmt("let m: map<string,int> = [:]\n"), "let m: map<string, int> = [:]\n");
         assert_eq!(fmt("let xs: array<int> = []\n"), "let xs: array<int> = []\n");
+    }
+
+    #[test]
+    fn function_type_parameters_hug_the_name() {
+        assert_eq!(fmt("fn add<T: Numeric>(n: T) -> T {\n    return n\n}\n"), "fn add<T: Numeric>(n: T) -> T {\n    return n\n}\n");
+        assert_eq!(fmt("fn f<A: int or float, B>(a: A, b: B) -> A {\n    return a\n}\n"), "fn f<A: int || float, B>(a: A, b: B) -> A {\n    return a\n}\n");
+    }
+
+    #[test]
+    fn or_is_canonicalized_in_unions_and_operators() {
+        assert_eq!(fmt("fn show(v: int or float) {\n    print(v)\n}\n"), "fn show(v: int || float) {\n    print(v)\n}\n");
+        assert_eq!(fmt("let a = x or y\n"), "let a = x || y\n");
     }
 
     #[test]

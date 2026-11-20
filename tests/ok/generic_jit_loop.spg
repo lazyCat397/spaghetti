@@ -1,0 +1,10 @@
+fn add<T: Numeric>(n: T) -> T {
+    return n + T.from(1)
+}
+let total = 0
+let f = 0.0
+for (i in 0..200000) {
+    total = total + add(i)
+    f = f + add(0.5)
+}
+print(total, f)

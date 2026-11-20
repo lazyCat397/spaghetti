@@ -462,6 +462,34 @@ ok into_any.spg       '[a, b]\n[1, 2, 3]\n[ana: 1]\nP { x: 1, y: 2 }\nGreen\ntru
 ok type_builtin.spg       'int float bool string\narray map Point Circle\nColor fn none\nstring none\ntrue false true\ntexto hi'
 ok union_params.spg           'checked string\nchecked float\nhit\nmiss\nhit\nnone\nvalue string\nvalue float\nstring'
 ok array_expected.spg         '3\n3\n0\n2\n2\n2\n2\n2\ntrue'
+ok generic_dobro.spg           '6.8 10 -6.4'
+ok generic_infer.spg           '1 x'
+ok generic_numeric.spg           '4.4 6 -2.2\n8'
+err generic_from_float.spg        "'from' argument #1 expects int, got float"
+err generic_bound_numeric.spg     "must be Numeric, got string"
+err generic_bound.spg          "must be int or float, got string"
+err generic_not_inferred.spg   "cannot infer type parameter T"
+ok generic_jit_loop.spg           '20000100000 300000.0'
+ok generic_recursion.spg          '120 120.0 3628800'
+ok generic_optional.spg           '3 4 d'
+ok generic_u64.spg                '18000000000000000000'
+ok generic_two_params.spg         '1 2.5 7'
+ok generic_array.spg              '6 4.0'
+ok generic_unbounded.spg          '3 ab 4.0'
+ok generic_closure.spg            '8'
+ok generic_f32.spg                '0.55'
+ok generic_scope.spg              '6 3'
+ok generic_union.spg              '2 3.0 ok'
+err generic_too_deep.spg          "nest too deep"
+err generic_as_value.spg          "is generic: call it with arguments"
+err generic_inexact.spg           "cannot be a float exactly"
+err generic_from_variable.spg     "'from' converts a literal"
+err generic_method.spg            "generic methods are not supported yet"
+err generic_bound_typo.spg        "'Numerico' is not a bound"
+err generic_uncalled.spg          "not supported for int and string"
+ok import_types.spg               '3'
+err unknown_field_type.spg        "unknown type 'T'"
+err unknown_let_type.spg          "unknown type 'Bar'"
 ok field_map_expected.spg     '2\n2\n2\n2'
 ok into_methods.spg   '[a, b] 42 2.5 true Green\n18 7.0 10.5\nP { x: 1, y: 2 } 1'
 err map_float_key.spg       "map keys must be int, string, bool or an enum, found float" ":2:8"

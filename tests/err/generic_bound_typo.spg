@@ -1,0 +1,4 @@
+fn f<T: Numerico>(n: T) -> T {
+    return n
+}
+print(f(1))

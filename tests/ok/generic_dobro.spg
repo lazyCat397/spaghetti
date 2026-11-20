@@ -1,0 +1,6 @@
+fn dobro<T: int or float>(n: T) -> T {
+    let copia: T = n
+    return copia + n
+}
+
+print(dobro(3.4), dobro(5), dobro(-3.2))

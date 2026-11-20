@@ -1,0 +1,5 @@
+fn metade<T: Numeric>(n: T) -> T {
+    return n / T.from(2)
+}
+let x: f32 = 1.1
+print(metade(x))

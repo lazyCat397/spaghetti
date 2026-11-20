@@ -1,0 +1,5 @@
+public struct Vec {
+    x: int,
+    y: int
+}
+public enum Dir { Norte, Sul }

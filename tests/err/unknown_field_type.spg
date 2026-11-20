@@ -1,0 +1,4 @@
+struct Caixa {
+    v: T
+}
+print(1)

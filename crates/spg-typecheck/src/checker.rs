@@ -18,6 +18,40 @@ use crate::builtins::{
     builtin_signatures, method_namespace, native_array_method_names, native_method_names, BuiltinId,
 };
 use crate::error::TypeError;
+
+thread_local! {
+    /// the type parameters of the generic instance being checked (`T` -> `int`). set only
+    /// while that instance is checked, so a `let x: T` in its body resolves to the concrete type
+    static TYPE_BINDINGS: std::cell::RefCell<Vec<(String, Ty)>> = std::cell::RefCell::new(Vec::new());
+    /// the struct and enum names of the program: the only names a type annotation may use besides the builtins
+    static KNOWN_TYPES: std::cell::RefCell<std::collections::HashSet<String>> = std::cell::RefCell::new(std::collections::HashSet::new());
+    /// where the declaration being checked starts: a type name that is not known is reported there
+    static CURRENT_POS: std::cell::RefCell<Option<p::Pos>> = std::cell::RefCell::new(None);
+    /// the unknown type names seen while resolving, each with the position it was seen at
+    static UNKNOWN_NAMES: std::cell::RefCell<Vec<(String, p::Pos)>> = std::cell::RefCell::new(Vec::new());
+}
+
+/// remembers a type name that is neither a builtin nor a declared struct or enum (nor a bound
+/// type parameter, which the caller has already resolved). `Numeric` is a bound, not a type
+fn note_unknown_type(name: &str) {
+    if name == "Numeric" {
+        return;
+    }
+    if KNOWN_TYPES.with(|k| k.borrow().contains(name)) {
+        return;
+    }
+    let pos = CURRENT_POS.with(|c| c.borrow().clone());
+    if let Some(pos) = pos {
+        UNKNOWN_NAMES.with(|u| u.borrow_mut().push((name.to_string(), pos)));
+    }
+}
+
+/// the position of the statement being checked: the spot a type name is reported at
+fn set_pos_for(stmt: &p::Stmt) {
+    let loc = stmt_loc(stmt, &SrcLoc::default());
+    let pos = p::Pos { file: loc.file.clone(), line: loc.line, col: loc.col, len: 1, focus: 0 };
+    CURRENT_POS.with(|c| *c.borrow_mut() = Some(pos));
+}
 use crate::typed_ast::{RangeStep, SrcLoc, Ty, TypedBlock, TypedExpr, TypedProgram, TypedStmt};
 
 #[derive(Clone)]
@@ -77,6 +111,16 @@ pub struct Checker {
     /// argument mismatches read it (they only see the types), and it is restored after nested calls
     builtin_spots: Vec<p::Pos>,
     functions: HashMap<String, FunctionSig>,
+    /// generic functions by name. their bodies are checked per instance, never as a template
+    generic_fns: HashMap<String, Stmt>,
+    /// instance names already made (`add<int>`), so each one is checked once
+    generic_instances: std::collections::HashSet<String>,
+    /// checked instances, with their location, emitted after the program's own statements
+    pending_instances: Vec<(TypedStmt, SrcLoc)>,
+    /// the instances being checked right now, outermost first (their nesting is capped)
+    instantiating: Vec<String>,
+    /// the instances that are in the program (checked-only ones are not, until they are needed)
+    emitted: std::collections::HashSet<String>,
     /// `"string.nice"` -> every declaration of that method in the program
     value_methods: HashMap<String, Vec<ValueMethod>>,
     /// struct name -> its fields in declaration order (order matters for
@@ -163,10 +207,41 @@ pub fn type_check(program: p::Program) -> Result<TypedProgram, Vec<TypeError>> {
 /// dead code become errors). the language accepted is the same
 pub fn type_check_with(program: p::Program, strict: bool) -> Result<TypedProgram, Vec<TypeError>> {
     let native_objects = native_objects_of(&program.natives);
+    // generic functions leave the program here: they are instantiated at their calls
+    let mut generic_fns = HashMap::new();
+    let kept: Vec<Stmt> = program.stmts.into_iter().filter(|s| {
+        if let p::Stmt::FunctionDecl { name, type_params, .. } = s {
+            if !type_params.is_empty() {
+                generic_fns.insert(name.clone(), s.clone());
+                return false;
+            }
+        }
+        true
+    }).collect();
+    let program = p::Program { stmts: kept, ..program };
+    KNOWN_TYPES.with(|k| {
+        let mut k = k.borrow_mut();
+        k.clear();
+        for stmt in &program.stmts {
+            match stmt {
+                p::Stmt::StructDecl { name, .. } | p::Stmt::EnumDecl { name, .. } => {
+                    k.insert(name.clone());
+                }
+                _ => {}
+            }
+        }
+    });
+    UNKNOWN_NAMES.with(|u| u.borrow_mut().clear());
+    CURRENT_POS.with(|c| *c.borrow_mut() = None);
     let mut checker = Checker {
         native_objects,
         arg_spots: Vec::new(),
         builtin_spots: Vec::new(),
+        generic_fns,
+        generic_instances: std::collections::HashSet::new(),
+        pending_instances: Vec::new(),
+        instantiating: Vec::new(),
+        emitted: std::collections::HashSet::new(),
         functions: HashMap::new(),
         value_methods: HashMap::new(),
         struct_defs: HashMap::new(),
@@ -204,6 +279,24 @@ pub fn type_check_with(program: p::Program, strict: bool) -> Result<TypedProgram
             locs.push(loc);
         }
     }
+    // every type name that was not known, once per place it was written
+    let unknown = UNKNOWN_NAMES.with(|u| std::mem::take(&mut *u.borrow_mut()));
+    // reported once per name, at its first spot (the declaration, which is collected first): a typo
+    // is one mistake, however many times it is used
+    let mut reported = std::collections::HashSet::new();
+    for (name, pos) in unknown {
+        if reported.insert(name.clone()) {
+            checker.errors.push(TypeError::UnknownType { name, pos });
+        }
+    }
+
+    // generics are checked where they are called; those with a finite bound are also checked for
+    // every type the bound allows, so a body error shows even without a call
+    checker.check_bounded_generics();
+    for (typed, loc) in std::mem::take(&mut checker.pending_instances) {
+        typed_stmts.push(typed);
+        locs.push(loc);
+    }
 
     // a guard must not reach a write to its own struct (only when the rest is fine)
     if checker.errors.is_empty() {
@@ -218,6 +311,7 @@ pub fn type_check_with(program: p::Program, strict: bool) -> Result<TypedProgram
         let reentry = crate::guard_reentry::check(&typed_stmts, &positions);
         checker.errors.extend(reentry);
     }
+
 
     if checker.errors.is_empty() {
         Ok(TypedProgram { stmts: typed_stmts, locs })
@@ -241,10 +335,14 @@ impl Checker {
         // (Ty::Named) until something actually builds or reads a
         // field, and by then every struct is already registered.
         for stmt in stmts {
+            set_pos_for(stmt);
             match stmt {
                 // (a struct and an enum with the same name never get here. the
                 // module resolver already yells about duplicate names)
                 Stmt::StructDecl { name, fields, guarded, namespace, snapshot, .. } => {
+                    for field in fields.iter() {
+                        let _ = resolve_type_expr(&field.type_ann);
+                    }
                     self.struct_defs.insert(name.clone(), fields.clone());
                     if *guarded {
                         self.guard_snapshots.insert(name.clone(), snapshot.clone());
@@ -289,6 +387,7 @@ impl Checker {
         // associated functions: `function Type.name(...)` with no `me`. the type must be a
         // struct of this program; the names are remembered so calls can be told apart
         for stmt in stmts {
+            set_pos_for(stmt);
             // a namespace's member (function or static) remembers whether it is exported, and where
             match stmt {
                 Stmt::FunctionDecl { name, exported, pos, .. } if name.contains('.') => {
@@ -1571,6 +1670,7 @@ impl Checker {
     }
 
     fn check_stmt(&mut self, stmt: &Stmt) -> Option<TypedStmt> {
+        set_pos_for(stmt);
         match stmt {
             Stmt::Let { name, type_ann, value, exported, pos } => {
                 let hint = type_ann.as_ref().map(resolve_type_expr);
@@ -2096,7 +2196,7 @@ impl Checker {
                 })
             }
 
-            Stmt::FunctionDecl { name, params, return_type, body, exported, pos } => {
+            Stmt::FunctionDecl { name, params, return_type, body, exported, pos, .. } => {
                 // the real return type was already resolved during
                 // collect_function_signatures. for an explicit `-> Type`
                 // that's just resolve_type_expr. for an omitted one it's
@@ -3422,7 +3522,11 @@ impl Checker {
                         // a bare `http` / `ps` (no `.member`): say what it is instead of "undefined"
                         self.errors.push(TypeError::NeedsAttach { lib: name.to_string(), pos: pos.clone() });
                     } else {
-                        self.errors.push(TypeError::UndefinedVariable { name: name.clone(), pos: pos.clone(), suggestion: self.closest_variable(name) });
+                        if self.generic_fns.contains_key(name.as_str()) {
+                            self.errors.push(TypeError::GenericNeedsCall { name: name.clone(), pos: pos.clone() });
+                        } else {
+                            self.errors.push(TypeError::UndefinedVariable { name: name.clone(), pos: pos.clone(), suggestion: self.closest_variable(name) });
+                        }
                     }
                     None
                 }
@@ -3560,6 +3664,16 @@ impl Checker {
                     let typed_callee = self.check_expr(callee)?;
                     return self.check_value_call(typed_callee, args, pos);
                 }
+                // `T.from(1)` inside a generic: the literal becomes the instance's type T, exactly
+                if let Expr::Field { object, field, .. } = callee.as_ref() {
+                    if let Expr::Ident(tp, _) = object.as_ref() {
+                        if field.as_str() == "from" && args.len() == 1 {
+                            if let Some(target) = type_binding(tp) {
+                                return self.check_type_from(&target, &args[0], pos);
+                            }
+                        }
+                    }
+                }
                 let name = match callee.as_ref() {
                     Expr::Ident(n, _) => n.clone(),
                     // `ps.run(...)` with no `attach #ps` (with it, the lexer already made
@@ -3657,6 +3771,13 @@ impl Checker {
                 if builtin_signatures().contains_key(&name) {
                     return self.check_builtin_call(name, typed_args, pos);
                 }
+
+                // a generic function: pick (or make) the instance for these argument types
+                let name = if self.generic_fns.contains_key(&name) {
+                    self.instantiate_call(&name, &typed_args, pos)?
+                } else {
+                    name
+                };
 
                 let sig = match self.functions.get(&name).cloned() {
                     Some(sig) => sig,
@@ -4311,7 +4432,13 @@ pub fn resolve_type_expr(t: &TypeExpr) -> Ty {
         TypeExpr::Void => Ty::Void,
         TypeExpr::Array(inner) => Ty::Array(Box::new(resolve_type_expr(inner))),
         TypeExpr::Map(k, v) => Ty::Map(Box::new(resolve_type_expr(k)), Box::new(resolve_type_expr(v))),
-        TypeExpr::Named(name) => Ty::Named(name.clone()),
+        TypeExpr::Named(name) => match type_binding(name) {
+            Some(t) => t,
+            None => {
+                note_unknown_type(name);
+                Ty::Named(name.clone())
+            }
+        },
         TypeExpr::Function { params, ret } => Ty::Function {
             params: params.iter().map(resolve_type_expr).collect(),
             ret: Box::new(resolve_type_expr(ret)),
@@ -4338,6 +4465,362 @@ pub fn resolve_type_expr(t: &TypeExpr) -> Ty {
 
 /// the source location of a statement. one without its own position
 /// (none today, but cheap insurance) keeps the previous one's location
+impl Checker {
+    /// every generic whose parameters all have a finite bound: check each combination of the
+    /// types it allows. nothing is emitted for these; they only report errors
+    fn check_bounded_generics(&mut self) {
+        let mut seen = std::collections::HashSet::new();
+        let mut names: Vec<String> = self.generic_fns.keys().cloned().collect();
+        names.sort();
+        for name in names {
+            let Some(Stmt::FunctionDecl { type_params, params, return_type, body, pos, .. }) =
+                self.generic_fns.get(&name).cloned()
+            else {
+                continue;
+            };
+            let mut combos: Vec<Vec<(String, Ty)>> = vec![Vec::new()];
+            let mut finite = true;
+            for tp in &type_params {
+                let Some(bound) = &tp.bound else {
+                    finite = false;
+                    break;
+                };
+                if self.unknown_name_in(bound).is_some() {
+                    finite = false;
+                    break;
+                }
+                let allowed = match bound {
+                    TypeExpr::Named(n) if n == "Numeric" => numeric_tys(),
+                    _ => match resolve_type_expr(bound) {
+                        Ty::Union(members) => members,
+                        single => vec![single],
+                    },
+                };
+                combos = combos
+                    .iter()
+                    .flat_map(|combo| {
+                        allowed.iter().map(move |t| {
+                            let mut c = combo.clone();
+                            c.push((tp.name.clone(), t.clone()));
+                            c
+                        })
+                    })
+                    .collect();
+                if combos.len() > MAX_CHECKED_COMBINATIONS {
+                    finite = false;
+                    break;
+                }
+            }
+            if !finite {
+                continue;
+            }
+            for combo in combos {
+                // one generic body fails at the same spot, with the same kind of error, for each
+                // type it is checked with: a spot is reported once (the same key may be a different
+                // file's error elsewhere, so only errors from these checks are compared)
+                let before = self.errors.len();
+                let _ = self.make_instance(&name, params.clone(), return_type.clone(), body.clone(), pos.clone(), combo, &pos.clone(), false);
+                let fresh: Vec<TypeError> = self.errors.drain(before..).collect();
+                for e in fresh {
+                    let key = (e.code(), e.pos().line, e.pos().col, e.to_string());
+                    if seen.insert(key) {
+                        self.errors.push(e);
+                    }
+                }
+            }
+        }
+    }
+
+    /// the first name in a bound that is neither `Numeric` nor a declared struct or enum
+    fn unknown_name_in(&self, t: &TypeExpr) -> Option<String> {
+        match t {
+            TypeExpr::Named(n) if n != "Numeric" && !self.struct_defs.contains_key(n) && !self.enum_defs.contains_key(n) => {
+                Some(n.clone())
+            }
+            TypeExpr::Union(ms) => ms.iter().find_map(|m| self.unknown_name_in(m)),
+            TypeExpr::Array(i) | TypeExpr::Optional(i) | TypeExpr::Task(i) => self.unknown_name_in(i),
+            TypeExpr::Map(k, v) => self.unknown_name_in(k).or_else(|| self.unknown_name_in(v)),
+            _ => None,
+        }
+    }
+
+    /// a call to a generic function: infer its type parameters from the typed arguments,
+    /// check each bound, and make (once) the instance `name<T1,...>`. returns that name
+    fn instantiate_call(&mut self, name: &str, typed_args: &[TypedExpr], pos: &p::Pos) -> Option<String> {
+        let Stmt::FunctionDecl { type_params, params, return_type, body, pos: decl_pos, .. } =
+            self.generic_fns.get(name)?.clone()
+        else {
+            return None;
+        };
+        let names: Vec<String> = type_params.iter().map(|tp| tp.name.clone()).collect();
+
+        // 1. infer: each argument fixes the type parameters that appear in its declared type
+        let mut bindings: Vec<(String, Ty)> = Vec::new();
+        for (param, arg) in params.iter().zip(typed_args.iter()) {
+            infer_type_param(&param.type_ann, arg.ty(), &names, &mut bindings);
+        }
+
+        // 2. every parameter needs a type, and each argument must be in its bound
+        let mut ordered: Vec<(String, Ty)> = Vec::new();
+        for tp in &type_params {
+            let Some((_, bound_ty)) = bindings.iter().find(|(n, _)| n == &tp.name) else {
+                self.errors.push(TypeError::GenericNotInferred {
+                    function_name: name.to_string(),
+                    param: tp.name.clone(),
+                    pos: pos.clone(),
+                });
+                return None;
+            };
+            if let Some(bound) = &tp.bound {
+                if let Some(unknown) = self.unknown_name_in(bound) {
+                    self.errors.push(TypeError::UnknownBound { name: unknown, pos: pos.clone() });
+                    return None;
+                }
+                let allowed = match bound {
+                    TypeExpr::Named(n) if n == "Numeric" => numeric_tys(),
+                    _ => match resolve_type_expr(bound) {
+                        Ty::Union(members) => members,
+                        single => vec![single],
+                    },
+                };
+                let bound_name = match bound {
+                    TypeExpr::Named(n) if n == "Numeric" => n.clone(),
+                    _ => allowed.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(" or "),
+                };
+                if !allowed.contains(bound_ty) {
+                    let found = bound_ty.clone();
+                    let arg_pos = pos.clone();
+                    self.errors.push(TypeError::GenericBound {
+                        function_name: name.to_string(),
+                        param: tp.name.clone(),
+                        bound: allowed,
+                        bound_name,
+                        found,
+                        pos: arg_pos,
+                    });
+                    return None;
+                }
+            }
+            ordered.push((tp.name.clone(), bound_ty.clone()));
+        }
+
+        self.make_instance(name, params, return_type, body, decl_pos, ordered, pos, true)
+    }
+
+    /// the instance `name<T1,...>` of a generic function for these types. `emit` puts it in the
+    /// program; without it the instance is only checked (see `check_bounded_generics`)
+    #[allow(clippy::too_many_arguments)]
+    fn make_instance(
+        &mut self,
+        name: &str,
+        params: Vec<Param>,
+        return_type: Option<TypeExpr>,
+        body: p::Block,
+        decl_pos: p::Pos,
+        ordered: Vec<(String, Ty)>,
+        pos: &p::Pos,
+        emit: bool,
+    ) -> Option<String> {
+        // 3. the instance: `add<int>`. made once, checked with the parameters bound
+        let instance = format!(
+            "{}<{}>",
+            name,
+            ordered.iter().map(|(_, t)| t.to_string()).collect::<Vec<_>>().join(",")
+        );
+        // checked before, and emitted already if it is needed now
+        if self.generic_instances.contains(&instance) && (!emit || self.emitted.contains(&instance)) {
+            return Some(instance);
+        }
+        if emit {
+            self.emitted.insert(instance.clone());
+        }
+
+        let mut subst: Vec<(String, TypeExpr)> = Vec::new();
+        for (n, t) in &ordered {
+            match ty_to_type_expr(t) {
+                Some(te) => subst.push((n.clone(), te)),
+                None => {
+                    self.errors.push(TypeError::GenericNotInferred {
+                        function_name: name.to_string(),
+                        param: n.clone(),
+                        pos: pos.clone(),
+                    });
+                    return None;
+                }
+            }
+        }
+        let new_params: Vec<Param> = params
+            .iter()
+            .map(|p| Param { type_ann: subst_type_expr(&p.type_ann, &subst), ..p.clone() })
+            .collect();
+        let new_return = return_type.as_ref().map(|t| subst_type_expr(t, &subst));
+        let ret_ty = new_return.as_ref().map(resolve_type_expr).unwrap_or(Ty::Void);
+
+        self.generic_instances.insert(instance.clone());
+        self.functions.insert(
+            instance.clone(),
+            FunctionSig { params: new_params.clone(), return_type: ret_ty },
+        );
+
+        let decl = Stmt::FunctionDecl {
+            name: instance.clone(),
+            type_params: Vec::new(),
+            params: new_params,
+            return_type: new_return,
+            body,
+            exported: false,
+            pos: decl_pos,
+        };
+        let loc = stmt_loc(&decl, &SrcLoc::default());
+
+        // checked as a top-level function: only globals are visible, and the caller's
+        // locals and lambda frames are set aside. `T` resolves through TYPE_BINDINGS
+        if self.instantiating.len() >= MAX_INSTANCE_DEPTH {
+            self.errors.push(TypeError::GenericTooDeep { name: name.to_string(), pos: pos.clone() });
+            return None;
+        }
+        self.instantiating.push(instance.clone());
+        let saved_bindings = TYPE_BINDINGS.with(|b| std::mem::replace(&mut *b.borrow_mut(), ordered));
+        let saved_scopes = self.scopes.split_off(1);
+        let saved_lambdas = std::mem::take(&mut self.lambdas);
+        let typed = self.check_stmt(&decl);
+        self.lambdas = saved_lambdas;
+        self.scopes.extend(saved_scopes);
+        TYPE_BINDINGS.with(|b| *b.borrow_mut() = saved_bindings);
+        self.instantiating.pop();
+
+        if let (true, Some(typed)) = (emit, typed) {
+            self.pending_instances.push((typed, loc));
+        }
+        Some(instance)
+    }
+}
+
+
+/// records what `found` says about the type parameters inside a declared type:
+/// `T` takes the whole type, `T[]` the element type, `map<K, V>` both sides
+fn infer_type_param(t: &TypeExpr, found: &Ty, names: &[String], out: &mut Vec<(String, Ty)>) {
+    match (t, found) {
+        (TypeExpr::Named(n), _) if names.contains(n) => {
+            if !out.iter().any(|(k, _)| k == n) {
+                out.push((n.clone(), found.clone()));
+            }
+        }
+        (TypeExpr::Array(i), Ty::Array(a))
+        | (TypeExpr::Optional(i), Ty::Optional(a))
+        | (TypeExpr::Task(i), Ty::Task(a)) => infer_type_param(i, a, names, out),
+        (TypeExpr::Map(k, v), Ty::Map(ak, av)) => {
+            infer_type_param(k, ak, names, out);
+            infer_type_param(v, av, names, out);
+        }
+        _ => {}
+    }
+}
+
+/// a resolved type back as a type annotation, to substitute into an instance's signature.
+/// `None` for the types a user can't write (builtin-only shapes)
+fn ty_to_type_expr(t: &Ty) -> Option<TypeExpr> {
+    Some(match t {
+        Ty::Int => TypeExpr::Int,
+        Ty::I8 => TypeExpr::I8,
+        Ty::I16 => TypeExpr::I16,
+        Ty::I32 => TypeExpr::I32,
+        Ty::U8 => TypeExpr::U8,
+        Ty::U16 => TypeExpr::U16,
+        Ty::U32 => TypeExpr::U32,
+        Ty::U64 => TypeExpr::U64,
+        Ty::Float => TypeExpr::Float,
+        Ty::F32 => TypeExpr::F32,
+        Ty::Bool => TypeExpr::Bool,
+        Ty::String => TypeExpr::String,
+        Ty::Void => TypeExpr::Void,
+        Ty::Array(i) => TypeExpr::Array(Box::new(ty_to_type_expr(i)?)),
+        Ty::Map(k, v) => TypeExpr::Map(Box::new(ty_to_type_expr(k)?), Box::new(ty_to_type_expr(v)?)),
+        Ty::Named(n) => TypeExpr::Named(n.clone()),
+        Ty::Optional(i) => TypeExpr::Optional(Box::new(ty_to_type_expr(i)?)),
+        Ty::Task(i) => TypeExpr::Task(Box::new(ty_to_type_expr(i)?)),
+        Ty::Union(ms) => TypeExpr::Union(ms.iter().map(ty_to_type_expr).collect::<Option<Vec<_>>>()?),
+        Ty::Function { params, ret } => TypeExpr::Function {
+            params: params.iter().map(ty_to_type_expr).collect::<Option<Vec<_>>>()?,
+            ret: Box::new(ty_to_type_expr(ret)?),
+        },
+        _ => return None,
+    })
+}
+
+/// a declared type with the type parameters replaced by their concrete types
+fn subst_type_expr(t: &TypeExpr, subst: &[(String, TypeExpr)]) -> TypeExpr {
+    let go = |x: &TypeExpr| subst_type_expr(x, subst);
+    match t {
+        TypeExpr::Named(n) => subst
+            .iter()
+            .find(|(k, _)| k == n)
+            .map(|(_, v)| v.clone())
+            .unwrap_or_else(|| t.clone()),
+        TypeExpr::Array(i) => TypeExpr::Array(Box::new(go(i))),
+        TypeExpr::Map(k, v) => TypeExpr::Map(Box::new(go(k)), Box::new(go(v))),
+        TypeExpr::Optional(i) => TypeExpr::Optional(Box::new(go(i))),
+        TypeExpr::Task(i) => TypeExpr::Task(Box::new(go(i))),
+        TypeExpr::Union(ms) => TypeExpr::Union(ms.iter().map(go).collect()),
+        TypeExpr::Function { params, ret } => TypeExpr::Function {
+            params: params.iter().map(go).collect(),
+            ret: Box::new(go(ret)),
+        },
+        _ => t.clone(),
+    }
+}
+
+/// how deep instances may nest. a generic that calls itself with a bigger type stops here
+const MAX_INSTANCE_DEPTH: usize = 32;
+/// the most type combinations checked for one generic whose parameters all have finite bounds
+const MAX_CHECKED_COMBINATIONS: usize = 64;
+
+/// the type a generic's type parameter is bound to in the instance being checked
+fn type_binding(name: &str) -> Option<Ty> {
+    TYPE_BINDINGS.with(|b| b.borrow().iter().rev().find(|(n, _)| n == name).map(|(_, t)| t.clone()))
+}
+
+/// the types `T: Numeric` accepts: every integer and float type
+fn numeric_tys() -> Vec<Ty> {
+    vec![Ty::Int, Ty::I8, Ty::I16, Ty::I32, Ty::U8, Ty::U16, Ty::U32, Ty::U64, Ty::Float, Ty::F32]
+}
+
+impl Checker {
+    /// `T.from(1)`: the argument must be exactly a `T`. an int literal becomes a float only when
+    /// the float holds it exactly (|v| <= 2^53, or 2^24 for f32). nothing is converted silently
+    fn check_type_from(&mut self, target: &Ty, arg: &Expr, pos: &p::Pos) -> Option<TypedExpr> {
+        if let Some(v) = literal_int(arg) {
+            match target {
+                Ty::Float | Ty::F32 => {
+                    let limit: u64 = if target == &Ty::Float { 1u64 << 53 } else { 1u64 << 24 };
+                    if v.unsigned_abs() > limit {
+                        self.errors.push(TypeError::InexactLiteral { value: v, target: target.clone(), pos: arg_pos(arg, pos) });
+                        return None;
+                    }
+                    return Some(if target == &Ty::Float { TypedExpr::FloatLit(v as f64) } else { TypedExpr::F32Lit(v as f64) });
+                }
+                _ => {}
+            }
+        }
+        let typed = self.check_expr_expecting(arg, Some(target))?;
+        if typed.ty() != target && literal_int(arg).is_none() && literal_float(arg).is_none() {
+            self.errors.push(TypeError::FromLiteralOnly { target: target.clone(), found: typed.ty().clone(), pos: arg_pos(arg, pos) });
+            return None;
+        }
+        if typed.ty() != target {
+            self.errors.push(TypeError::ArgTypeMismatch {
+                function_name: "from".to_string(),
+                param_index: 0,
+                expected: target.clone(),
+                found: typed.ty().clone(),
+                pos: arg_pos(arg, pos),
+            });
+            return None;
+        }
+        Some(typed)
+    }
+}
+
 fn stmt_loc(stmt: &p::Stmt, previous: &SrcLoc) -> SrcLoc {
     match stmt.pos() {
         Some(pos) => SrcLoc { file: pos.file.clone(), line: pos.line, col: pos.col },

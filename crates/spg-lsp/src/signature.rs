@@ -148,13 +148,46 @@ pub fn return_after(tokens: &[Token], close: usize) -> String {
     }
 }
 
+/// the index just past a function's type parameters, `<T: Numeric>`, when one starts at `i`;
+/// `i` itself when there are none. the name of a generic function is followed by these
+pub fn skip_type_params(tokens: &[Token], i: usize) -> usize {
+    if kind(tokens, i) != Some(&T::Lt) {
+        return i;
+    }
+    let mut depth = 0usize;
+    let mut j = i;
+    while let Some(k) = kind(tokens, j) {
+        match k {
+            T::Lt => depth += 1,
+            T::Gt => {
+                depth -= 1;
+                if depth == 0 {
+                    return j + 1;
+                }
+            }
+            _ => {}
+        }
+        j += 1;
+    }
+    i
+}
+
+/// the `(` that starts a named function's params, after its name at `name` and any type
+/// parameters. `None` when the tokens there are not `fn name` followed by params
+pub fn params_open_after_name(tokens: &[Token], name: usize) -> Option<usize> {
+    let open = skip_type_params(tokens, name + 1);
+    (kind(tokens, open) == Some(&T::LParen)).then_some(open)
+}
+
 /// every named function declared in the document, in order
 pub fn declared(tokens: &[Token]) -> Vec<Signature> {
     let mut out = Vec::new();
     for i in 0..tokens.len() {
-        if let (Some(T::Function), Some(T::Ident(name)), Some(T::LParen)) = (kind(tokens, i), kind(tokens, i + 1), kind(tokens, i + 2)) {
-            if let Some((params, close)) = read_params(tokens, i + 2) {
-                out.push(Signature { name: name.clone(), params, ret: return_after(tokens, close) });
+        if let (Some(T::Function), Some(T::Ident(name))) = (kind(tokens, i), kind(tokens, i + 1)) {
+            if let Some(open) = params_open_after_name(tokens, i + 1) {
+                if let Some((params, close)) = read_params(tokens, open) {
+                    out.push(Signature { name: name.clone(), params, ret: return_after(tokens, close) });
+                }
             }
         }
     }
@@ -256,9 +289,12 @@ pub fn all_params(tokens: &[Token]) -> Vec<(String, String)> {
         if kind(tokens, i) != Some(&T::Function) {
             continue;
         }
-        let open = match (kind(tokens, i + 1), kind(tokens, i + 2)) {
-            (Some(T::Ident(_)), Some(T::LParen)) => i + 2,
-            (Some(T::LParen), _) => i + 1,
+        let open = match kind(tokens, i + 1) {
+            Some(T::Ident(_)) => match params_open_after_name(tokens, i + 1) {
+                Some(open) => open,
+                None => continue,
+            },
+            Some(T::LParen) => i + 1,
             _ => continue,
         };
         if let Some((params, _)) = read_params(tokens, open) {
@@ -333,6 +369,17 @@ mod tests {
 
     fn toks(src: &str) -> Vec<Token> {
         spg_lexer::Lexer::new(src).tokenize().unwrap()
+    }
+
+    #[test]
+    fn generic_function_is_declared_with_its_params() {
+        let t = toks("fn add<T: Numeric>(n: T) -> T { return n }");
+        let s = declared(&t);
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].name, "add");
+        assert_eq!(s[0].label(), "add(n: T) -> T");
+        let p = all_params(&t);
+        assert!(p.iter().any(|(name, _)| name == "n"));
     }
 
     #[test]

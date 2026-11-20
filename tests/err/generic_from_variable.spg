@@ -1,0 +1,6 @@
+fn f<T: Numeric>(n: T) -> T {
+    let x = 2
+    return n + T.from(x)
+}
+print(f(1))
+print(f(1.5))

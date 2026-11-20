@@ -310,6 +310,76 @@ Value types always return a new value: the method cannot change the original. A 
 
 The `@array` and `@map` namespaces take functions for `map`, `filter` and `reduce`. They are covered on the [collections page](collections.md#transforming-arrays).
 
+## Generic functions
+
+A function can work on more than one type. Name its type parameters after the function, and give each one a bound: the types it accepts.
+
+```javascript
+fn dobro<T: int or float>(n: T) -> T {
+    return n + n
+}
+
+print(dobro(3), dobro(2.5))   // 6 5.0
+```
+
+`T` is decided by the arguments. Each type used gets its own copy of the function, checked for that type, so `dobro(3)` runs with `int` and `dobro(2.5)` with `float`. Nothing is converted behind your back: the body sees exactly the types the call gave it.
+
+### The Numeric bound
+
+`Numeric` means every integer and float type: `int`, `i8`, `i16`, `i32`, `u8`, `u16`, `u32`, `u64`, `float` and `f32`.
+
+```javascript
+fn add<T: Numeric>(n: T) -> T {
+    return n + T.from(1)
+}
+
+print(add(3.4), add(5), add(-3.2))   // 4.4 6 -2.2
+
+let u: u8 = 7
+print(add(u))                          // 8
+```
+
+Inside a generic, `T.from(1)` turns a literal into the type `T` exactly. An integer literal becomes a `float` only when the `float` holds it exactly (up to 2^53, and up to 2^24 for `f32`). `T.from(1.5)` for an `int` `T` is an error. `T.from` takes literals only: to convert a variable, use `@into`.
+
+Without `T.from`, `1 + 1.0` is still an error, as it is everywhere else in the language.
+
+### Type parameters without a bound
+
+A parameter with no bound accepts any type. The body is checked for each type it is called with, so it works for whatever the body allows:
+
+```javascript
+fn soma2<T>(a: T, b: T) -> T {
+    return a + b
+}
+
+print(soma2(1, 2), soma2("a", "b"))   // 3 ab
+```
+
+A generic with no bound is checked only where it is called. A generic whose parameters all have a bound is also checked for every type the bound allows, so an error in its body shows up even without a call.
+
+### Arrays and optionals
+
+A type parameter can appear inside `array<T>` and `T?`. It is inferred from the value passed in:
+
+```javascript
+fn primeiro<T>(xs: array<T>) -> T? {
+    if (@array.len(xs) == 0) {
+        return none
+    }
+    return xs[0]
+}
+
+print(primeiro([1, 2, 3]))   // 1
+```
+
+### What is not in generic functions yet
+
+- **Methods.** A method of a struct cannot have type parameters. This is a compile error, not a silent drop.
+- **Explicit types at the call.** `add<int>(3)` is not written; the type always comes from the arguments.
+- **Generic structs and enums.** Only functions take type parameters.
+- **Generic as a value.** `let f = add` is an error: a generic needs its arguments to be a value. Call it, or write the function you need.
+- **Nesting.** A generic that keeps calling itself with a bigger type (such as wrapping its argument in an array each time) is an error after 32 levels.
+
 ## Limits
 
 - Functions cannot be compared with `==` or `!=` yet.

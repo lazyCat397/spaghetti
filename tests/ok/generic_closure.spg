@@ -1,0 +1,7 @@
+fn dobro<T: Numeric>(n: T) -> T {
+    return n + n
+}
+let g = fn(x: int) -> int {
+    return dobro(x)
+}
+print(g(4))

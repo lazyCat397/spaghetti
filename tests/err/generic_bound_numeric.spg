@@ -1,0 +1,4 @@
+fn add<T: Numeric>(n: T) -> T {
+    return n + T.from(1)
+}
+print(add("x"))

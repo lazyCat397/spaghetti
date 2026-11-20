@@ -1,0 +1,4 @@
+fn nunca<T: Numeric>(n: T) -> T {
+    return n + "texto"
+}
+print(1)

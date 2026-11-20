@@ -120,11 +120,16 @@ pub fn declarations(tokens: &[Token]) -> Vec<Decl> {
                 }
             }
             T::Function => {
-                let named = matches!(kind_at(tokens, i + 1), Some(T::Ident(_))) && kind_at(tokens, i + 2) == Some(&T::LParen);
+                // `fn name(` or `fn name<T: ...>(`; a lambda is `fn(`
+                let named_open = match kind_at(tokens, i + 1) {
+                    Some(T::Ident(_)) => signature::params_open_after_name(tokens, i + 1),
+                    _ => None,
+                };
+                let named = named_open.is_some();
                 let lambda = kind_at(tokens, i + 1) == Some(&T::LParen);
                 if named || lambda {
                     let name_index = if named { i + 1 } else { i };
-                    let open = if named { i + 2 } else { i + 1 };
+                    let open = if named { named_open.unwrap_or(i + 2) } else { i + 1 };
                     let (params, close) = signature::read_params(tokens, open).unwrap_or_default();
                     let ret = signature::return_after(tokens, close);
                     if named {
@@ -352,6 +357,15 @@ mod tests {
 
     fn toks(src: &str) -> Vec<Token> {
         spg_lexer::Lexer::new(src).tokenize().unwrap()
+    }
+
+    #[test]
+    fn generic_function_is_a_declaration_with_its_params() {
+        let t = toks("fn add<T: Numeric>(n: T) -> T { return n }");
+        let decls = declarations(&t);
+        let add = decls.iter().find(|d| d.name == "add").expect("add is declared");
+        assert!(matches!(add.kind, Kind::Function));
+        assert!(decls.iter().any(|d| d.name == "n"), "its param n is declared too");
     }
 
     #[test]

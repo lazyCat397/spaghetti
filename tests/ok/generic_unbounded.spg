@@ -1,0 +1,4 @@
+fn soma2<T>(a: T, b: T) -> T {
+    return a + b
+}
+print(soma2(1, 2), soma2("a", "b"), soma2(1.5, 2.5))

@@ -1,0 +1,5 @@
+fn dobro<T: Numeric>(n: T) -> T {
+    return n + n
+}
+let big: u64 = 9000000000000000000
+print(dobro(big))

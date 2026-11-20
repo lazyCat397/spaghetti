@@ -1,0 +1,12 @@
+let k = 1
+fn f<T: Numeric>(n: T) -> T {
+    if (k == 1) {
+        return n + T.from(1)
+    }
+    return n
+}
+fn caller() -> int {
+    let k = 100
+    return f(5)
+}
+print(caller(), f(2))

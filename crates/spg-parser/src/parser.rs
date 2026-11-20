@@ -857,12 +857,14 @@ impl Parser {
             });
         }
         let decl = self.parse_function_decl(exported)?;
+        self.reject_method_type_params(&decl, pos.line, pos.col)?;
         self.expect(TokenKind::RParen, "')'")?;
         match decl {
-            Stmt::FunctionDecl { name, mut params, return_type, body, exported, pos: fpos } => {
+            Stmt::FunctionDecl { name, type_params, mut params, return_type, body, exported, pos: fpos } => {
                 params.insert(0, Param { name: "me".to_string(), type_ann, default: None });
                 Ok(Stmt::FunctionDecl {
                     name: format!("{}.{}", ty, name),
+                    type_params,
                     params,
                     return_type,
                     body,
@@ -872,6 +874,38 @@ impl Parser {
             }
             _ => unreachable!("parse_function_decl always returns a FunctionDecl"),
         }
+    }
+
+    /// `<T: int or float, U>`: the type parameters of a generic function. the bound
+    /// is optional, and a parameter without one accepts any type
+    fn parse_type_params(&mut self) -> Result<Vec<TypeParam>, ParseError> {
+        self.advance(); // <
+        let mut out = Vec::new();
+        loop {
+            let name = self.parse_binding_name()?;
+            let bound = if self.match_kind(&TokenKind::Colon) { Some(self.parse_type_expr()?) } else { None };
+            out.push(TypeParam { name, bound });
+            if !self.match_kind(&TokenKind::Comma) {
+                break;
+            }
+        }
+        self.expect(TokenKind::Gt, "'>'")?;
+        Ok(out)
+    }
+
+    /// methods can't have type parameters yet: say so, instead of dropping the method silently
+    fn reject_method_type_params(&self, decl: &Stmt, _line: usize, _col: usize) -> Result<(), ParseError> {
+        if let Stmt::FunctionDecl { type_params, pos, .. } = decl {
+            if !type_params.is_empty() {
+                return Err(ParseError::Unexpected {
+                    expected: "a method without type parameters (generic methods are not supported yet)".to_string(),
+                    found: TokenKind::Lt,
+                    line: pos.line,
+                    col: pos.col,
+                });
+            }
+        }
+        Ok(())
     }
 
     fn parse_function_decl(&mut self, exported: bool) -> Result<Stmt, ParseError> {
@@ -902,6 +936,7 @@ impl Parser {
             let member = self.parse_binding_name()?;
             name = format!("{}.{}", name, member);
         }
+        let type_params = if self.check(&TokenKind::Lt) { self.parse_type_params()? } else { Vec::new() };
         self.expect(TokenKind::LParen, "'('")?;
 
         let mut params = Vec::new();
@@ -946,7 +981,7 @@ impl Parser {
 
         let body = self.parse_block()?;
 
-        Ok(Stmt::FunctionDecl { name, params, return_type, body, exported, pos })
+        Ok(Stmt::FunctionDecl { name, type_params, params, return_type, body, exported, pos })
     }
 
     /// `namespace som { let calls; fn add(...) { } }`: a struct with no instances.
@@ -969,6 +1004,8 @@ impl Parser {
             match self.peek().kind.clone() {
                 TokenKind::Function => {
                     let f = self.parse_function_decl(member_exported)?;
+                    let mpos = self.peek_pos();
+                    self.reject_method_type_params(&f, mpos.line, mpos.col)?;
                     functions.push(qualify_member(&name, f));
                 }
                 TokenKind::Let | TokenKind::Const => {
@@ -1208,7 +1245,10 @@ impl Parser {
     /// and the module renamer mangles `P` and `P.f` to `<tag>::P` / `<tag>::P.f`
     /// (the typechecker relies on exactly that to find a method from its struct).
     fn parse_method(&mut self, struct_name: &str, exported: bool) -> Result<Stmt, ParseError> {
-        match self.parse_function_decl(exported)? {
+        let decl = self.parse_function_decl(exported)?;
+        let mpos = self.peek_pos();
+        self.reject_method_type_params(&decl, mpos.line, mpos.col)?;
+        match decl {
             Stmt::FunctionDecl { name, .. } if name.contains('.') => {
                 let pos = self.peek_pos();
                 Err(ParseError::Unexpected {
@@ -1218,10 +1258,11 @@ impl Parser {
                     col: pos.col,
                 })
             }
-            Stmt::FunctionDecl { name, mut params, return_type, body, exported, pos } => {
+            Stmt::FunctionDecl { name, type_params, mut params, return_type, body, exported, pos } => {
                 params.insert(0, Param { name: "me".to_string(), type_ann: TypeExpr::Named(struct_name.to_string()), default: None });
                 Ok(Stmt::FunctionDecl {
                     name: format!("{}.{}", struct_name, name),
+                    type_params,
                     params,
                     return_type,
                     body,
@@ -1342,6 +1383,7 @@ impl Parser {
             TokenKind::TypeString => "string".to_string(),
             TokenKind::TypeVoid => "void".to_string(),
             TokenKind::TypeArray => "array".to_string(),
+            TokenKind::From => "from".to_string(),
             other => {
                 return Err(ParseError::Unexpected {
                     expected: "a namespace member name".to_string(),
@@ -1783,7 +1825,7 @@ impl Parser {
                 let field = match self.peek().kind {
                     TokenKind::TypeInt | TokenKind::TypeFloat | TokenKind::TypeF32 | TokenKind::TypeString | TokenKind::TypeBool
                     | TokenKind::TypeI8 | TokenKind::TypeI16 | TokenKind::TypeI32 | TokenKind::TypeU8 | TokenKind::TypeU16
-                    | TokenKind::TypeU32 | TokenKind::TypeU64 => {
+                    | TokenKind::TypeU32 | TokenKind::TypeU64 | TokenKind::From => {
                         let name = self.parse_member_name()?;
                         name
                     }

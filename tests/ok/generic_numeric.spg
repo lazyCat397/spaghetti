@@ -1,0 +1,7 @@
+fn add<T: Numeric>(n: T) -> T {
+    return n + T.from(1)
+}
+
+print(add(3.4), add(5), add(-3.2))
+let u: u8 = 7
+print(add(u))

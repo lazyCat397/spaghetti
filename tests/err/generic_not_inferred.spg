@@ -1,0 +1,4 @@
+fn vazio<T>() -> T {
+    return 0
+}
+print(vazio())

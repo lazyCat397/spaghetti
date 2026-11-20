@@ -1,0 +1,7 @@
+fn u<T: int or float>(n: T) -> T {
+    return n + n
+}
+fn sem<T>(n: T) -> T {
+    return n
+}
+print(u(1), u(1.5), sem("ok"))

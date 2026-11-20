@@ -1,0 +1,7 @@
+fn fat<T: Numeric>(n: T) -> T {
+    if (n <= T.from(1)) {
+        return T.from(1)
+    }
+    return n * fat(n - T.from(1))
+}
+print(fat(5), fat(5.0), fat(10))

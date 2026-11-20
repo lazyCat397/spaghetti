@@ -1,0 +1,8 @@
+struct Caixa {
+    v: int
+    fn dobro<T: Numeric>(n: T) -> T {
+        return n + n
+    }
+}
+let c = Caixa { v: 2 }
+print(c.dobro(4))

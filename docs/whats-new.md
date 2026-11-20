@@ -3,6 +3,30 @@
 The latest changes to the language, newest first. Each section has a short
 example. For a full walkthrough of every feature, see `examples/`.
 
+## Generic functions
+
+A function can take type parameters, and its body is checked for each type it is called with. A bound says which types are allowed: a union such as `int or float`, or `Numeric`, which is every integer and float type.
+
+```javascript
+fn add<T: Numeric>(n: T) -> T {
+    return n + T.from(1)
+}
+
+print(add(3.4), add(5), add(-3.2))   // 4.4 6 -2.2
+```
+
+Inside a generic, `T.from(1)` converts a literal to `T` exactly. Nothing is converted behind your back: `1 + 1.0` is still an error. The full rules, and what is not there yet (methods and explicit type arguments), are in [Functions and lambdas](about/functions-and-lambdas.md#generic-functions).
+
+## Unknown type names are errors
+
+A type name that is not a builtin, a struct or an enum of the file is an error where it is written, in a field, a `let`, a parameter or a return type. Before, the mistake only showed up as a confusing mismatch at the value.
+
+```javascript
+struct Caixa {
+    v: Foo        // error: unknown type 'Foo'
+}
+```
+
 ## Sized integers and `f32`
 
 There are now integer types of several sizes: `i8`, `i16`, `i32`, `u8`, `u16`, `u32` and `u64`. There is also `f32`. `i64` is another name for `int`, and `f64` for `float`. Each sized type checks its range, and the full table, the overflow rules and the conversions are in [Numbers](standard-lib/numbers.md).

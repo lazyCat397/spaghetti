@@ -214,6 +214,7 @@ pub(crate) fn guard_functions(struct_name: &str, exported: bool, guards: &[Guard
     }
 
     let guard_fn = Stmt::FunctionDecl {
+        type_params: Vec::new(),
         name: format!("{}.__guard", struct_name),
         params: vec![Param { name: "me".to_string(), type_ann: TypeExpr::Named(struct_name.to_string()), default: None }],
         return_type: None,
@@ -223,6 +224,7 @@ pub(crate) fn guard_functions(struct_name: &str, exported: bool, guards: &[Guard
     };
 
     let check_fn = Stmt::FunctionDecl {
+        type_params: Vec::new(),
         name: format!("{}.__check", struct_name),
         params: vec![Param { name: "v".to_string(), type_ann: TypeExpr::Named(struct_name.to_string()), default: None }],
         return_type: None,

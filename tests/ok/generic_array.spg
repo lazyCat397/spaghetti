@@ -1,0 +1,8 @@
+fn soma<T: Numeric>(xs: array<T>) -> T {
+    let total = T.from(0)
+    for (x in xs) {
+        total = total + x
+    }
+    return total
+}
+print(soma([1, 2, 3]), soma([1.5, 2.5]))

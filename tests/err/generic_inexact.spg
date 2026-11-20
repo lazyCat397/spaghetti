@@ -1,0 +1,4 @@
+fn g<T: Numeric>(n: T) -> T {
+    return n + T.from(9007199254740993)
+}
+print(g(1.5))

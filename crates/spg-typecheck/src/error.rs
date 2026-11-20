@@ -68,6 +68,22 @@ pub enum TypeError {
 
     /// arg type doesn't match the parameter. read the signature, man.
     ArgTypeMismatch { function_name: String, param_index: usize, expected: Ty, found: Ty, pos: Pos },
+    /// `add("x")` with `fn add<T: int or float>`: the argument's type is not in the bound
+    GenericBound { function_name: String, param: String, bound: Vec<Ty>, bound_name: String, found: Ty, pos: Pos },
+    /// a type parameter that no argument fixes (`fn f<T>() -> T` called as `f()`)
+    GenericNotInferred { function_name: String, param: String, pos: Pos },
+    /// `let f = add` with `add` generic: a generic function needs its arguments to be a value
+    GenericNeedsCall { name: String, pos: Pos },
+    /// instances keep nesting: a generic function calls itself with a bigger type each time
+    GenericTooDeep { name: String, pos: Pos },
+    /// `T.from(9007199254740993)` with T float: the literal is not exact in that type
+    InexactLiteral { value: i64, target: Ty, pos: Pos },
+    /// `T.from(x)` with a variable: only literals are converted; a variable needs `@into`
+    FromLiteralOnly { target: Ty, found: Ty, pos: Pos },
+    /// `fn f<T: Numerico>`: a bound names something that is not a type of the language or a struct or enum here
+    UnknownBound { name: String, pos: Pos },
+    /// a type annotation names something that is not a type of the language nor a struct or enum here
+    UnknownType { name: String, pos: Pos },
 
     /// operator used on types it doesn't support (e.g. "a" - 1). strings don't subtract.
     InvalidOperandTypes { op: String, left: Ty, right: Ty, pos: Pos },
@@ -265,6 +281,14 @@ impl TypeError {
             | TypeError::CaptureAssign { pos, .. }
             | TypeError::ArityMismatch { pos, .. }
             | TypeError::ArgTypeMismatch { pos, .. }
+            | TypeError::GenericBound { pos, .. }
+            | TypeError::GenericNotInferred { pos, .. }
+            | TypeError::GenericNeedsCall { pos, .. }
+            | TypeError::GenericTooDeep { pos, .. }
+            | TypeError::InexactLiteral { pos, .. }
+            | TypeError::FromLiteralOnly { pos, .. }
+            | TypeError::UnknownBound { pos, .. }
+            | TypeError::UnknownType { pos, .. }
             | TypeError::InvalidOperandTypes { pos, .. }
             | TypeError::NotIterable { pos, .. }
             | TypeError::RangeNotInt { pos, .. }
@@ -466,6 +490,38 @@ impl TypeError {
             TypeError::ArityMismatch { function_name, expected, found, .. } => write!(
                 f, "{}'{}' expects {} argument(s), got {}",
                 self.location(), shown(function_name), expected, found
+            ),
+            TypeError::GenericBound { function_name, param, bound_name, found, .. } => write!(
+                f, "{}type parameter {} of '{}' must be {}, got {}",
+                self.location(), param, shown(function_name), bound_name, found
+            ),
+            TypeError::GenericNeedsCall { name, .. } => write!(
+                f, "{}'{}' is generic: call it with arguments so its type parameters are known",
+                self.location(), shown(name)
+            ),
+            TypeError::GenericTooDeep { name, .. } => write!(
+                f, "{}instances of '{}' nest too deep: it keeps calling itself with a bigger type",
+                self.location(), shown(name)
+            ),
+            TypeError::UnknownType { name, .. } => write!(
+                f, "{}unknown type '{}': the types are int, float, bool, string, array, map, task, fn and the sized numbers, or a struct or enum declared in this file",
+                self.location(), name
+            ),
+            TypeError::UnknownBound { name, .. } => write!(
+                f, "{}'{}' is not a bound: use Numeric, a union such as int or float, or a struct or enum of this file",
+                self.location(), name
+            ),
+            TypeError::FromLiteralOnly { target, found, .. } => write!(
+                f, "{}'from' converts a literal, and this is a value of type {}: use @into.{}(value) to convert it",
+                self.location(), found, target
+            ),
+            TypeError::InexactLiteral { value, target, .. } => write!(
+                f, "{}the literal {} cannot be a {} exactly",
+                self.location(), value, target
+            ),
+            TypeError::GenericNotInferred { function_name, param, .. } => write!(
+                f, "{}cannot infer type parameter {} of '{}' from the arguments",
+                self.location(), param, shown(function_name)
             ),
             TypeError::ArgTypeMismatch { function_name, param_index, expected, found, .. } => write!(
                 f, "{}'{}' argument #{} expects {}, got {}",
@@ -797,7 +853,12 @@ fn shown(name: &str) -> String {
             }
         }
     }
-    base.to_string()
+    // an instance is `name<types>`: `<lambda>` keeps its brackets
+    let base = base.to_string();
+    match base.find('<') {
+        Some(i) if i > 0 => base[..i].to_string(),
+        _ => base,
+    }
 }
 
 /// the range of a sized int type, for the message. the numbers come from `Ty::sized_bounds`.
@@ -890,6 +951,14 @@ impl TypeError {
             TypeError::UndefinedFunction { .. } => "E0002",
             TypeError::ArityMismatch { .. } => "E0003",
             TypeError::ArgTypeMismatch { .. } => "E0004",
+            TypeError::GenericBound { .. } => "E0081",
+            TypeError::GenericNotInferred { .. } => "E0082",
+            TypeError::GenericNeedsCall { .. } => "E0083",
+            TypeError::GenericTooDeep { .. } => "E0084",
+            TypeError::InexactLiteral { .. } => "E0085",
+            TypeError::FromLiteralOnly { .. } => "E0086",
+            TypeError::UnknownBound { .. } => "E0087",
+            TypeError::UnknownType { .. } => "E0088",
             TypeError::AnnotationMismatch { .. } => "E0005",
             TypeError::ReturnTypeMismatch { .. } => "E0006",
             TypeError::InvalidOperandTypes { .. } => "E0007",

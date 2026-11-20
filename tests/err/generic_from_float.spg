@@ -1,0 +1,4 @@
+fn meio<T: Numeric>(n: T) -> T {
+    return n + T.from(1.5)
+}
+print(meio(2))

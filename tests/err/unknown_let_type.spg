@@ -1,0 +1,2 @@
+let k: Bar = 3
+print(k)

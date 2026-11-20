@@ -1,0 +1,7 @@
+fn ou<T>(x: T?, d: T) -> T {
+    if (x == none) {
+        return d
+    }
+    return x
+}
+print(ou(none, 3), ou(4, 3), ou(none, "d"))

@@ -1,0 +1,4 @@
+fn primeiro<A: Numeric, B: Numeric>(a: A, b: B) -> A {
+    return a
+}
+print(primeiro(1, 2.5), primeiro(2.5, 1), primeiro(7, 8))

@@ -1,0 +1,4 @@
+fn p<T>(n: T) -> int {
+    return p([n])
+}
+print(p(1))

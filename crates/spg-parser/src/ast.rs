@@ -371,6 +371,9 @@ pub enum Stmt {
 
     FunctionDecl {
         name: String,
+        /// `fn add<T: int or float>(...)`: empty for an ordinary function. a generic one is
+        /// checked once per instance (see the typechecker)
+        type_params: Vec<TypeParam>,
         params: Vec<Param>,
         /// `None` when the trailing `-> Type` was omitted. the
         /// typechecker infers it from the body's return statements
@@ -504,6 +507,14 @@ pub enum Stmt {
     /// an expression used as a statement (a bare function call, or an
     /// if-expression whose value gets thrown away)
     ExprStmt(Expr),
+}
+
+/// `T: int or float` in `fn add<T: int or float>(...)`. the bound is a union of the
+/// types the parameter accepts; `None` means any type
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeParam {
+    pub name: String,
+    pub bound: Option<TypeExpr>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
