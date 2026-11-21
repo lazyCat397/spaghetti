@@ -33,7 +33,10 @@ struct Atom {
 enum Piece {
     /// whitespace containing this many newlines (spaces alone don't count)
     Gap(usize),
+    /// a line comment `// ...`: it ends its line
     Comment(String),
+    /// a block comment `/{ ... }/`: it may span lines and does not end the line
+    Block(String),
     Atom(Atom),
 }
 
@@ -116,6 +119,20 @@ fn scan(src: &str) -> Vec<Piece> {
         if ch.is_whitespace() {
             i += 1;
             continue;
+        }
+        if ch == '/' && c.get(i + 1) == Some(&'{') {
+            // `/{ ... }/` ends at the first `}/` (no nesting, as the lexer reads it)
+            let start = i;
+            let mut j = i + 2;
+            while j + 1 < c.len() && !(c[j] == '}' && c[j + 1] == '/') {
+                j += 1;
+            }
+            if j + 1 < c.len() {
+                let text: String = c[start..j + 2].iter().collect();
+                out.push(Piece::Block(text));
+                i = j + 2;
+                continue;
+            }
         }
         if ch == '/' && c.get(i + 1) == Some(&'/') {
             let start = i;
@@ -305,7 +322,7 @@ pub fn format_source(src: &str) -> String {
                 }
                 pending_blank = newlines > 1;
             }
-            Piece::Comment(text) => {
+            Piece::Comment(text) | Piece::Block(text) => {
                 if !started {
                     started = true;
                 }
@@ -389,7 +406,7 @@ fn comments(src: &str) -> Vec<String> {
     scan(src)
         .into_iter()
         .filter_map(|p| match p {
-            Piece::Comment(t) => Some(t),
+            Piece::Comment(t) | Piece::Block(t) => Some(t),
             _ => None,
         })
         .collect()
@@ -591,6 +608,17 @@ fn format_compact_pieces(pieces: Vec<Piece>, keep_comments: bool) -> String {
                 out.push_str(text);
                 need_eol = true;
                 newline = false;
+            }
+            Piece::Block(text) => {
+                if !keep_comments {
+                    continue;
+                }
+                // it sits between two things on the line: a space keeps it apart from both
+                if last.is_some() && !out.ends_with('\n') && !out.ends_with(';') {
+                    out.push(' ');
+                }
+                out.push_str(text);
+                out.push(' ');
             }
             Piece::Atom(a) if a.class == Class::Directive => {
                 // a directive is a whole line of its own
@@ -1005,5 +1033,24 @@ mod compact_tests {
         let src = "let ex = 2\nif (ex == 2) {\n   print(true)\n} else {\n   print(false)\n}\n";
         assert!(check_layout(src, Layout::Compact { keep_comments: true }).is_ok());
         assert!(check_layout(src, Layout::Compact { keep_comments: false }).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod block_comment_tests {
+    use super::*;
+
+    #[test]
+    fn block_comments_follow_the_same_rule_as_line_comments() {
+        let src = "/{ secret\n  two lines }/\nlet a = 1\n";
+        assert_eq!(format_compact(src, false), "let a=1\n");
+        assert_eq!(format_compact(src, true), "/{ secret\n  two lines }/ let a=1\n");
+        assert!(check_layout(src, Layout::Compact { keep_comments: false }).is_ok());
+        assert!(check_layout(src, Layout::Compact { keep_comments: true }).is_ok());
+    }
+
+    #[test]
+    fn canonical_keeps_block_comments() {
+        assert!(format_source("/{ note }/\nlet a = 1\n").contains("/{ note }/"));
     }
 }
