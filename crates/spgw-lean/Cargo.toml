@@ -1,0 +1,14 @@
+[package]
+name = "spgw-lean"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+
+# the window build of `spg-lean`: no console, no JIT, and the window library. `spg build --lean`
+# picks it for a program that opens a window (`attach #ui`). built on its own, like spg-lean
+[[bin]]
+name = "spgw-lean"
+path = "src/main.rs"
+
+[dependencies]
+spg-cli = { path = "../spg-cli", default-features = false, features = ["libs-ui"] }

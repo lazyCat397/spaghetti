@@ -1,5 +1,5 @@
 ; Spaghetti installer (Inno Setup 6). Does not require administrator rights.
-; The workflow copies spg.exe, spgw.exe and spaghetti.vsix into installer\payload\ before compiling.
+; The workflow copies spg.exe, spgw.exe, spg-lean.exe, spgw-lean.exe and spaghetti.vsix into installer\payload\ before compiling.
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0"
 #endif
@@ -36,6 +36,8 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 [Files]
 Source: "payload\spg.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "payload\spgw.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "payload\spg-lean.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "payload\spgw-lean.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "payload\spaghetti.vsix"; DestDir: "{app}"; Flags: ignoreversion
 Source: "payload\stdlib\*"; DestDir: "{app}\stdlib"; Flags: ignoreversion recursesubdirs
 Source: "payload\examples\*"; DestDir: "{app}\examples"; Flags: ignoreversion recursesubdirs

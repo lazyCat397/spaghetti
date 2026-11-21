@@ -415,6 +415,10 @@ pub enum FmtError {
     DirectivesChanged,
     /// formatting the formatted text again changes it (not a fixed point. bad.)
     NotStable,
+    /// the compact text would parse to a different program
+    AstChanged,
+    /// the encoded text would not run the same program with the names swapped back
+    EncodeChanged,
 }
 
 impl std::fmt::Display for FmtError {
@@ -425,6 +429,8 @@ impl std::fmt::Display for FmtError {
             FmtError::CommentsChanged => write!(f, "the formatter would change a comment (not written)"),
             FmtError::DirectivesChanged => write!(f, "the formatter would change a #> directive (not written)"),
             FmtError::NotStable => write!(f, "formatting the result again changes it (not written)"),
+            FmtError::AstChanged => write!(f, "the compact text would parse to a different program (not written)"),
+            FmtError::EncodeChanged => write!(f, "the encoded text would not run the same program (not written)"),
         }
     }
 }
@@ -453,6 +459,319 @@ pub fn check(src: &str) -> Result<String, FmtError> {
         return Err(FmtError::NotStable);
     }
     Ok(out)
+}
+
+// ---- compact layouts: `--min` (keeps comments) and `--min-nc` (drops them) ----
+
+mod encode;
+pub use encode::encode_sources;
+
+/// the layout `spg fmt` writes. canonical is the default; compact drops the
+/// indentation, the blank lines and every space that isn't needed
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Layout {
+    Canonical,
+    /// `keep_comments` is `--min`; without it (`--min-nc`) the comments go too
+    Compact { keep_comments: bool },
+}
+
+/// `spg fmt` in the given layout, proved safe the same way `check` proves the canonical one
+pub fn check_layout(src: &str, layout: Layout) -> Result<String, FmtError> {
+    match layout {
+        Layout::Canonical => check(src),
+        Layout::Compact { keep_comments } => check_compact(src, keep_comments),
+    }
+}
+
+fn is_word_start(s: &str) -> bool {
+    s.chars().next().is_some_and(|c| is_word_char(c) || matches!(c, '@' | '#' | '"' | '\''))
+}
+
+fn is_word_end(s: &str) -> bool {
+    s.chars().last().is_some_and(|c| is_word_char(c) || matches!(c, '"' | '\''))
+}
+
+/// a space goes between two atoms of the compact layout only when, without it,
+/// they would lex as one token: two words, or two operators that fuse (`- -x`)
+fn compact_space(prev: &Atom, next: &Atom) -> bool {
+    if is_word_end(&prev.text) && is_word_start(&next.text) {
+        return true;
+    }
+    if prev.class == Class::Punct && next.class == Class::Punct {
+        if let (Some(a), Some(b)) = (prev.text.chars().last(), next.text.chars().next()) {
+            let pair: String = [a, b].iter().collect();
+            return TWO_CHAR.contains(&pair.as_str());
+        }
+    }
+    false
+}
+
+/// what a `(`, `[` or `{` opens. a `Decl` body (a struct, an enum, the arms of a
+/// `when`, a struct literal) takes no `;`: its parser reads the lines by their
+/// position, not by a separator
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Open {
+    Paren { when: bool },
+    Bracket,
+    Block,
+    Decl,
+}
+
+/// the line break after an atom becomes `;` when the parser reads it as the end of
+/// a statement. it does not, after an operator or `,`, inside `(`, `[` or a `Decl`
+/// body, before a `)`, `]` or `}`, before a `{`, or before `else`, `elif` and `catch`
+fn compact_semi(last_cont: bool, next: Option<&Atom>, stack: &[Open]) -> bool {
+    if last_cont || matches!(stack.last(), Some(Open::Paren { .. }) | Some(Open::Bracket) | Some(Open::Decl)) {
+        return false;
+    }
+    match next {
+        None => false,
+        Some(a) => match a.class {
+            // `-` and `(` and `[` start a statement after a newline (the parser stops there);
+            // any other punctuation is a continuation or a closing bracket
+            Class::Punct => matches!(a.text.as_str(), "(" | "[" | "-" | "!" | "++" | "--"),
+            Class::Keyword => !matches!(a.text.as_str(), "else" | "elif" | "catch"),
+            _ => true,
+        },
+    }
+}
+
+/// the first atom after `from`, skipping gaps and comments
+fn next_atom(pieces: &[Piece], from: usize) -> Option<&Atom> {
+    pieces[from + 1..].iter().find_map(|p| match p {
+        Piece::Atom(a) => Some(a),
+        _ => None,
+    })
+}
+
+/// the compact text of `src`: no indentation, no blank lines, no space where it
+/// isn't needed. statement ends become `;`. with `keep_comments` false, comments go
+pub fn format_compact(src: &str, keep_comments: bool) -> String {
+    format_compact_pieces(scan(src), keep_comments)
+}
+
+/// the compact layout of already scanned pieces (`--enc` renames names in them first)
+fn format_compact_pieces(pieces: Vec<Piece>, keep_comments: bool) -> String {
+    let mut out = String::new();
+    // the last atom written, and whether it expects more (an operator, a `,`, `fn`...)
+    let mut last: Option<Atom> = None;
+    let mut last_cont = false;
+    let mut stack: Vec<Open> = Vec::new();
+    let mut generic: usize = 0;
+    let mut fn_name_prev = false;
+    // `struct` or `enum` (or `when`) was just read: its `{` is a Decl body
+    let mut pending_decl = false;
+    let mut pending_when = false;
+    // the atom just written closed a `when (...)`: the `{` after it is its arms
+    let mut closed_when = false;
+    // a line break was seen since the last atom
+    let mut newline = false;
+    // a line comment or `#>` directive ends its line: the next thing starts a new one
+    let mut need_eol = false;
+
+    for (idx, piece) in pieces.iter().enumerate() {
+        match piece {
+            Piece::Gap(_) => newline = true,
+            Piece::Comment(text) => {
+                if !keep_comments {
+                    continue;
+                }
+                if need_eol {
+                    out.push('\n');
+                    last = None;
+                } else if last.is_some() {
+                    if newline {
+                        if compact_semi(last_cont, next_atom(&pieces, idx), &stack) {
+                            out.push(';');
+                        }
+                    } else if !out.ends_with(';') {
+                        out.push(' ');
+                    }
+                }
+                out.push_str(text);
+                need_eol = true;
+                newline = false;
+            }
+            Piece::Atom(a) if a.class == Class::Directive => {
+                // a directive is a whole line of its own
+                if need_eol || last.is_some() {
+                    out.push('\n');
+                }
+                out.push_str(&a.text);
+                need_eol = true;
+                last = None;
+                newline = false;
+            }
+            Piece::Atom(a) => {
+                if need_eol {
+                    out.push('\n');
+                    need_eol = false;
+                    last = None;
+                    newline = false;
+                }
+                if let Some(prev) = &last {
+                    if newline && compact_semi(last_cont, Some(a), &stack) {
+                        out.push(';');
+                    } else if compact_space(prev, a) {
+                        out.push(' ');
+                    }
+                }
+                let was_closed_when = closed_when;
+                closed_when = false;
+                let closing = a.text == ">" && generic > 0;
+                let opening = a.text == "<"
+                    && (fn_name_prev || last.as_ref().is_some_and(|p| matches!(p.text.as_str(), "array" | "map" | "task")));
+                if opening {
+                    generic += 1;
+                } else if closing {
+                    generic -= 1;
+                }
+                if a.class == Class::Punct {
+                    match a.text.as_str() {
+                        "(" => {
+                            stack.push(Open::Paren { when: pending_when });
+                            pending_when = false;
+                        }
+                        "[" => stack.push(Open::Bracket),
+                        "{" => {
+                            let decl = pending_decl
+                                || (was_closed_when && last.as_ref().is_some_and(|p| p.text == ")"))
+                                || last.as_ref().is_some_and(|p| p.class == Class::Ident);
+                            stack.push(if decl { Open::Decl } else { Open::Block });
+                            pending_decl = false;
+                        }
+                        ")" => {
+                            if let Some(Open::Paren { when }) = stack.pop() {
+                                closed_when = when;
+                            }
+                        }
+                        "]" | "}" => {
+                            stack.pop();
+                        }
+                        _ => {}
+                    }
+                }
+                if a.class == Class::Keyword && matches!(a.text.as_str(), "struct" | "enum") {
+                    pending_decl = true;
+                }
+                if a.class == Class::Keyword && a.text == "when" {
+                    pending_when = true;
+                }
+                let cont = match a.class {
+                    Class::Punct => !matches!(a.text.as_str(), ")" | "]" | "}" | "++" | "--" | "?") && !closing,
+                    Class::Keyword => !matches!(
+                        a.text.as_str(),
+                        "return" | "break" | "continue" | "true" | "false" | "int" | "float" | "bool" | "string" | "void" | "array"
+                    ),
+                    Class::Ident => a.text == "install",
+                    _ => false,
+                };
+                fn_name_prev = a.class == Class::Ident && last.as_ref().is_some_and(|p| p.text == "fn");
+                out.push_str(&a.text);
+                last = Some(a.clone());
+                last_cont = cont;
+                newline = false;
+            }
+        }
+    }
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out
+}
+
+fn check_compact(src: &str, keep_comments: bool) -> Result<String, FmtError> {
+    let before = token_kinds(src).map_err(FmtError::Lex)?;
+    let out = format_compact(src, keep_comments);
+    let after = token_kinds(&out).map_err(FmtError::Lex)?;
+    // the only token the compact layout adds is the `;` that replaces a line break
+    let without_semis = |kinds: Vec<TokenKind>| -> Vec<TokenKind> {
+        kinds.into_iter().filter(|k| *k != TokenKind::Semicolon).collect()
+    };
+    if without_semis(after) != without_semis(before) {
+        return Err(FmtError::TokensChanged);
+    }
+    let want = if keep_comments { comments(src) } else { Vec::new() };
+    if comments(&out) != want {
+        return Err(FmtError::CommentsChanged);
+    }
+    match (spg_lexer::read_file_spec(src), spg_lexer::read_file_spec(&out)) {
+        (Ok(a), Ok(b)) if a.friendly_terminal == b.friendly_terminal && a.strict == b.strict && a.timeout_ms == b.timeout_ms => {}
+        _ => return Err(FmtError::DirectivesChanged),
+    }
+    // the same program, read again: the tree must match once the positions are blanked
+    if let Some(shape) = program_shape(src) {
+        if program_shape(&out) != Some(shape) {
+            return Err(FmtError::AstChanged);
+        }
+    }
+    if format_compact(&out, keep_comments) != out {
+        return Err(FmtError::NotStable);
+    }
+    Ok(out)
+}
+
+/// the parsed program with its positions blanked: two texts that parse to the same
+/// tree have the same shape, however their lines and columns differ
+fn program_shape(src: &str) -> Option<String> {
+    let tokens = spg_lexer::Lexer::new(src).tokenize().ok()?;
+    let program = spg_parser::Parser::new(tokens).parse_program().ok()?;
+    Some(strip_positions(&format!("{:?}", program)))
+}
+
+/// blanks the positions. the parser also names its temporaries after where they
+/// are (`$let_7_1`), so those digits go too: the names only need to be unique
+fn strip_positions(debug: &str) -> String {
+    let mut out = String::with_capacity(debug.len());
+    let mut rest = debug;
+    while let Some(at) = rest.find("Pos {") {
+        out.push_str(&rest[..at]);
+        out.push_str("Pos");
+        match rest[at..].find('}') {
+            Some(end) => rest = &rest[at + end + 1..],
+            None => {
+                rest = "";
+                break;
+            }
+        }
+    }
+    out.push_str(rest);
+    blank_temp_positions(&out)
+}
+
+/// `$name_12_34` becomes `$name`: a generated name with its line and column cut off
+fn blank_temp_positions(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        out.push(c);
+        if c != '$' {
+            continue;
+        }
+        while let Some(&n) = chars.peek() {
+            if n.is_ascii_alphabetic() {
+                out.push(n);
+                chars.next();
+            } else {
+                break;
+            }
+        }
+        // the `_line_col` tail: `_` then digits, repeated
+        loop {
+            let mut ahead = chars.clone();
+            if ahead.next() != Some('_') {
+                break;
+            }
+            let digits = ahead.clone().take_while(|d| d.is_ascii_digit()).count();
+            if digits == 0 {
+                break;
+            }
+            for _ in 0..=digits {
+                chars.next();
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -592,5 +911,99 @@ mod optional_tests {
     fn semicolons_are_kept_and_hug_the_statement_before_them() {
         assert_eq!(format_source("let a = 1; let b = 2 ;\n"), "let a = 1; let b = 2;\n");
         assert_eq!(format_source("print(a);;print(b)\n"), "print(a);; print(b)\n");
+    }
+}
+
+#[cfg(test)]
+mod compact_tests {
+    use super::*;
+
+    fn min(src: &str) -> String {
+        format_compact(src, true)
+    }
+
+    fn min_nc(src: &str) -> String {
+        format_compact(src, false)
+    }
+
+    #[test]
+    fn spaces_go_where_they_are_not_needed() {
+        assert_eq!(min("let arr = [1, 2, 3]\n"), "let arr=[1,2,3]\n");
+        assert_eq!(min("print (\"something\" )\n"), "print(\"something\")\n");
+        assert_eq!(min("let n = -3\n"), "let n=-3\n");
+        assert_eq!(min("let a = x - -3\n"), "let a=x- -3\n");
+    }
+
+    #[test]
+    fn spaces_stay_between_words_and_fusing_operators() {
+        assert_eq!(min("let x = 2 if (x) {}\n"), "let x=2 if(x){}\n");
+        assert_eq!(min("let a = b = =c\n"), "let a=b= =c\n");
+        assert_eq!(min("return x\n"), "return x\n");
+    }
+
+    #[test]
+    fn the_example_of_the_block_collapses_to_one_line() {
+        let src = "let ex = 2\nif (ex == 2) {\n   print(true)\n} else {\n   print(false)\n}\n";
+        assert_eq!(min(src), "let ex=2;if(ex==2){print(true)}else{print(false)}\n");
+    }
+
+    #[test]
+    fn comments_stay_on_their_own_line_with_min() {
+        let src = "// this prints something\n\nprint (\"something\" )\n";
+        assert_eq!(min(src), "// this prints something\nprint(\"something\")\n");
+        assert_eq!(min_nc(src), "print(\"something\")\n");
+    }
+
+    #[test]
+    fn a_trailing_comment_keeps_its_line() {
+        assert_eq!(min("let a = 1 // lado\nlet b = 2\n"), "let a=1 // lado\nlet b=2\n");
+    }
+
+    #[test]
+    fn a_line_break_before_a_paren_or_minus_stays_a_statement_break() {
+        assert_eq!(min("f\n(0)\n"), "f;(0)\n");
+        assert_eq!(min("let a = b\n-3\n"), "let a=b;-3\n");
+    }
+
+    #[test]
+    fn an_operator_at_the_start_of_a_line_still_continues_the_expression() {
+        assert_eq!(min("let x = a\n+ b\n"), "let x=a+b\n");
+        assert_eq!(min("let x =\n 5\n"), "let x=5\n");
+    }
+
+    #[test]
+    fn else_and_catch_stay_attached_to_their_block() {
+        assert_eq!(min("try {\nthrow \"x\"\n}\ncatch (e) {\n}\n"), "try{throw \"x\"}catch(e){}\n");
+    }
+
+    #[test]
+    fn return_ends_at_the_line_break() {
+        assert_eq!(min("fn f() -> int {\n    return\n}\n"), "fn f()->int{return}\n");
+        assert_eq!(min("fn f() -> int {\n    return\n    1\n}\n"), "fn f()->int{return;1}\n");
+    }
+
+    #[test]
+    fn breaks_inside_parens_and_brackets_disappear() {
+        assert_eq!(min("let xs = [\n 1,\n 2\n]\n"), "let xs=[1,2]\n");
+        assert_eq!(min("print(\n 1,\n 2\n)\n"), "print(1,2)\n");
+    }
+
+    #[test]
+    fn strings_come_out_byte_for_byte() {
+        let src = "print(\"a  ${ x + 1 }\")\n";
+        assert_eq!(min(src), "print(\"a  ${ x + 1 }\")\n");
+    }
+
+    #[test]
+    fn directives_keep_their_own_line() {
+        let src = "#> safe-party\nlet a = 1\n";
+        assert_eq!(min(src), "#> safe-party\nlet a=1\n");
+    }
+
+    #[test]
+    fn check_compact_accepts_the_examples_and_rejects_nothing_it_should_not() {
+        let src = "let ex = 2\nif (ex == 2) {\n   print(true)\n} else {\n   print(false)\n}\n";
+        assert!(check_layout(src, Layout::Compact { keep_comments: true }).is_ok());
+        assert!(check_layout(src, Layout::Compact { keep_comments: false }).is_ok());
     }
 }

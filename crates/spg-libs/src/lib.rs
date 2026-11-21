@@ -5,26 +5,33 @@
 //! the language never learns what is inside: the lexer asks `module(name)` whether `install
 //! #name` is a native library, the typechecker builds the signatures from `sig`, the
 //! VM calls `call`, the editor reads `doc`. to add a library: write `src/<name>.rs` and add one
-//! line to `MODULES` below. that's the whole recipe.
+//! line to `modules` below. that's the whole recipe.
 //!
 //! this crate depends on no other spg crate, so a library only sees plain Rust values
 //! (`LibValue`); the VM converts to and from its own values at the boundary.
 
 mod chars;
+#[cfg(feature = "crypto")]
 mod crypto;
+#[cfg(feature = "csv")]
 mod csvtext;
 mod file;
+#[cfg(feature = "http")]
 mod http;
 mod json;
 mod json5lib;
 mod cmd;
 mod ps;
+#[cfg(feature = "regex")]
 mod regexp;
 mod socket;
+#[cfg(feature = "sqlite")]
 mod sqlite;
 mod testing;
 mod time;
+#[cfg(feature = "toml")]
 mod tomlcfg;
+#[cfg(feature = "ui")]
 mod ui;
 mod util;
 
@@ -156,39 +163,51 @@ pub struct NativeModule {
     pub functions: &'static [NativeFn],
 }
 
-/// every native library. adding one = one line here.
-pub static MODULES: [&NativeModule; 16] = [
-    &ps::MODULE,
-    &http::MODULE,
-    &file::MODULE,
-    &json::MODULE,
-    &time::MODULE,
-    &regexp::MODULE,
-    &chars::MODULE,
-    &crypto::MODULE,
-    &csvtext::MODULE,
-    &testing::MODULE,
-    &tomlcfg::MODULE,
-    &sqlite::MODULE,
-    &socket::MODULE,
-    &cmd::MODULE,
-    &json5lib::MODULE,
-    &ui::MODULE,
-];
-
+/// every native library this build has. adding one = one line in `modules`.
+/// the heavy ones are behind features (see Cargo.toml): a build without them lists fewer
 pub fn modules() -> &'static [&'static NativeModule] {
-    &MODULES
+    static LIST: std::sync::OnceLock<Vec<&'static NativeModule>> = std::sync::OnceLock::new();
+    LIST.get_or_init(|| {
+        #[allow(unused_mut)]
+        let mut list: Vec<&'static NativeModule> = vec![
+            &ps::MODULE,
+            &file::MODULE,
+            &json::MODULE,
+            &time::MODULE,
+            &chars::MODULE,
+            &testing::MODULE,
+            &socket::MODULE,
+            &cmd::MODULE,
+            &json5lib::MODULE,
+        ];
+        #[cfg(feature = "http")]
+        list.push(&http::MODULE);
+        #[cfg(feature = "regex")]
+        list.push(&regexp::MODULE);
+        #[cfg(feature = "crypto")]
+        list.push(&crypto::MODULE);
+        #[cfg(feature = "csv")]
+        list.push(&csvtext::MODULE);
+        #[cfg(feature = "toml")]
+        list.push(&tomlcfg::MODULE);
+        #[cfg(feature = "sqlite")]
+        list.push(&sqlite::MODULE);
+        #[cfg(feature = "ui")]
+        list.push(&ui::MODULE);
+        list
+    })
+    .as_slice()
 }
 
 /// the native library called `name`, if there is one
 pub fn module(name: &str) -> Option<&'static NativeModule> {
-    MODULES.iter().copied().find(|m| m.name == name)
+    modules().iter().copied().find(|m| m.name == name)
 }
 
 /// every function of every library, each with its global index (what the bytecode stores)
 pub fn all_functions() -> Vec<(u16, &'static NativeModule, &'static NativeFn)> {
     let mut out = Vec::new();
-    for m in MODULES.iter().copied() {
+    for m in modules().iter().copied() {
         for f in m.functions {
             out.push((out.len() as u16, m, f));
         }
@@ -199,7 +218,7 @@ pub fn all_functions() -> Vec<(u16, &'static NativeModule, &'static NativeFn)> {
 /// the function behind a global index (no allocation: this runs on every library call)
 pub fn function(index: u16) -> Option<(&'static NativeModule, &'static NativeFn)> {
     let mut left = index as usize;
-    for m in MODULES.iter().copied() {
+    for m in modules().iter().copied() {
         if left < m.functions.len() {
             return Some((m, &m.functions[left]));
         }

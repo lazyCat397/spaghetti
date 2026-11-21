@@ -11,6 +11,8 @@ members = [
     "crates/spg-lsp",
     "crates/spg-fmt",
     "crates/spg-cli",
+    "crates/spg-lean",
+    "crates/spgw-lean",
     "crates/spg-jit",
     "crates/ui-core",
 ]

@@ -26,9 +26,15 @@ USAGE:
     spg run <file.spg> [OPTIONS] [-- ARGS...]   same as above
     spg check <file.spg>            type-check without running
     spg build <file.spg> [-o NAME]  make a standalone executable that runs the program
-    spg fmt <file|folder>... [--check | --stdout]
+                                    --lean: a smaller runtime (about 3 MB), no JIT
+                                    --enc: renames the program's names and removes its
+                                    comments (the standard library stays readable)
+    spg fmt <file|folder>... [--check | --stdout] [--min | --min-nc]
                                     format .spg files (rewrites them; --check lists the
                                     ones that would change; --stdout prints the result)
+                                    --min: compact layout, comments kept (no indentation,
+                                    no blank lines, no unneeded spaces, statements joined by ';')
+                                    --min-nc: the same, comments removed too
     spg lsp                         start the language server (used by editors)
 
 OPTIONS:
@@ -107,7 +113,16 @@ fn real_main(args: &[String]) -> i32 {
             println!("spg {} ({})", VERSION, BUILD_ID);
             0
         }
+        #[cfg(feature = "lsp")]
         "lsp" => spg_lsp::run_stdio(),
+        // the native libraries this build has, one per line. `spg build --lean` asks the lean
+        // runtime which libraries it can run
+        "--libs" => {
+            for m in spg_libs::modules() {
+                println!("{}", m.name);
+            }
+            0
+        }
         "run" => run_cmd(&args[1..], true),
         "check" => run_cmd(&args[1..], false),
         "build" => build_cmd(&args[1..]),
@@ -187,7 +202,7 @@ fn run_cmd(args: &[String], execute: bool) -> i32 {
         Ok(b) => b,
         Err(code) => return code,
     };
-    let native_src = if jit { Some(plain) } else { None };
+    let native_src = if jit && cfg!(feature = "jit") { Some(plain) } else { None };
 
     if !execute {
         println!("ok: {} ({} function(s))", file, bytecode.functions.len());
@@ -231,8 +246,15 @@ fn execute_program(bytecode: &Program, spec: &spg_lexer::FileSpec, program_args:
     }
     let mut vm = Vm::new(bytecode);
     // why native code is missing, when it is: shown by --jit-report
+    #[cfg_attr(not(feature = "jit"), allow(unused_mut))]
     let mut native_note: Option<String> = None;
     if let Some(src) = native_src {
+        #[cfg(not(feature = "jit"))]
+        {
+            let _ = src;
+        }
+        #[cfg(feature = "jit")]
+        {
         // native code is an optimization. if generating it panics, the VM runs everything.
         // the panic hook is silenced for this step only, so the user sees nothing.
         let hook = std::panic::take_hook();
@@ -258,13 +280,16 @@ fn execute_program(bytecode: &Program, spec: &spg_lexer::FileSpec, program_args:
                 native_note = Some(e);
             }
         }
+        }
     }
     let start = std::time::Instant::now();
     let result = vm.run();
     let elapsed = start.elapsed();
     if jit_report {
         let lines = vm.native_report();
-        if native_src.is_none() {
+        if !cfg!(feature = "jit") {
+            eprintln!("native code report: off (this runtime was built without native code, see --lean)");
+        } else if native_src.is_none() {
             eprintln!("native code report: off (--no-jit)");
         } else if lines.is_empty() {
             eprintln!("native code report: none ({})", native_note.unwrap_or_else(|| "no native backend".to_string()));
@@ -343,12 +368,73 @@ fn window_program(sources: &[(std::path::PathBuf, String)]) -> bool {
     })
 }
 
+/// the native libraries a program attaches or installs (`attach #csv`, `install #ps`)
+fn native_libs_used(sources: &[(std::path::PathBuf, String)]) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for (_, src) in sources {
+        for line in src.lines() {
+            let line = line.trim();
+            if !(line.starts_with("attach") || line.starts_with("install")) {
+                continue;
+            }
+            for word in line.split_whitespace() {
+                if let Some(rest) = word.strip_prefix('#') {
+                    let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+                    if !name.is_empty() && !names.contains(&name) {
+                        names.push(name);
+                    }
+                }
+            }
+        }
+    }
+    names
+}
+
+/// the lean runtime a program is made from: `spgw-lean` for a window program, `spg-lean` otherwise
+fn lean_runtime_name(window: bool) -> &'static str {
+    if window {
+        "spgw-lean"
+    } else {
+        "spg-lean"
+    }
+}
+
+/// the native libraries the lean runtime has, asked from the binary itself (`<runtime> --libs`)
+fn lean_runtime_libs(window: bool) -> Result<Vec<String>, String> {
+    let me = std::env::current_exe().map_err(|e| e.to_string())?;
+    let dir = me.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+    let name = lean_runtime_name(window);
+    let small = dir.join(format!("{}{}", name, std::env::consts::EXE_SUFFIX));
+    if !small.is_file() {
+        return Err(format!("'{}' was not found next to 'spg'", name));
+    }
+    let out = std::process::Command::new(&small)
+        .arg("--libs")
+        .output()
+        .map_err(|e| format!("could not run '{}': {}", name, e))?;
+    if !out.status.success() {
+        return Err(format!("'{} --libs' failed", name));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect())
+}
+
 /// the runtime a built program is made from: `spgw` for a window program, `spg` otherwise.
 /// both sit next to each other, so the one running `spg build` can find the other.
-fn runtime_bytes(window: bool) -> std::io::Result<Vec<u8>> {
+fn runtime_bytes(window: bool, lean: bool) -> std::io::Result<Vec<u8>> {
     let me = std::env::current_exe()?;
     let dir = me.parent().map(|p| p.to_path_buf()).unwrap_or_default();
     let suffix = std::env::consts::EXE_SUFFIX;
+    if lean {
+        // `spg-lean` / `spgw-lean` sit next to `spg`, like `spgw`. they have no native code
+        let small = dir.join(format!("{}{}", lean_runtime_name(window), suffix));
+        if !small.is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("'{}' was not found next to 'spg'", lean_runtime_name(window)),
+            ));
+        }
+        return std::fs::read(small);
+    }
     let console = dir.join(format!("spg{}", suffix));
     let windowed = dir.join(format!("spgw{}", suffix));
     if window && windowed.is_file() {
@@ -369,9 +455,13 @@ fn runtime_bytes(window: bool) -> std::io::Result<Vec<u8>> {
 fn build_cmd(args: &[String]) -> i32 {
     let mut file: Option<&str> = None;
     let mut out: Option<&str> = None;
+    let mut lean = false;
+    let mut enc = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
+            "--lean" => lean = true,
+            "--enc" => enc = true,
             "-o" | "--out" => {
                 let Some(name) = args.get(i + 1) else {
                     return usage_error("'-o' needs a name for the executable");
@@ -414,6 +504,31 @@ fn build_cmd(args: &[String]) -> i32 {
         }
     };
 
+    // a standard module (`attach #cmp`) is written into the build under a folder of its own:
+    // the program runs on another machine, where the stdlib folder isn't
+    let std_here = spg_modules::std_dir().and_then(|d| d.canonicalize().ok());
+    let sources: Vec<(std::path::PathBuf, String)> = sources
+        .into_iter()
+        .map(|(path, text)| {
+            let moved = std_here
+                .as_ref()
+                .and_then(|std| path.strip_prefix(std).ok().map(|rel| bundled_std_dir().join(rel)));
+            (moved.unwrap_or(path), text)
+        })
+        .collect();
+
+    let sources = if enc {
+        match encode_build_sources(sources) {
+            Ok(sources) => sources,
+            Err(e) => {
+                eprintln!("error: {}", e);
+                return 1;
+            }
+        }
+    } else {
+        sources
+    };
+
     let out_path = match out {
         Some(name) => std::path::PathBuf::from(name),
         None => {
@@ -421,7 +536,23 @@ fn build_cmd(args: &[String]) -> i32 {
             std::path::PathBuf::from(if cfg!(windows) { format!("{}.exe", stem) } else { stem })
         }
     };
-    let exe = match runtime_bytes(window_program(&sources)) {
+    let window = window_program(&sources);
+    if lean {
+        // a native library the lean runtime lacks would fail only when the program runs
+        let have = match lean_runtime_libs(window) {
+            Ok(have) => have,
+            Err(e) => {
+                eprintln!("error: {}", e);
+                return 1;
+            }
+        };
+        let known = |name: &str| spg_libs::module(name).is_some();
+        if let Some(missing) = native_libs_used(&sources).into_iter().find(|n| known(n) && !have.contains(n)) {
+            eprintln!("error: '--lean' cannot build this program: it uses '#{}', which the lean runtime does not have. build without --lean", missing);
+            return 1;
+        }
+    }
+    let exe = match runtime_bytes(window, lean) {
         Ok(bytes) => bytes,
         Err(e) => {
             eprintln!("error: could not read the spg executable to copy it: {}", e);
@@ -437,8 +568,41 @@ fn build_cmd(args: &[String]) -> i32 {
     0
 }
 
+/// `--enc`: the program's own files, renamed and compact. the standard library's files stay
+/// as they are, since the program calls them by their names
+fn encode_build_sources(sources: Vec<(std::path::PathBuf, String)>) -> Result<Vec<(std::path::PathBuf, String)>, String> {
+    let std = bundled_std_dir();
+    let (user, library): (Vec<_>, Vec<_>) = sources.into_iter().partition(|(path, _)| !path.starts_with(&std));
+    let user_texts: Vec<String> = user.iter().map(|(_, text)| text.clone()).collect();
+    let library_texts: Vec<String> = library.iter().map(|(_, text)| text.clone()).collect();
+    // what must keep its name: the native libraries, and the builtin functions (a program
+    // that declares `len` still calls the builtin `len` from another file)
+    let mut native: Vec<String> = spg_libs::modules().iter().map(|m| m.name.to_string()).collect();
+    native.extend(spg_typecheck::builtins::builtin_signatures().into_keys());
+    native.extend(spg_typecheck::builtins::checker_builtins().into_iter().map(|(name, _)| name.to_string()));
+    let encoded = spg_fmt::encode_sources(&user_texts, &library_texts, &native).map_err(|e| e.to_string())?;
+    let mut encoded = encoded.into_iter();
+    let mut out: Vec<(std::path::PathBuf, String)> = Vec::new();
+    for (path, _) in user {
+        out.push((path, encoded.next().unwrap_or_default()));
+    }
+    out.extend(library);
+    Ok(out)
+}
+
+/// the folder that stands for the standard library inside a built program. it is a path
+/// that is not on the disk: the embedded files are found through it, like the overlay
+fn bundled_std_dir() -> std::path::PathBuf {
+    if cfg!(windows) {
+        std::path::PathBuf::from(r"C:\spg-bundled-std")
+    } else {
+        std::path::PathBuf::from("/spg-bundled-std")
+    }
+}
+
 /// an executable made by `spg build`: compile the embedded sources and run them
 fn run_bundle(bundle: bundle::Bundle, args: &[String]) -> i32 {
+    spg_modules::set_bundled_std(bundled_std_dir());
     let spec = spg_lexer::read_file_spec(&bundle.files[0].1).unwrap_or_default();
     // the same two copies `spg run` makes: the optimized one the VM runs, and the
     // plain one native code gets generated from (spg-jit only understands the plain one)
@@ -687,11 +851,18 @@ fn compile_resolved(program: spg_parser::ast::Program, optimize: bool, friendly:
 fn fmt_cmd(args: &[String]) -> i32 {
     let mut check = false;
     let mut to_stdout = false;
+    let mut layout = spg_fmt::Layout::Canonical;
     let mut paths: Vec<&str> = Vec::new();
     for a in args {
         match a.as_str() {
             "--check" => check = true,
             "--stdout" => to_stdout = true,
+            "--min" | "--min-nc" => {
+                if layout != spg_fmt::Layout::Canonical {
+                    return usage_error("'--min' and '--min-nc' cannot be used together");
+                }
+                layout = spg_fmt::Layout::Compact { keep_comments: a == "--min" };
+            }
             s if s.starts_with('-') && s.len() > 1 => return usage_error(&format!("unknown option '{}'", s)),
             s => paths.push(s),
         }
@@ -725,12 +896,18 @@ fn fmt_cmd(args: &[String]) -> i32 {
                 continue;
             }
         };
-        match spg_fmt::check(&src) {
+        match spg_fmt::check_layout(&src, layout) {
             Err(e) => {
                 eprintln!("error: {}: {}", file.display(), e);
                 failed += 1;
             }
-            Ok(out) if out == src => unchanged += 1,
+            Ok(out) if out == src => {
+                unchanged += 1;
+                // --stdout always prints the result, even when it is already formatted
+                if to_stdout {
+                    print!("{}", out);
+                }
+            }
             Ok(out) => {
                 changed += 1;
                 if to_stdout {

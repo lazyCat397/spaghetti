@@ -95,10 +95,23 @@ struct Resolver {
 }
 
 /// resolves `entry` and everything it transitively imports.
+/// where a built program finds its standard modules: a folder that exists only in its
+/// embedded sources (see `set_bundled_std`)
+static BUNDLED_STD: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// the folder a built program takes its standard modules from. set once, before resolving
+pub fn set_bundled_std(dir: PathBuf) {
+    let _ = BUNDLED_STD.set(dir);
+}
+
 /// folder with the standard library. order: the `SPG_STD` environment
 /// variable, then `stdlib/` next to the `spg` executable, then the same
 /// folder two levels up (running from the workspace's target/release).
 pub fn std_dir() -> Option<PathBuf> {
+    // a built program has its standard modules inside it, under the folder it was built with
+    if let Some(dir) = BUNDLED_STD.get() {
+        return Some(dir.clone());
+    }
     if let Some(dir) = std::env::var_os("SPG_STD") {
         return Some(PathBuf::from(dir));
     }
@@ -119,7 +132,8 @@ pub fn standard_module(name: &str) -> Result<PathBuf, String> {
     // the name is written without the extension (`#terminal`). `"terminal.spg"` works too
     let stem = name.strip_suffix(".spg").unwrap_or(name);
     let file = dir.join(format!("{stem}.spg"));
-    if file.is_file() {
+    // a built program's files are in its overlay, not on the disk
+    if BUNDLED_STD.get().is_some() || file.is_file() {
         Ok(file)
     } else {
         Err(format!("no standard module named '{name}' (looked for {})", file.display()))

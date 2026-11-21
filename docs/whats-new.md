@@ -3,6 +3,23 @@
 The latest changes to the language, newest first. Each section has a short
 example. For a full walkthrough of every feature, see `examples/`.
 
+## Smaller builds and compact formatting
+
+`spg build --lean` makes an executable of about 3 MB instead of 13 MB. It carries a runtime without the JIT and without the heavy libraries, so it runs small programs that need only the core libraries, a few times slower in loops. Programs with a window get a runtime of about 4 MB. See [Building a standalone program](installation/tools.md#building-a-standalone-program).
+
+`spg build --enc` renames the names of a program's functions and variables, and removes its comments, so the built executable is hard to read. See [Renaming names](installation/tools.md#renaming-names-enc).
+
+Standard library modules (`attach #cmp`) now work in executables built with `spg build`, when the executable runs somewhere the standard library folder doesn't exist.
+
+`spg fmt --min` writes a compact layout, and `spg fmt --min-nc` writes the same without comments. The program is checked before the file is written, so the compact text is the same program.
+
+```javascript
+let arr = [1, 2, 3]
+print(arr)
+```
+
+becomes `let arr=[1,2,3];print(arr)`.
+
 ## Generic functions
 
 A function can take type parameters, and its body is checked for each type it is called with. A bound says which types are allowed: a union such as `int or float`, or `Numeric`, which is every integer and float type.

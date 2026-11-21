@@ -1,0 +1,14 @@
+[package]
+name = "spg-lean"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+
+# the small runtime `spg build --lean` copies into a program: the same commands
+# as `spg`, without native code (Cranelift). built on its own: `cargo build -p spg-lean`
+[[bin]]
+name = "spg-lean"
+path = "src/main.rs"
+
+[dependencies]
+spg-cli = { path = "../spg-cli", default-features = false }

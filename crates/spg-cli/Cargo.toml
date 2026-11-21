@@ -23,6 +23,18 @@ spg-modules = { path = "../spg-modules" }
 spg-typecheck = { path = "../spg-typecheck" }
 spg-compiler = { path = "../spg-compiler" }
 spg-vm = { path = "../spg-vm" }
-spg-lsp = { path = "../spg-lsp" }
+spg-lsp = { path = "../spg-lsp", optional = true }
+spg-libs = { path = "../spg-libs", default-features = false }
 spg-fmt = { path = "../spg-fmt" }
-spg-jit = { path = "../spg-jit" }
+spg-jit = { path = "../spg-jit", optional = true }
+
+[features]
+# the native code (Cranelift). `spg build --lean` is made by spg-lean, which leaves it out
+default = ["jit", "lsp", "libs-all"]
+jit = ["dep:spg-jit"]
+# the language server (`spg lsp`)
+lsp = ["dep:spg-lsp"]
+# every native library: http, regex, crypto, csv, toml, sqlite, ui (see spg-libs)
+libs-all = ["spg-libs/all"]
+# only the window library (`attach #ui`): what `spgw-lean` gets
+libs-ui = ["spg-libs/ui"]

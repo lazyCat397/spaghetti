@@ -14,9 +14,29 @@ spg check hello.spg        // check types, do not run
 spg fmt hello.spg          // format the file in place
 spg build hello.spg -o app // build a standalone program
 spg lsp                    // start the language server (used by editors)
+spg fmt --min hello.spg    // format in the compact layout (see below)
 ```
 
 `check` reports the same source errors that a run would report, so it is a quick way to test a file without running it. `fmt` rewrites the file with the standard layout.
+
+### Compact layouts
+
+`spg fmt --min` writes the file in a compact layout: no indentation, no blank lines, no spaces that are not needed, and a `;` where a line used to end. The comments stay. `spg fmt --min-nc` does the same and removes the comments too. Before writing, the formatter checks that the tokens, the comments and the parsed program are the same as before. The standard `spg fmt` layout does not change: running it on a compact file expands it again.
+
+```javascript
+let ex = 2
+if (ex == 2) {
+   print(true)
+} else {
+   print(false)
+}
+```
+
+becomes:
+
+```javascript
+let ex=2;if(ex==2){print(true)}else{print(false)}
+```
 
 ### Flags
 
@@ -60,6 +80,24 @@ spg build hello.spg -o hello
 ```
 
 The built program runs with the same speed as `spg run`. Its source is embedded in the file, so anyone who has the built file can read the code through the bytes in it. Do not build a program if its source needs to stay private.
+
+The default build file is about 13 MB, because it carries the whole runtime, with the JIT and every native library. `spg build --lean` makes a smaller file, about 3 MB, from `spg-lean`:
+
+```javascript
+spg build --lean hello.spg -o hello
+```
+
+The lean runtime has no JIT, so loops run several times slower than with the default build. It has only the libraries that need no extra code: `ps`, `file`, `json`, `json5`, `time`, `char`, `cmd`, `net`, `test`. A program that opens a window (`attach #ui`) gets `spgw-lean`, about 4 MB, which also has the window library. A program that attaches `#http`, `#regex`, `#crypto`, `#csv`, `#toml` or `#sqlite` is refused by `--lean`, with a message that names the library, and it can be built without the flag. Use `--lean` for small programs where the size matters more than the speed.
+
+### Renaming names: `--enc`
+
+`spg build --enc` makes the program hard to read. The names of its functions, variables, parameters and loop variables become random ones, and its comments go. The program runs the same way:
+
+```javascript
+spg build --enc hello.spg -o hello
+```
+
+The names of struct and enum types, of fields and variants, of methods, and of anything after a `.` stay as they are, because they show up when a value is printed and because libraries use them. So do the names of the native libraries and the names of the standard library, which stays readable. String literals stay readable too. The new names are the same every time the same sources are built.
 
 ## The VSCode extension
 

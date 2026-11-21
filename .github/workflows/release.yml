@@ -31,8 +31,12 @@ jobs:
         run: cargo test --workspace
 
       # the suite runs the RELEASE binary at target/release/spg, which cargo test does not build
+      # spg-lean is built on its own: in one workspace build its features would unify with spg-cli's
       - name: Build release binary
-        run: cargo build --release
+        run: |
+          cargo build --release --workspace --exclude spg-lean
+          cargo build --release -p spg-lean
+          cargo build --release -p spgw-lean
 
       - name: Multi-file suite - default, native code on
         shell: bash
@@ -102,7 +106,10 @@ jobs:
           path: vsix
 
       - name: Build spg
-        run: cargo build --release
+        run: |
+          cargo build --release --workspace --exclude spg-lean
+          cargo build --release -p spg-lean
+          cargo build --release -p spgw-lean
 
       - name: Build installer (Windows)
         if: matrix.os == 'windows-latest'
@@ -113,6 +120,8 @@ jobs:
           New-Item -ItemType Directory -Force release-out | Out-Null
           Copy-Item target/release/spg.exe installer/payload/spg.exe
           Copy-Item target/release/spgw.exe installer/payload/spgw.exe
+          Copy-Item target/release/spg-lean.exe installer/payload/spg-lean.exe
+          Copy-Item target/release/spgw-lean.exe installer/payload/spgw-lean.exe
           Copy-Item vsix/spaghetti.vsix installer/payload/spaghetti.vsix
           New-Item -ItemType Directory -Force installer/payload/stdlib | Out-Null
           Copy-Item stdlib/* installer/payload/stdlib/
@@ -128,6 +137,8 @@ jobs:
           mkdir -p pkg/spaghetti release-out
           cp target/release/spg pkg/spaghetti/
           cp target/release/spgw pkg/spaghetti/
+          cp target/release/spg-lean pkg/spaghetti/
+          cp target/release/spgw-lean pkg/spaghetti/
           cp vsix/spaghetti.vsix pkg/spaghetti/spaghetti.vsix
           cp -r stdlib pkg/spaghetti/stdlib
           cp -r examples pkg/spaghetti/examples

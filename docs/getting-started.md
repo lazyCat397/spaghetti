@@ -216,7 +216,9 @@ Each part of the language has its own page:
 | `spg run file.spg` | Same as above. |
 | `spg check file.spg` | Checks types without running. |
 | `spg fmt file.spg` | Formats the file. |
+| `spg fmt --min file.spg` | Formats in the compact layout, comments kept. `--min-nc` also removes the comments. |
 | `spg build file.spg -o name` | Builds a standalone executable. |
+| `spg build --lean file.spg -o name` | Builds a smaller executable, about 3 MB, without the JIT. |
 | `spg --version` | Prints the version and the build id. |
 | `spg --help` | Prints the help. |
 

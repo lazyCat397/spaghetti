@@ -8,6 +8,10 @@ cp "$here/spg" "$bin/spg"
 chmod +x "$bin/spg"
 cp "$here/spgw" "$bin/spgw"
 chmod +x "$bin/spgw"
+cp "$here/spg-lean" "$bin/spg-lean"
+chmod +x "$bin/spg-lean"
+cp "$here/spgw-lean" "$bin/spgw-lean"
+chmod +x "$bin/spgw-lean"
 # standard library (attach #...) lives next to the binary
 rm -rf "$bin/stdlib" && cp -r "$here/stdlib" "$bin/stdlib"
 # sample programs and demo apps, next to the binary like the stdlib
